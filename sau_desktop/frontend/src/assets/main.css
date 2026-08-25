@@ -1,0 +1,223 @@
+/* ==========================================================================
+   Social Auto Upload Desktop - 现代科技风全域设计系统 (支持黑白自由平滑切换)
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* 品牌通用色彩 */
+  --primary-color: #6366f1;
+  --primary-light: #818cf8;
+  --primary-dark: #4f46e5;
+  --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+  --primary-glow: 0 0 20px rgba(99, 102, 241, 0.35);
+
+  /* 平台品牌色 */
+  --color-douyin: #fe2c55;
+  --color-douyin-gradient: linear-gradient(135deg, #fe2c55 0%, #ff0050 100%);
+  --color-xhs: #ff2442;
+  --color-xhs-gradient: linear-gradient(135deg, #ff2442 0%, #ff4d6a 100%);
+  --color-kuaishou: #ff5000;
+  --color-kuaishou-gradient: linear-gradient(135deg, #ff5000 0%, #ff8a00 100%);
+  --color-bilibili: #00aeec;
+  --color-bilibili-gradient: linear-gradient(135deg, #00aeec 0%, #2acaff 100%);
+  --color-tencent: #07c160;
+  --color-tencent-gradient: linear-gradient(135deg, #07c160 0%, #10d870 100%);
+
+  /* 状态色 */
+  --status-success: #10b981;
+  --status-warning: #f59e0b;
+  --status-danger: #ef4444;
+  --status-info: #0ea5e9;
+
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
+}
+
+/* ============================
+   1. 默认 / 暗黑模式 (Dark Mode)
+   ============================ */
+html.dark {
+  --bg-app: #090d16;
+  --bg-sidebar: #0f172a;
+  --bg-header: rgba(15, 23, 42, 0.5);
+  --bg-card: rgba(19, 27, 46, 0.75);
+  --bg-card-solid: #131b2e;
+  --bg-input: #151e33;
+  --bg-detail: rgba(0, 0, 0, 0.25);
+  --bg-dialog: #0f172a;
+
+  /* 控制台暗色 */
+  --bg-console: #060911;
+  --bg-console-header: #0d1322;
+  --text-console: #cbd5e1;
+  --text-console-time: #64748b;
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-highlight: rgba(255, 255, 255, 0.16);
+  --border-focus: rgba(99, 102, 241, 0.5);
+
+  --text-main: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-disabled: #475569;
+
+  --shadow-card: 0 12px 32px 0 rgba(0, 0, 0, 0.4);
+}
+
+/* ============================
+   2. 明亮模式 (Light Mode)
+   ============================ */
+html.light, :root:not(.dark) {
+  --bg-app: #f4f6fb;
+  --bg-sidebar: #ffffff;
+  --bg-header: rgba(255, 255, 255, 0.85);
+  --bg-card: #ffffff;
+  --bg-card-solid: #ffffff;
+  --bg-input: #f8fafc;
+  --bg-detail: #f1f5f9;
+  --bg-dialog: #ffffff;
+
+  /* 控制台亮色 */
+  --bg-console: #f8fafc;
+  --bg-console-header: #e2e8f0;
+  --text-console: #334155;
+  --text-console-time: #94a3b8;
+
+  --border-subtle: #e2e8f0;
+  --border-highlight: #cbd5e1;
+  --border-focus: #6366f1;
+
+  --text-main: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-disabled: #94a3b8;
+
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* 玻璃拟态卡片 */
+.glass-card {
+  background: var(--bg-card) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--shadow-card) !important;
+  transition: all 0.25s ease;
+}
+
+.glass-card:hover {
+  border-color: var(--border-highlight) !important;
+}
+
+/* 渐变发光按钮 */
+.gradient-btn {
+  background: var(--primary-gradient) !important;
+  border: none !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3px;
+  border-radius: 8px !important;
+  padding: 10px 22px !important;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3) !important;
+  transition: all 0.2s ease !important;
+}
+
+.gradient-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 22px rgba(168, 85, 247, 0.45) !important;
+}
+
+/* Element Plus 深度暗亮色适配 */
+.el-input__wrapper,
+.el-textarea__inner {
+  background-color: var(--bg-input) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 0 0 1px var(--border-subtle) inset !important;
+  color: var(--text-main) !important;
+  transition: all 0.2s ease;
+}
+
+.el-input__wrapper:hover,
+.el-textarea__inner:hover {
+  box-shadow: 0 0 0 1px var(--border-highlight) inset !important;
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1.5px var(--primary-color) inset !important;
+}
+
+.el-form-item__label {
+  color: var(--text-secondary) !important;
+  font-weight: 600 !important;
+}
+
+.el-card__header {
+  border-bottom: 1px solid var(--border-subtle) !important;
+  padding: 16px 20px !important;
+}
+
+.el-card__body {
+  padding: 20px !important;
+}
+
+.el-dialog {
+  background-color: var(--bg-dialog) !important;
+  border-radius: 14px !important;
+  border: 1px solid var(--border-subtle) !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+.el-dialog__title {
+  color: var(--text-main) !important;
+  font-weight: 700 !important;
+}
+
+.el-radio__label,
+.el-radio-button__inner {
+  color: var(--text-secondary) !important;
+}
+
+.el-radio-button__original-radio:checked + .el-radio-button__inner {
+  color: #fff !important;
+  background-color: var(--primary-color) !important;
+  border-color: var(--primary-color) !important;
+}
+
+.el-select-dropdown__item {
+  color: var(--text-main) !important;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
