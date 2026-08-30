@@ -78,6 +78,9 @@ else
     echo "📦 正在配置 Python 自动化依赖库 (使用清华镜像加速)..."
     PIP_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
     
+    echo "📦 正在更新 pip..."
+    "$VENV_PIP" install --upgrade pip -i "$PIP_INDEX" --trusted-host pypi.tuna.tsinghua.edu.cn -q
+    
     if [ -f "requirements.txt" ]; then
         "$VENV_PIP" install -r requirements.txt -i "$PIP_INDEX" --trusted-host pypi.tuna.tsinghua.edu.cn
     fi

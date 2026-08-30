@@ -80,6 +80,9 @@ if ($hasCoreDeps) {
     Write-Host "📦 正在自动安装/更新 Python 自动化依赖库 (使用清华镜像加速)..." -ForegroundColor Yellow
     $PIP_INDEX = "https://pypi.tuna.tsinghua.edu.cn/simple"
     
+    Write-Host "📦 正在更新 pip..." -ForegroundColor Yellow
+    & $VENV_PIP install --upgrade pip -i $PIP_INDEX --trusted-host pypi.tuna.tsinghua.edu.cn -q
+    
     if (Test-Path "requirements.txt") {
         & $VENV_PIP install -r requirements.txt -i $PIP_INDEX --trusted-host pypi.tuna.tsinghua.edu.cn
     }
