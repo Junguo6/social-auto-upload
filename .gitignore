@@ -1,0 +1,138 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder / Rope / mypy
+.spyderproject
+.spyproject
+.ropeproject
+/site
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+cython_debug/
+.idea/
+.DS_Store
+
+# ignore cookie file
+tencent_uploader/*.json
+youtube_uploader/*.json
+douyin_uploader/*.json
+bilibili_uploader/*.json
+tk_uploader/*.json
+
+# 配置文件
+conf.py
+
+# 账号文件
+cookies
+
+# Frontend
+.vite/
+dist/
+node_modules/
+package-lock.json
+
+# database
+db/database.db
+
+# 临时文件夹
+cookiesFile
+uploadFile
+videoFile
+/uploader/bilibili_uploader/qrcode.png
+
+# Wails Desktop build artifacts
+sau_desktop/bin/
+sau_desktop/build/bin/
+sau_desktop/frontend/dist/
+sau_desktop/frontend/node_modules/
