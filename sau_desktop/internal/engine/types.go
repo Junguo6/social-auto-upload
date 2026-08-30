@@ -82,6 +82,47 @@ type EngineEvent struct {
 	Message  string `json:"message"`
 }
 
+// VideoFileInfo 扫描到的视频文件元数据
+type VideoFileInfo struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+	Ext  string `json:"ext"`
+}
+
+// DirectoryBatchParam 目录批量分发任务参数
+type DirectoryBatchParam struct {
+	Files              []VideoFileInfo `json:"files"`              // 待发布的视频文件列表
+	Targets            []TargetAccount `json:"targets"`            // 目标账号列表
+	Concurrency        int             `json:"concurrency"`        // 每个视频分发时的并发数
+	TitleTemplate      string          `json:"titleTemplate"`      // 标题模板 (支持 {filename} 占位符)
+	Desc               string          `json:"desc"`               // 正文描述
+	Tags               string          `json:"tags"`               // 标签
+	Thumbnail          string          `json:"thumbnail"`          // 统一封面
+	ThumbnailLandscape string          `json:"thumbnailLandscape"` // 横版封面
+	ThumbnailPortrait  string          `json:"thumbnailPortrait"`  // 竖版封面
+	Tid                int             `json:"tid"`                // B站分区
+	ShortTitle         string          `json:"shortTitle"`         // 视频号短标题
+	Category           string          `json:"category"`           // 视频号分类
+	Draft              bool            `json:"draft"`              // 存为草稿
+	Schedule           string          `json:"schedule"`           // 定时发布
+	Declaration        string          `json:"declaration"`        // 合规声明
+	Collection         string          `json:"collection"`         // 专栏合集
+	ProductLink        string          `json:"productLink"`        // 带货商品链接
+	ProductTitle       string          `json:"productTitle"`       // 带货商品短标题
+	Visibility         string          `json:"visibility"`         // 可见性
+	Playlist           string          `json:"playlist"`           // 播放列表
+	Headless           bool            `json:"headless"`           // 静默运行
+}
+
+// DirectoryPublishResult 单个视频文件的矩阵发布执行结果汇总
+type DirectoryPublishResult struct {
+	FileName       string                 `json:"fileName"`
+	FilePath       string                 `json:"filePath"`
+	AccountResults []AccountPublishResult `json:"accountResults"`
+	AllSuccess     bool                   `json:"allSuccess"`
+}
+
 // AccountStatus 账号状态
 type AccountStatus struct {
 	Platform string `json:"platform"`
@@ -89,3 +130,16 @@ type AccountStatus struct {
 	IsValid  bool   `json:"isValid"`
 	Msg      string `json:"msg"`
 }
+
+// LoginResult 账号授权登录返回结果
+type LoginResult struct {
+	Success   bool   `json:"success"`
+	Platform  string `json:"platform"`
+	Account   string `json:"account"`   // 磁盘安全存储标识（如 sphGLRxSCzBVA5O 或 user_001）
+	Nickname  string `json:"nickname"`  // 真实展示昵称（完整保留 Emoji 和特殊字符）
+	FinderUid string `json:"finderUid"` // 平台唯一 UID
+	Msg       string `json:"msg"`
+}
+
+
+

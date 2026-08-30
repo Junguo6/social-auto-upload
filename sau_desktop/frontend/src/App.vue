@@ -77,10 +77,8 @@
               circle 
               @click="themeStore.toggleTheme"
             >
-              <el-icon>
-                <Moon v-if="themeStore.isDark" />
-                <Sunny v-else />
-              </el-icon>
+              <el-icon v-if="themeStore.isDark"><Sunny /></el-icon>
+              <el-icon v-else><Moon /></el-icon>
             </el-button>
           </el-tooltip>
 
@@ -108,7 +106,7 @@
       <div class="console-drawer" :class="{ collapsed: !showConsole }">
         <div class="console-header" @click="showConsole = !showConsole">
           <div class="console-header-left">
-            <el-icon><Terminal /></el-icon>
+            <el-icon><Monitor /></el-icon>
             <span class="console-title">引擎实时控制台日志 (Stdout Event Bridge)</span>
             <el-tag size="small" effect="dark" round class="log-tag">
               {{ logs.length }} 条记录
@@ -139,6 +137,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useThemeStore } from './stores/themeStore'
+import { Monitor, Moon, Sunny, InfoFilled } from '@element-plus/icons-vue'
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime'
 
 const route = useRoute()
@@ -163,6 +162,7 @@ const cleanAnsiString = (str: string): string => {
 }
 
 onMounted(() => {
+
   EventsOn('sau-log', (evt: any) => {
     const timeStr = new Date().toLocaleTimeString()
     let type = 'log'
@@ -382,7 +382,7 @@ onUnmounted(() => {
 .nav-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .theme-toggle-btn {

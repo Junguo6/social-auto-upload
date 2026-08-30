@@ -120,10 +120,11 @@
 
         <!-- 账号主体信息 -->
         <div class="card-body">
-          <div class="account-name-title">{{ acc.account }}</div>
+          <div class="account-name-title">{{ acc.nickname || acc.account }}</div>
           <div class="account-meta">
             <span class="status-dot" :class="acc.isValid ? 'valid' : 'invalid'"></span>
             <span class="status-text">{{ acc.checked ? (acc.isValid ? '登录凭证有效' : '凭证失效需重新登录') : '待检测' }}</span>
+            <el-tag v-if="acc.finderUid" size="small" type="info" class="uid-tag">ID: {{ acc.finderUid }}</el-tag>
           </div>
         </div>
 
@@ -169,10 +170,11 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item label="自定义账号唯一标识 (英文/数字)">
+        <el-form-item label="自定义账号别名 / 备注 (可选)">
           <el-input 
             v-model="loginForm.account" 
-            placeholder="例如: douyin_main 或 user_001 (用于隔离 Cookie)" 
+            placeholder="选填：留空将全自动提取平台真实昵称与唯一UID" 
+            clearable
           />
         </el-form-item>
 
@@ -189,7 +191,7 @@
 
         <div class="login-tip">
           <el-icon><InfoFilled /></el-icon>
-          <span>点击开始后将拉起 Chrome 浏览器页面，请使用对应 App 扫码登录，完成后凭证将自动持久化至本地。</span>
+          <span>点击开始后将拉起 Chrome 浏览器页面，请使用对应 App 扫码登录，完成后将自动读取平台昵称并持久化凭证至本地。</span>
         </div>
       </el-form>
 
@@ -200,6 +202,7 @@
         </el-button>
       </template>
     </el-dialog>
+
 
     <!-- 4. 管理/新建分组弹窗 -->
     <el-dialog
@@ -275,7 +278,7 @@ const getGroupCount = (groupName: string) => {
   return accountStore.accounts.filter(a => a.group === groupName).length
 }
 
-// 综合双维度筛选 + 关键字模糊匹配
+// 综合双维度筛选 + 关键字模糊匹配 (支持匹配昵称、UID或底层标识)
 const filteredAccounts = computed(() => {
   return accountStore.accounts.filter(acc => {
     // 平台过滤
@@ -290,8 +293,10 @@ const filteredAccounts = computed(() => {
     if (searchKeyword.value) {
       const kw = searchKeyword.value.toLowerCase()
       const accMatch = acc.account.toLowerCase().includes(kw)
+      const nickMatch = acc.nickname ? acc.nickname.toLowerCase().includes(kw) : false
+      const uidMatch = acc.finderUid ? acc.finderUid.toLowerCase().includes(kw) : false
       const platMatch = acc.platform.toLowerCase().includes(kw)
-      return accMatch || platMatch
+      return accMatch || nickMatch || uidMatch || platMatch
     }
     return true
   })
@@ -304,10 +309,11 @@ const getPlatformStyle = (platformId: string) => {
 const checkStatus = async (acc: AccountItem) => {
   try {
     await accountStore.checkAccount(acc)
+    const displayName = acc.nickname || acc.account || acc.finderUid || '当前账号'
     if (acc.isValid) {
-      ElMessage.success(`[${acc.account}] 凭证状态有效`)
+      ElMessage.success(`[${displayName}] 凭证状态有效`)
     } else {
-      ElMessage.warning(`[${acc.account}] 凭证已失效: ${acc.msg}`)
+      ElMessage.warning(`[${displayName}] 凭证已失效: ${acc.msg || 'invalid'}`)
     }
   } catch (err: any) {
     ElMessage.error(`检测失败: ${err.message || err}`)
@@ -315,8 +321,10 @@ const checkStatus = async (acc: AccountItem) => {
 }
 
 const confirmDelete = (platform: string, account: string) => {
+  const accItem = accountStore.accounts.find(a => a.platform === platform && a.account === account)
+  const displayName = accItem?.nickname || account
   ElMessageBox.confirm(
-    `确定要解除绑定账号「${account}」吗？解绑后将从本地移除该账号凭证。`,
+    `确定要解除绑定账号「${displayName}」吗？解绑后将从本地移除该账号凭证。`,
     '解除绑定确认',
     {
       confirmButtonText: '确认解绑',
@@ -330,16 +338,12 @@ const confirmDelete = (platform: string, account: string) => {
 }
 
 const handleStartLogin = async () => {
-  if (!loginForm.account) {
-    ElMessage.warning('请输入账号唯一标识名称')
-    return
-  }
-
   isLoggingIn.value = true
   try {
     ElMessage.info('已拉起授权浏览器，请在弹出窗口中完成扫码登录...')
-    await accountStore.loginAccount(loginForm.platform, loginForm.account, loginForm.group, true)
-    ElMessage.success('🎉 账号授权登录成功，已自动保存凭证！')
+    const res: any = await accountStore.loginAccount(loginForm.platform, loginForm.account.trim(), loginForm.group, true)
+    const displayNick = res.nickname || res.account || loginForm.account || '新账号'
+    ElMessage.success(`🎉 账号「${displayNick}」授权登录成功，已自动保存凭证！`)
     showLoginDialog.value = false
     loginForm.account = ''
   } catch (err: any) {
@@ -348,6 +352,7 @@ const handleStartLogin = async () => {
     isLoggingIn.value = false
   }
 }
+
 
 const handleCreateGroup = () => {
   if (!newGroupName.value.trim()) {

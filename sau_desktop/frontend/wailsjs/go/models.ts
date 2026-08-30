@@ -130,6 +130,28 @@ export namespace engine {
 		    return a;
 		}
 	}
+	export class LoginResult {
+	    success: boolean;
+	    platform: string;
+	    account: string;
+	    nickname: string;
+	    finderUid: string;
+	    msg: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LoginResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.platform = source["platform"];
+	        this.account = source["account"];
+	        this.nickname = source["nickname"];
+	        this.finderUid = source["finderUid"];
+	        this.msg = source["msg"];
+	    }
+	}
 	export class PublishParam {
 	    platform: string;
 	    action: string;

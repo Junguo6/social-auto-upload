@@ -36,8 +36,15 @@ def _resolve_account_file(account_file: str | Path) -> str:
     if path.is_absolute():
         return str(path)
 
+    target_in_root_cookies = Path(BASE_DIR) / "cookies" / path.name
+    if target_in_root_cookies.exists():
+        return str(target_in_root_cookies.resolve())
+
+    if path.parts and path.parts[0] == "cookies":
+        return str((Path(BASE_DIR) / path).resolve())
+
     if len(path.parts) == 1:
-        return str((Path(BASE_DIR) / "cookies" / "tencent_uploader" / path).resolve())
+        return str(target_in_root_cookies.resolve())
 
     return str(path.resolve())
 
@@ -58,15 +65,25 @@ def _build_login_result(
     account_file: str,
     qrcode: dict | None = None,
     current_url: str = "",
+    nickname: str = "",
+    finder_uid: str = "",
+    account_name: str = "",
 ) -> dict:
+    stem_name = Path(account_file).stem
+    if stem_name.startswith("tencent_"):
+        stem_name = stem_name[len("tencent_"):]
     return {
         "success": success,
         "status": status,
         "message": message,
         "account_file": str(account_file),
+        "account_name": str(account_name or stem_name),
+        "nickname": nickname,
+        "finder_uid": finder_uid,
         "qrcode": qrcode,
         "current_url": current_url,
     }
+
 
 
 def _build_launch_kwargs(headless: bool) -> dict:
@@ -419,16 +436,87 @@ async def tencent_cookie_gen(
             )
             if result["success"]:
                 await asyncio.sleep(2)
-                await context.storage_state(path=account_file)
-                if not await cookie_auth(account_file):
+                
+                # 尝试从页面中提取真实昵称与视频号 UID
+                nickname = ""
+                finder_uid = ""
+                for _ in range(12):
+                    try:
+                        name_el = page.locator("h2.finder-nickname, div.side-bar-footer .account-info span.name").first
+                        if await name_el.count() and await name_el.is_visible():
+                            extracted_name = (await name_el.inner_text()).strip()
+                            if extracted_name:
+                                nickname = extracted_name
+                                break
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.5)
+
+                try:
+                    uid_el = page.locator("span.finder-uniq-id, #finder-uid-copy").first
+                    if await uid_el.count():
+                        finder_uid = (await uid_el.inner_text()).strip()
+                except Exception:
+                    pass
+
+                # 如果传入的是 auto 或临时 account，且成功解析出 finder_uid，则自动决定安全文件名
+                final_account_name = Path(account_file).stem.replace("tencent_", "")
+                final_account_file = account_file
+                if (final_account_name == "auto" or not final_account_name) and finder_uid:
+                    final_account_name = finder_uid
+                    final_account_file = str(Path(account_file).parent / f"tencent_{finder_uid}.json")
+
+                # 保存 storage state
+                await context.storage_state(path=final_account_file)
+                if final_account_file != account_file and os.path.exists(account_file):
+                    try:
+                        os.remove(account_file)
+                    except Exception:
+                        pass
+
+                # 注入元数据 __account_meta__，保留无损 Emoji 和真实昵称
+                try:
+                    import json
+                    if os.path.exists(final_account_file):
+                        with open(final_account_file, "r", encoding="utf-8") as f:
+                            state_data = json.load(f)
+                        state_data["__account_meta__"] = {
+                            "nickname": nickname,
+                            "finder_uid": finder_uid,
+                            "account_name": final_account_name,
+                            "platform": "tencent",
+                            "updated_at": datetime.now().isoformat()
+                        }
+                        with open(final_account_file, "w", encoding="utf-8") as f:
+                            json.dump(state_data, f, ensure_ascii=False, indent=2)
+                except Exception as meta_err:
+                    tencent_logger.warning(_msg("⚠️", f"元数据写入失败(不影响登录): {meta_err}"))
+
+                if not await cookie_auth(final_account_file):
                     result = _build_login_result(
                         False,
                         "cookie_invalid",
                         "视频号扫码流程结束，但 cookie 校验失败",
-                        account_file,
+                        final_account_file,
                         qrcode_info,
                         page.url,
+                        nickname=nickname,
+                        finder_uid=finder_uid,
+                        account_name=final_account_name,
                     )
+                else:
+                    result = _build_login_result(
+                        True,
+                        "success",
+                        f"视频号扫码登录成功 (昵称: {nickname or final_account_name})",
+                        final_account_file,
+                        qrcode_info,
+                        page.url,
+                        nickname=nickname,
+                        finder_uid=finder_uid,
+                        account_name=final_account_name,
+                    )
+                    tencent_logger.success(_msg("🎉", f"登录成功！识别到视频号账号: {nickname or final_account_name} (ID: {finder_uid})"))
             return result
         except Exception as exc:
             result = _build_login_result(

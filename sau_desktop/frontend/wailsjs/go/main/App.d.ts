@@ -6,7 +6,7 @@ export function BatchPublishMedia(arg1:engine.BatchPublishParam):Promise<Array<e
 
 export function CheckAccountStatus(arg1:string,arg2:string):Promise<engine.AccountStatus>;
 
-export function LoginAccount(arg1:string,arg2:string,arg3:boolean):Promise<string>;
+export function LoginAccount(arg1:string,arg2:string,arg3:boolean):Promise<engine.LoginResult>;
 
 export function PublishMedia(arg1:engine.PublishParam):Promise<string>;
 

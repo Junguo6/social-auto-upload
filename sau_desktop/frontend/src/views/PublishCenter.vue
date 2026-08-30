@@ -394,7 +394,7 @@
 
             <div class="card-mid">
               <div class="acc-title-row">
-                <span class="acc-name-text">{{ acc.account }}</span>
+                <span class="acc-name-text">{{ acc.nickname || acc.account }}</span>
                 <el-tag size="small" type="info" class="grp-badge">{{ acc.group || '默认分组' }}</el-tag>
               </div>
               <div class="acc-sub-row">
@@ -404,6 +404,7 @@
                 </span>
               </div>
             </div>
+
 
             <div class="card-right-check">
               <el-icon v-if="isTargetSelected(acc.platform, acc.account)" class="check-icon"><CircleCheckFilled /></el-icon>
@@ -504,10 +505,11 @@
                 <el-icon><component :is="getPlatformStyle(tgt.platform).icon" /></el-icon>
               </div>
               <div class="exec-meta">
-                <div class="exec-name">{{ tgt.account }}</div>
+                <div class="exec-name">{{ getAccountDisplayName(tgt.platform, tgt.account) }}</div>
                 <div class="exec-plat">{{ getPlatformStyle(tgt.platform).name }}</div>
               </div>
               <div class="exec-state-badge">
+
                 <el-tag 
                   size="small" 
                   :type="getAccountStateTagType(tgt.platform, tgt.account)"
@@ -628,6 +630,12 @@ const selectByPlatform = (platformId: string) => {
 const getPlatformStyle = (platformId: string) => {
   return getPlatformConfig(platformId)
 }
+
+const getAccountDisplayName = (platform: string, account: string) => {
+  const acc = accountStore.accounts.find(a => a.platform === platform && a.account === account)
+  return acc?.nickname || account
+}
+
 
 const getFileName = (path: string) => {
   if (!path) return ''

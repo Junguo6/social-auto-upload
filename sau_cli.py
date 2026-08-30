@@ -932,9 +932,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     for action_name in ("login", "check"):
         action_parser = tencent_actions.add_parser(action_name, help=f"Tencent/WeChat Channels {action_name}")
-        action_parser.add_argument("--account", required=True, help="Tencent user-defined account_name")
+        action_parser.add_argument("--account", default="auto", help="Tencent user-defined account_name (default: auto)")
         if action_name == "login":
             add_runtime_flags(action_parser)
+
 
     tencent_upload_video_parser = tencent_actions.add_parser("upload-video", help="Upload one video to WeChat Channels")
     tencent_upload_video_parser.add_argument("--account", required=True, help="Tencent user-defined account_name")
@@ -1266,8 +1267,10 @@ async def dispatch(args: argparse.Namespace) -> int:
             result = await login_tencent_account(args.account, headless=args.headless)
             if not result["success"]:
                 raise RuntimeError(result["message"])
-            print(f"Tencent/WeChat Channels login flow completed: {result['account_file']}")
+            import json
+            print(f"Tencent/WeChat Channels login flow completed: {json.dumps(result, ensure_ascii=False)}")
             return 0
+
 
         if args.action == "check":
             is_valid = await check_tencent_account(args.account)

@@ -3,6 +3,7 @@ package engine
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 )
+
 
 type Executor struct {
 	engineBin    string
@@ -240,12 +242,13 @@ func (e *Executor) ExecBatchPublish(param BatchPublishParam, onEvent func(evt En
 				return
 			}
 
-			// 组装完整的命令行参数 (严格遵循 docs/api_specification.md)
+			// 组装命令行参数 (严格匹配 sau_cli.py 各平台解析器的支持参数)
 			args := []string{
 				tgt.Platform, action,
 				"--account", tgt.Account,
 			}
 
+			// 基础媒体与文本参数
 			if absFilePath != "" && action == "upload-video" {
 				args = append(args, "--file", absFilePath)
 			}
@@ -263,24 +266,48 @@ func (e *Executor) ExecBatchPublish(param BatchPublishParam, onEvent func(evt En
 				args = append(args, "--tags", param.Tags)
 			}
 
-			// 封面图
+			// 封面图支持: 绝大多数平台支持 --thumbnail
 			if absThumbnail != "" {
 				args = append(args, "--thumbnail", absThumbnail)
 			}
-			if absThumbLand != "" {
-				args = append(args, "--thumbnail-landscape", absThumbLand)
-			}
-			if absThumbPort != "" {
-				args = append(args, "--thumbnail-portrait", absThumbPort)
+			// 横竖版封面: 仅 douyin 与 tencent 支持
+			if (tgt.Platform == "douyin" || tgt.Platform == "tencent") && action == "upload-video" {
+				if absThumbLand != "" {
+					args = append(args, "--thumbnail-landscape", absThumbLand)
+				}
+				if absThumbPort != "" {
+					args = append(args, "--thumbnail-portrait", absThumbPort)
+				}
 			}
 
-			// B站特定分区
-			if tgt.Platform == "bilibili" && param.Tid > 0 {
+			// 定时发布: 仅 douyin, kuaishou, xiaohongshu, bilibili, tencent 支持
+			if param.Schedule != "" {
+				switch tgt.Platform {
+				case "douyin", "kuaishou", "xiaohongshu", "bilibili", "tencent":
+					args = append(args, "--schedule", param.Schedule)
+				}
+			}
+
+			// 合规声明: 仅 douyin 支持
+			if tgt.Platform == "douyin" && param.Declaration != "" && action == "upload-video" {
+				args = append(args, "--declaration", param.Declaration)
+			}
+
+			// 专栏/合集: 仅 douyin, kuaishou, tencent, alipay, weibo, baijiahao 支持
+			if param.Collection != "" && action == "upload-video" {
+				switch tgt.Platform {
+				case "douyin", "kuaishou", "tencent", "alipay", "weibo", "baijiahao":
+					args = append(args, "--collection", param.Collection)
+				}
+			}
+
+			// B站特定分区 (TID)
+			if tgt.Platform == "bilibili" && param.Tid > 0 && action == "upload-video" {
 				args = append(args, "--tid", strconv.Itoa(param.Tid))
 			}
 
-			// 视频号特定选项
-			if tgt.Platform == "tencent" {
+			// 微信视频号特定选项
+			if tgt.Platform == "tencent" && action == "upload-video" {
 				if param.ShortTitle != "" {
 					args = append(args, "--short-title", param.ShortTitle)
 				}
@@ -293,7 +320,7 @@ func (e *Executor) ExecBatchPublish(param BatchPublishParam, onEvent func(evt En
 			}
 
 			// 抖音特定小黄车带货
-			if tgt.Platform == "douyin" {
+			if tgt.Platform == "douyin" && action == "upload-video" {
 				if param.ProductLink != "" {
 					args = append(args, "--product-link", param.ProductLink)
 				}
@@ -302,44 +329,36 @@ func (e *Executor) ExecBatchPublish(param BatchPublishParam, onEvent func(evt En
 				}
 			}
 
-			// 合集专栏
-			if param.Collection != "" {
-				args = append(args, "--collection", param.Collection)
+			// YouTube 特定可见性与播放列表
+			if tgt.Platform == "youtube" && action == "upload-video" {
+				if param.Visibility != "" {
+					args = append(args, "--visibility", param.Visibility)
+				}
+				if param.Playlist != "" {
+					args = append(args, "--playlist", param.Playlist)
+				}
 			}
 
-			// YouTube/B站 可见性与播放列表
-			if param.Visibility != "" {
-				args = append(args, "--visibility", param.Visibility)
-			}
-			if param.Playlist != "" {
-				args = append(args, "--playlist", param.Playlist)
-			}
-
-			// 图文配乐与长正文
+			// 图文特有参数 (BGM, Note, Notef)
 			if action == "upload-note" {
-				if param.Bgm != "" {
+				if tgt.Platform == "douyin" && param.Bgm != "" {
 					args = append(args, "--bgm", param.Bgm)
 				}
 				if param.Note != "" {
 					args = append(args, "--note", param.Note)
 				}
-				if absNotef != "" {
+				if tgt.Platform == "douyin" && absNotef != "" {
 					args = append(args, "--notef", absNotef)
 				}
 			}
 
-			// 定时与声明
-			if param.Schedule != "" {
-				args = append(args, "--schedule", param.Schedule)
-			}
-			if param.Declaration != "" {
-				args = append(args, "--declaration", param.Declaration)
-			}
-
-			if param.Headless {
-				args = append(args, "--headless")
-			} else {
-				args = append(args, "--headed")
+			// 运行模式 (bilibili 命令行封装不接收 --headless/--headed 参数)
+			if tgt.Platform != "bilibili" {
+				if param.Headless {
+					args = append(args, "--headless")
+				} else {
+					args = append(args, "--headed")
+				}
 			}
 
 			cmd := e.buildCommand(ctx, args...)
@@ -450,22 +469,32 @@ func (e *Executor) CheckAccount(platform, account string) (bool, string) {
 	return false, outStr
 }
 
-// LoginAccount 拉起界面/终端登录
-func (e *Executor) LoginAccount(platform, account string, headed bool, onEvent func(evt EngineEvent)) error {
+// LoginAccount 拉起界面/终端登录并自动解析账号昵称与UID
+func (e *Executor) LoginAccount(platform, account string, headed bool, onEvent func(evt EngineEvent)) (LoginResult, error) {
+	if account == "" {
+		account = "auto"
+	}
 	args := []string{platform, "login", "--account", account}
 	if headed {
 		args = append(args, "--headed")
 	}
 
+	res := LoginResult{
+		Platform: platform,
+		Account:  account,
+		Nickname: account,
+		Success:  false,
+	}
+
 	cmd := e.buildCommand(nil, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return res, err
 	}
 	cmd.Stderr = cmd.Stdout
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return res, err
 	}
 
 	onEvent(EngineEvent{Type: "log", Message: fmt.Sprintf("▶ 开始登录流程: sau %s", strings.Join(args, " "))})
@@ -474,7 +503,42 @@ func (e *Executor) LoginAccount(platform, account string, headed bool, onEvent f
 	for scanner.Scan() {
 		line := scanner.Text()
 		onEvent(EngineEvent{Type: "log", Message: line})
+
+		// 匹配结构化登录结果，如: Tencent/WeChat Channels login flow completed: {"nickname": "...", "finder_uid": "...", "account_name": "..."}
+		if strings.Contains(line, "login flow completed") {
+			res.Success = true
+			if idx := strings.Index(line, "{"); idx != -1 {
+				jsonStr := line[idx:]
+				var meta map[string]interface{}
+				if jsonErr := json.Unmarshal([]byte(jsonStr), &meta); jsonErr == nil {
+					if nick, ok := meta["nickname"].(string); ok && nick != "" {
+						res.Nickname = nick
+					}
+					if uid, ok := meta["finder_uid"].(string); ok && uid != "" {
+						res.FinderUid = uid
+					}
+					if acc, ok := meta["account_name"].(string); ok && acc != "" {
+						res.Account = acc
+					}
+				}
+			}
+		}
 	}
 
-	return cmd.Wait()
+	waitErr := cmd.Wait()
+	if waitErr != nil {
+		res.Success = false
+		res.Msg = waitErr.Error()
+		return res, waitErr
+	}
+
+	res.Success = true
+	res.Msg = "登录成功"
+	if res.Nickname == "" || res.Nickname == "auto" {
+		if res.Account != "" && res.Account != "auto" {
+			res.Nickname = res.Account
+		}
+	}
+	return res, nil
 }
+

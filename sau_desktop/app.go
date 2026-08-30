@@ -20,6 +20,7 @@ func NewApp() *App {
 	if err != nil {
 		fmt.Printf("警告: 引擎初始化异常: %v\n", err)
 	}
+
 	return &App{
 		executor: exec,
 	}
@@ -86,20 +87,20 @@ func (a *App) CheckAccountStatus(platform, account string) engine.AccountStatus 
 	}
 }
 
-// LoginAccount 拉起账号授权登录
-func (a *App) LoginAccount(platform, account string, headed bool) (string, error) {
+// LoginAccount 拉起账号授权登录并返回账号信息
+func (a *App) LoginAccount(platform, account string, headed bool) (engine.LoginResult, error) {
 	if a.executor == nil {
-		return "", fmt.Errorf("引擎未正常加载")
+		return engine.LoginResult{Success: false, Msg: "引擎未正常加载"}, fmt.Errorf("引擎未正常加载")
 	}
-	err := a.executor.LoginAccount(platform, account, headed, func(evt engine.EngineEvent) {
+	res, err := a.executor.LoginAccount(platform, account, headed, func(evt engine.EngineEvent) {
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, "sau-log", evt)
 		}
 	})
 	if err != nil {
-		return "", err
+		return res, err
 	}
-	return "登录成功", nil
+	return res, nil
 }
 
 // SelectLocalFile 打开本地原生文件选择对话框
@@ -120,3 +121,4 @@ func (a *App) SelectLocalFile(title string, filterPatterns []string) (string, er
 	}
 	return filePath, nil
 }
+

@@ -4,8 +4,10 @@ import { CheckAccountStatus, LoginAccount } from '../../wailsjs/go/main/App'
 
 export interface AccountItem {
   platform: string
-  account: string
-  group: string // 分组标签，例如 "默认分组", "美食矩阵", "科技出海"
+  account: string       // 底层安全文件标识 (如 sphGLRxSCzBVA5O 或 user_001)
+  nickname?: string     // 真实展示昵称（完整保留 Emoji 和特殊符号）
+  finderUid?: string    // 平台唯一 UID (如 sphGLRxSCzBVA5O)
+  group: string         // 分组标签，例如 "默认分组", "美食矩阵", "科技出海"
   isValid?: boolean
   checked?: boolean
   msg?: string
@@ -21,20 +23,35 @@ export const useAccountStore = defineStore('account', () => {
     '生活日常组'
   ])
 
-  // 默认初始账号数据
+  // 默认初始账号数据 (优先展示 nickname，若无则展示 account)
   const defaultAccounts: AccountItem[] = [
-    { platform: 'douyin', account: 'test_account', group: '默认分组', checked: false },
-    { platform: 'douyin', account: 'douyin_food_01', group: '美食矩阵组', checked: false },
-    { platform: 'xiaohongshu', account: 'xhs_lifestyle_01', group: '生活日常组', checked: false },
-    { platform: 'xiaohongshu', account: 'xhs_tech_01', group: '数码科技组', checked: false },
-    { platform: 'kuaishou', account: 'ks_user_01', group: '美食矩阵组', checked: false },
-    { platform: 'bilibili', account: 'bili_tech_main', group: '数码科技组', checked: false },
-    { platform: 'tencent', account: 'channels_vlog', group: '生活日常组', checked: false }
+    { platform: 'douyin', account: 'test_account', nickname: '抖音科技号 🚀', group: '默认分组', checked: false },
+    { platform: 'douyin', account: 'douyin_food_01', nickname: '吃货小分队 🍜', group: '美食矩阵组', checked: false },
+    { platform: 'xiaohongshu', account: 'xhs_lifestyle_01', nickname: '日常好物研习社 ✨', group: '生活日常组', checked: false },
+    { platform: 'xiaohongshu', account: 'xhs_tech_01', nickname: '极客实验室 ⚡️', group: '数码科技组', checked: false },
+    { platform: 'kuaishou', account: 'ks_user_01', nickname: '快手老铁分享 🎬', group: '美食矩阵组', checked: false },
+    { platform: 'bilibili', account: 'bili_tech_main', nickname: '干货极客UP 📺', group: '数码科技组', checked: false },
+    { platform: 'tencent', account: 'sphGLRxSCzBVA5O', nickname: '迟遇山野知秋 🌿', finderUid: 'sphGLRxSCzBVA5O', group: '生活日常组', checked: false }
   ]
 
   // 从本地加载或使用默认值
   const savedAccs = localStorage.getItem('sau_accounts')
-  const accounts = ref<AccountItem[]>(savedAccs ? JSON.parse(savedAccs) : defaultAccounts)
+  let parsedAccs: AccountItem[] = defaultAccounts
+  if (savedAccs) {
+    try {
+      parsedAccs = JSON.parse(savedAccs)
+      // 迁移历史 tencent_1233 项
+      parsedAccs = parsedAccs.map(acc => {
+        if (acc.platform === 'tencent' && (acc.account === '1233' || acc.account === 'auto') && acc.finderUid) {
+          acc.account = acc.finderUid
+        }
+        return acc
+      })
+    } catch (e) {
+      parsedAccs = defaultAccounts
+    }
+  }
+  const accounts = ref<AccountItem[]>(parsedAccs)
 
   const saveToStorage = () => {
     localStorage.setItem('sau_accounts', JSON.stringify(accounts.value))
@@ -95,20 +112,35 @@ export const useAccountStore = defineStore('account', () => {
     checkingAll.value = false
   }
 
-  // 扫码/授权登录并加入分组
-  const loginAccount = async (platform: string, account: string, group: string, headed: boolean = true) => {
-    const res = await LoginAccount(platform, account, headed)
-    let exist = accounts.value.find(a => a.platform === platform && a.account === account)
+  // 扫码/授权登录并加入分组（自动解析出带 Emoji 的真实平台昵称与安全 UID）
+  const loginAccount = async (platform: string, customAccount: string, group: string, headed: boolean = true) => {
+    const res: any = await LoginAccount(platform, customAccount || 'auto', headed)
+    const targetAccountKey = res.account || customAccount || 'auto'
+    const targetNickname = res.nickname || targetAccountKey
+    const targetUid = res.finderUid || ''
+
+    let exist = accounts.value.find(a => a.platform === platform && (a.account === targetAccountKey || (targetUid && a.finderUid === targetUid)))
     if (!exist) {
-      exist = { platform, account, group: group || '默认分组', checked: false }
+      exist = {
+        platform,
+        account: targetAccountKey,
+        nickname: targetNickname,
+        finderUid: targetUid,
+        group: group || '默认分组',
+        checked: false
+      }
       accounts.value.push(exist)
     } else {
+      exist.account = targetAccountKey
+      exist.nickname = targetNickname
+      exist.finderUid = targetUid
       exist.group = group || exist.group
     }
     saveToStorage()
     await checkAccount(exist)
     return res
   }
+
 
   return {
     groups,
