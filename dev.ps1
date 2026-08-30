@@ -95,28 +95,7 @@ if ($hasCoreDeps) {
     Write-Host "✅ Python 依赖与浏览器内核准备就绪！" -ForegroundColor Green
 }
 
-# 5. 检测并自动构建 sau_engine 二进制
-$ENGINE_BIN_DIR = Join-Path $ROOT_DIR "sau_desktop\bin\sau_engine"
-$ENGINE_BIN = Join-Path $ENGINE_BIN_DIR "sau_engine.exe"
-
-if (-not (Test-Path $ENGINE_BIN)) {
-    Write-Host "🔨 检测到未构建本地发布引擎 sau_engine，正在自动执行 PyInstaller 打包..." -ForegroundColor Yellow
-    & $VENV_PYTHON -m PyInstaller sau_engine.spec --noconfirm
-    
-    $binParent = Join-Path $ROOT_DIR "sau_desktop\bin"
-    if (-not (Test-Path $binParent)) {
-        New-Item -ItemType Directory -Path $binParent | Out-Null
-    }
-    if (Test-Path $ENGINE_BIN_DIR) {
-        Remove-Item -Recurse -Force $ENGINE_BIN_DIR
-    }
-    Copy-Item -Recurse -Force (Join-Path $ROOT_DIR "dist\sau_engine") $binParent
-    Write-Host "✅ sau_engine 引擎构建并就位完成！" -ForegroundColor Green
-} else {
-    Write-Host "✅ sau_engine 发布引擎已就绪" -ForegroundColor Green
-}
-
-# 6. 前端 node_modules 依赖检测
+# 5. 前端 node_modules 依赖检测
 $FRONTEND_DIR = Join-Path $ROOT_DIR "sau_desktop\frontend"
 $NODE_MODULES = Join-Path $FRONTEND_DIR "node_modules"
 

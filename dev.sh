@@ -89,22 +89,7 @@ else
     echo "✅ Python 依赖与浏览器内核准备就绪！"
 fi
 
-# 5. 检测并自动构建 sau_engine 二进制
-ENGINE_BIN_DIR="$ROOT_DIR/sau_desktop/bin/sau_engine"
-ENGINE_BIN="$ENGINE_BIN_DIR/sau_engine"
-
-if [ ! -f "$ENGINE_BIN" ]; then
-    echo "🔨 检测到未构建本地发布引擎 sau_engine，正在自动执行 PyInstaller 打包..."
-    "$VENV_PYTHON" -m PyInstaller sau_engine.spec --noconfirm
-    mkdir -p "$ROOT_DIR/sau_desktop/bin"
-    rm -rf "$ENGINE_BIN_DIR"
-    cp -R "$ROOT_DIR/dist/sau_engine" "$ROOT_DIR/sau_desktop/bin/"
-    echo "✅ sau_engine 引擎构建并就位完成！"
-else
-    echo "✅ sau_engine 发布引擎已就绪"
-fi
-
-# 6. 前端 node_modules 依赖检测
+# 5. 前端 node_modules 依赖检测
 FRONTEND_DIR="$ROOT_DIR/sau_desktop/frontend"
 if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
     echo "📦 正在为桌面端前端安装 npm 依赖..."
