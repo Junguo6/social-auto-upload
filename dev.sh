@@ -50,7 +50,16 @@ if ! command -v wails &> /dev/null; then
     go install github.com/wailsapp/wails/v2/cmd/wails@latest
     echo "✅ Wails CLI 安装完成！"
 else
-    echo "✅ Wails CLI 已就绪 ($(wails version | head -n 1))"
+    WAILS_RAW=$(wails version 2>/dev/null | head -n 1)
+    # Wails 2.8.x 存在 Go 1.22+ 类型解析 bug (package without types was imported)
+    if echo "$WAILS_RAW" | grep -qE "v2\.[0-8]\."; then
+        echo "⚠️ 检测到当前 Wails CLI ($WAILS_RAW) 版本偏旧，正在自动升级至最新版以兼容 Go 类型解析..."
+        go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        hash -r 2>/dev/null || true
+        echo "✅ Wails CLI 升级完成！($(wails version 2>/dev/null | head -n 1))"
+    else
+        echo "✅ Wails CLI 已就绪 ($WAILS_RAW)"
+    fi
 fi
 
 # 3. 配置文件初始化
@@ -104,10 +113,19 @@ else
     echo "✅ 前端 npm 依赖已就绪"
 fi
 
-# 7. 启动热重载开发调试模式
+# 6. 启动热重载开发调试模式
 echo "========================================================"
 echo "🎉 所有环境与依赖检测完毕！正在启动 Wails 调试开发服务..."
 echo "========================================================"
 
 cd "$ROOT_DIR/sau_desktop"
-wails dev
+
+# 如果当前是 Wails 2.8.x，自动加上 -skipbindings 跳过生成器错误
+DEV_FLAGS=""
+WAILS_RAW=$(wails version 2>/dev/null | head -n 1)
+if echo "$WAILS_RAW" | grep -qE "v2\.[0-8]\."; then
+    echo "💡 检测到 Wails 2.8.x，已自动启用 -skipbindings 兼容模式..."
+    DEV_FLAGS="-skipbindings"
+fi
+
+wails dev $DEV_FLAGS

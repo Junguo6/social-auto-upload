@@ -46,7 +46,14 @@ if (-not (Get-Command "wails" -ErrorAction SilentlyContinue)) {
     go install github.com/wailsapp/wails/v2/cmd/wails@latest
     Write-Host "✅ Wails CLI 安装完成！" -ForegroundColor Green
 } else {
-    Write-Host "✅ Wails CLI 已就绪" -ForegroundColor Green
+    $wailsVer = (& wails version 2>$null | Select-Object -First 1)
+    if ($wailsVer -match "v2\.[0-8]\.") {
+        Write-Host "⚠️ 检测到当前 Wails CLI ($wailsVer) 版本偏旧，正在自动升级至最新版以兼容 Go 类型解析..." -ForegroundColor Yellow
+        go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        Write-Host "✅ Wails CLI 升级完成！" -ForegroundColor Green
+    } else {
+        Write-Host "✅ Wails CLI 已就绪 ($wailsVer)" -ForegroundColor Green
+    }
 }
 
 # 3. 配置文件初始化
@@ -118,4 +125,12 @@ Write-Host "🎉 所有环境与依赖检测完毕！正在启动 Wails 调试�
 Write-Host "========================================================" -ForegroundColor Cyan
 
 Set-Location (Join-Path $ROOT_DIR "sau_desktop")
-wails dev
+
+$wailsVer = (& wails version 2>$null | Select-Object -First 1)
+$devFlags = @()
+if ($wailsVer -match "v2\.[0-8]\.") {
+    Write-Host "💡 检测到 Wails 2.8.x，已自动启用 -skipbindings 兼容模式..." -ForegroundColor Yellow
+    $devFlags += "-skipbindings"
+}
+
+wails dev @devFlags
