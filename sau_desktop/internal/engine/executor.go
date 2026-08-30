@@ -18,39 +18,88 @@ import (
 type Executor struct {
 	engineBin    string
 	workDir      string
+	usePythonSrc bool
+	pythonBin    string
+	sauCliScript string
 	activeCancel context.CancelFunc
 	activeCmds   map[*exec.Cmd]bool
 	mu           sync.Mutex
 }
 
 func NewExecutor() (*Executor, error) {
-	execPath, workDir, err := resolveEngineAndWorkDir()
+	execPath, workDir, pythonBin, sauCliScript, useSrc, err := resolveEngineAndWorkDir()
 	if err != nil {
 		return nil, err
 	}
 	return &Executor{
-		engineBin:  execPath,
-		workDir:    workDir,
-		activeCmds: make(map[*exec.Cmd]bool),
+		engineBin:    execPath,
+		workDir:      workDir,
+		usePythonSrc: useSrc,
+		pythonBin:    pythonBin,
+		sauCliScript: sauCliScript,
+		activeCmds:   make(map[*exec.Cmd]bool),
 	}, nil
 }
 
-func resolveEngineAndWorkDir() (string, string, error) {
+func resolveEngineAndWorkDir() (string, string, string, string, bool, error) {
 	dir, err := os.Getwd()
 	if err != nil {
-		return "", "", err
+		return "", "", "", "", false, err
 	}
 
+	// 1. 定位项目根目录 (包含 conf.py 或 sau_cli.py 的目录)
+	workDir := dir
+	candidates := []string{
+		dir,
+		filepath.Join(dir, ".."),
+		filepath.Join(dir, "..", ".."),
+	}
+
+	for _, c := range candidates {
+		absC, _ := filepath.Abs(c)
+		if _, err := os.Stat(filepath.Join(absC, "conf.py")); err == nil {
+			workDir = absC
+			break
+		} else if _, err := os.Stat(filepath.Join(absC, "sau_cli.py")); err == nil {
+			workDir = absC
+			break
+		}
+	}
+
+	// 2. 优先探测 Python 源码调试环境 (.venv + sau_cli.py)
+	pyName := filepath.Join("bin", "python")
+	if runtime.GOOS == "windows" {
+		pyName = filepath.Join("Scripts", "python.exe")
+	}
+
+	venvPyCandidates := []string{
+		filepath.Join(workDir, ".venv", pyName),
+		filepath.Join(dir, ".venv", pyName),
+		filepath.Join(dir, "..", ".venv", pyName),
+	}
+
+	sauCliPath := filepath.Join(workDir, "sau_cli.py")
+	if _, err := os.Stat(sauCliPath); err == nil {
+		for _, vpy := range venvPyCandidates {
+			absVpy, _ := filepath.Abs(vpy)
+			if _, err := os.Stat(absVpy); err == nil {
+				return "", workDir, absVpy, sauCliPath, true, nil
+			}
+		}
+	}
+
+	// 3. 生产/无源码环境下，回退查找打包好的 sau_engine 二进制
 	binName := "sau_engine"
 	if runtime.GOOS == "windows" {
 		binName = "sau_engine.exe"
 	}
 
 	possiblePaths := []string{
+		filepath.Join(workDir, "sau_desktop", "bin", "sau_engine", binName),
+		filepath.Join(workDir, "dist", "sau_engine", binName),
 		filepath.Join(dir, "bin", "sau_engine", binName),
 		filepath.Join(dir, "sau_desktop", "bin", "sau_engine", binName),
 		filepath.Join(dir, "..", "dist", "sau_engine", binName),
-		filepath.Join(dir, "dist", "sau_engine", binName),
 		filepath.Join(dir, binName),
 	}
 
@@ -64,25 +113,10 @@ func resolveEngineAndWorkDir() (string, string, error) {
 	}
 
 	if foundBin == "" {
-		return "", "", fmt.Errorf("sau_engine 可执行二进制文件未找到，查找路径包括: %v", possiblePaths)
+		return "", "", "", "", false, fmt.Errorf("sau_engine 可执行二进制或 Python 源码环境未找到，查找路径包括: %v", possiblePaths)
 	}
 
-	workDir := dir
-	candidates := []string{
-		dir,
-		filepath.Join(dir, ".."),
-		filepath.Dir(filepath.Dir(foundBin)),
-	}
-
-	for _, c := range candidates {
-		absC, _ := filepath.Abs(c)
-		if _, err := os.Stat(filepath.Join(absC, "conf.py")); err == nil {
-			workDir = absC
-			break
-		}
-	}
-
-	return foundBin, workDir, nil
+	return foundBin, workDir, "", "", false, nil
 }
 
 func (e *Executor) resolveToAbsPath(rawPath string) string {
@@ -106,10 +140,19 @@ func (e *Executor) resolveToAbsPath(rawPath string) string {
 
 func (e *Executor) buildCommand(ctx context.Context, args ...string) *exec.Cmd {
 	var cmd *exec.Cmd
-	if ctx != nil {
-		cmd = exec.CommandContext(ctx, e.engineBin, args...)
+	if e.usePythonSrc {
+		fullArgs := append([]string{e.sauCliScript}, args...)
+		if ctx != nil {
+			cmd = exec.CommandContext(ctx, e.pythonBin, fullArgs...)
+		} else {
+			cmd = exec.Command(e.pythonBin, fullArgs...)
+		}
 	} else {
-		cmd = exec.Command(e.engineBin, args...)
+		if ctx != nil {
+			cmd = exec.CommandContext(ctx, e.engineBin, args...)
+		} else {
+			cmd = exec.Command(e.engineBin, args...)
+		}
 	}
 	cmd.Dir = e.workDir
 
