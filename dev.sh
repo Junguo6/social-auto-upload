@@ -46,8 +46,8 @@ GOPATH_BIN="$(go env GOPATH)/bin"
 export PATH="$GOPATH_BIN:$PATH"
 
 if ! command -v wails &> /dev/null; then
-    echo "📦 检测到未安装 Wails CLI，正在协助安装..."
-    go install github.com/wailsapp/wails/v2/cmd/wails@latest
+    echo "📦 检测到未安装 Wails CLI，正在协助安装 (v2.8.2)..."
+    go install github.com/wailsapp/wails/v2/cmd/wails@v2.8.2
     echo "✅ Wails CLI 安装完成！"
 else
     WAILS_RAW=$(wails version 2>/dev/null | head -n 1)

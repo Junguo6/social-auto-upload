@@ -15,8 +15,8 @@ echo "======================================================================"
 # 1. 确保 Wails CLI 可用
 export PATH="$PATH:$(go env GOPATH)/bin"
 if ! command -v wails >/dev/null 2>&1; then
-  echo "⚠️ 未在系统 PATH 中找到 Wails，正在自动安装最新版 Wails CLI..."
-  go install github.com/wailsapp/wails/v2/cmd/wails@latest
+  echo "⚠️ 未在系统 PATH 中找到 Wails，正在自动安装 Wails CLI (v2.8.2)..."
+  go install github.com/wailsapp/wails/v2/cmd/wails@v2.8.2
 fi
 
 # 2. 检查 Python 虚拟环境与 PyInstaller

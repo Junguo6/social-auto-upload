@@ -42,8 +42,8 @@ $gopath = (go env GOPATH).Trim()
 $env:PATH = "$gopath\bin;$env:PATH"
 
 if (-not (Get-Command "wails" -ErrorAction SilentlyContinue)) {
-    Write-Host "📦 检测到未安装 Wails CLI，正在协助安装..." -ForegroundColor Yellow
-    go install github.com/wailsapp/wails/v2/cmd/wails@latest
+    Write-Host "📦 检测到未安装 Wails CLI，正在协助安装 (v2.8.2)..." -ForegroundColor Yellow
+    go install github.com/wailsapp/wails/v2/cmd/wails@v2.8.2
     Write-Host "✅ Wails CLI 安装完成！" -ForegroundColor Green
 } else {
     $wailsVer = (& wails version 2>$null | Select-Object -First 1)
