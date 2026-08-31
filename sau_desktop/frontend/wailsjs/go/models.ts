@@ -65,6 +65,7 @@ export namespace auth {
 export namespace engine {
 	
 	export class AccountPublishResult {
+	    taskId: string;
 	    platform: string;
 	    account: string;
 	    success: boolean;
@@ -76,6 +77,7 @@ export namespace engine {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
 	        this.platform = source["platform"];
 	        this.account = source["account"];
 	        this.success = source["success"];
@@ -83,6 +85,7 @@ export namespace engine {
 	    }
 	}
 	export class AccountPublishTask {
+	    taskId: string;
 	    platform: string;
 	    account: string;
 	    nickname: string;
@@ -109,6 +112,8 @@ export namespace engine {
 	    bgm: string;
 	    note: string;
 	    notef: string;
+	    initialDelaySeconds: number;
+	    delaySeconds: number;
 	    headless: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -117,6 +122,7 @@ export namespace engine {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
 	        this.platform = source["platform"];
 	        this.account = source["account"];
 	        this.nickname = source["nickname"];
@@ -143,6 +149,8 @@ export namespace engine {
 	        this.bgm = source["bgm"];
 	        this.note = source["note"];
 	        this.notef = source["notef"];
+	        this.initialDelaySeconds = source["initialDelaySeconds"];
+	        this.delaySeconds = source["delaySeconds"];
 	        this.headless = source["headless"];
 	    }
 	}
@@ -312,6 +320,75 @@ export namespace engine {
 		    return a;
 		}
 	}
+	export class PipelineTaskLane {
+	    laneId: string;
+	    laneName: string;
+	    tasks: AccountPublishTask[];
+	    delayBetweenTasks: number;
+	    scheduledAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PipelineTaskLane(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.laneId = source["laneId"];
+	        this.laneName = source["laneName"];
+	        this.tasks = this.convertValues(source["tasks"], AccountPublishTask);
+	        this.delayBetweenTasks = source["delayBetweenTasks"];
+	        this.scheduledAt = source["scheduledAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PipelinePublishParam {
+	    lanes: PipelineTaskLane[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PipelinePublishParam(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lanes = this.convertValues(source["lanes"], PipelineTaskLane);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class PublishParam {
 	    platform: string;
 	    action: string;

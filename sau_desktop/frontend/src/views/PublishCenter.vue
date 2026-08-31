@@ -103,6 +103,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { PLATFORMS } from '../config/platforms'
 import { useAccountStore } from '../stores/accountStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useMatrixPresets } from '../composables/useMatrixPresets'
 import { useMatrixPublish } from '../composables/useMatrixPublish'
 import type { MasterForm, PlatformOverrideSetting, SyncConfigFields } from '../types/matrix'
@@ -118,6 +119,7 @@ import StudioBottomDock from '../components/matrix/StudioBottomDock.vue'
 
 // 1. 全局 Stores
 const accountStore = useAccountStore()
+const settingsStore = useSettingsStore()
 
 // 2. 主模板表单 (Master Form)
 const masterForm = reactive<MasterForm>({
@@ -162,10 +164,10 @@ PLATFORMS.forEach(p => {
 // 4. 账号级独立覆盖字典 (Account Overrides)
 const accountOverrides = reactive<Record<string, PlatformOverrideSetting>>({})
 
-// 5. 工作台视图状态机
+// 5. 工作台视图状态机 (并发数默认与系统设置保持联动)
 const currentPlatformTab = ref<string>('tencent')
-const concurrency = ref<number>(3)
-const isHeadless = ref<boolean>(false)
+const concurrency = ref<number>(settingsStore.settings.concurrency || 3)
+const isHeadless = ref<boolean>(settingsStore.settings.headless || false)
 const showAccountModal = ref<boolean>(false)
 const selectedTargetKeys = ref<Set<string>>(new Set())
 
@@ -390,8 +392,8 @@ onMounted(() => {
 
 .studio-body {
   display: grid;
-  grid-template-columns: minmax(460px, 4.4fr) minmax(560px, 5.6fr);
-  gap: 14px;
+  grid-template-columns: minmax(480px, 4.4fr) minmax(580px, 5.6fr);
+  gap: 16px;
   flex: 1;
   min-height: 0;
 }
@@ -411,7 +413,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 18px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--border-subtle);
   background: rgba(0, 0, 0, 0.08);
   flex-shrink: 0;
@@ -424,7 +426,7 @@ onMounted(() => {
 }
 
 .summary-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-main);
 }

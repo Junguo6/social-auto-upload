@@ -119,49 +119,45 @@ const activePlatformIds = computed(() => {
 
 // 根据当前勾选的账号动态计算展示的平台列表
 const displayedPlatforms = computed(() => {
-  if (showAllPlatforms.value) {
+  if (showAllPlatforms.value || activePlatformIds.value.length === 0) {
     return PLATFORMS
   }
   return PLATFORMS.filter(p => activePlatformIds.value.includes(p.id))
 })
 
-// 监听展示平台变化，如果当前激活的平台不在展示列表中，自动切换到第一个可用平台
-watch(displayedPlatforms, (newList) => {
-  if (newList.length > 0) {
-    const isCurrentStillActive = newList.some(p => p.id === props.modelValue)
-    if (!isCurrentStillActive) {
-      emit('update:modelValue', newList[0].id)
-    }
+// 如果当前选中的平台不在已选列表中，自动聚焦到第一个可用平台
+watch(activePlatformIds, (newIds) => {
+  if (!showAllPlatforms.value && newIds.length > 0 && !newIds.includes(props.modelValue)) {
+    emit('update:modelValue', newIds[0])
   }
 }, { immediate: true })
 
 const getPlatformTooltip = (plat: any) => {
   const count = getPlatformSelectedCount(plat.id)
   const isCust = props.platformOverrides[plat.id]?.isCustomized
-  let tip = `${plat.name}`
+  let str = `${plat.name}`
   if (count > 0) {
-    tip += ` · 已选 ${count} 个账号`
+    str += ` (已选 ${count} 个账号)`
   } else {
-    tip += ` · 未选账号`
+    str += ` (未选择账号)`
   }
   if (isCust) {
-    tip += ' (独立定制中)'
-  } else {
-    tip += ' (同步全局)'
+    str += ` · 已开启平台专属定制`
   }
-  return tip
+  return str
 }
 </script>
 
 <style scoped>
 .platform-icon-dock {
+  background: rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 8px 16px;
   display: flex;
   align-items: center;
-  padding: 4px 12px;
-  background: rgba(0, 0, 0, 0.12);
-  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  min-height: 52px;
+  min-height: 64px;
+  box-sizing: border-box;
 }
 
 .dock-inner {
@@ -169,15 +165,16 @@ const getPlatformTooltip = (plat: any) => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  gap: 10px;
+  gap: 12px;
 }
 
 .dock-platforms-scroll {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex: 1;
+  gap: 8px;
   overflow-x: auto;
+  padding: 3px 2px 4px 2px;
+  flex: 1;
 }
 
 .dock-icon-item {
@@ -185,14 +182,13 @@ const getPlatformTooltip = (plat: any) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 4px 10px 3px;
-  border-radius: 6px;
+  padding: 6px 10px;
+  border-radius: 9px;
   cursor: pointer;
   position: relative;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  min-width: 54px;
   user-select: none;
-  background: transparent;
+  min-width: 68px;
   border: 1px solid transparent;
 }
 
@@ -203,34 +199,33 @@ const getPlatformTooltip = (plat: any) => {
 }
 
 .dock-icon-item.active {
-  background: rgba(99, 102, 241, 0.1);
-  border-color: rgba(99, 102, 241, 0.25);
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.3);
 }
 
 .icon-glyph-box {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 17px;
   transition: all 0.15s ease;
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .dock-icon-item.active .icon-glyph-box {
-  box-shadow: 0 0 10px rgba(99, 102, 241, 0.35);
-  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .icon-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
-  margin-top: 3px;
+  margin-top: 4px;
   font-weight: 500;
   white-space: nowrap;
-  letter-spacing: -0.2px;
 }
 
 .dock-icon-item.active .icon-label {
@@ -240,27 +235,27 @@ const getPlatformTooltip = (plat: any) => {
 
 .dock-badge {
   position: absolute;
-  top: 1px;
-  right: 4px;
-  font-size: 9px;
+  top: 2px;
+  right: 6px;
+  font-size: 10px;
   font-weight: 700;
   background: #6366f1;
   color: #fff;
-  padding: 0 4px;
-  height: 13px;
-  line-height: 13px;
-  border-radius: 6px;
+  padding: 0 5px;
+  height: 15px;
+  line-height: 15px;
+  border-radius: 8px;
 }
 
 .dock-custom-dot {
   position: absolute;
-  top: 3px;
-  left: 5px;
-  width: 5px;
-  height: 5px;
+  top: 4px;
+  left: 6px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #f59e0b;
-  box-shadow: 0 0 5px #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
 }
 
 .active-indicator {
@@ -268,7 +263,7 @@ const getPlatformTooltip = (plat: any) => {
   bottom: 0;
   left: 15%;
   right: 15%;
-  height: 2px;
+  height: 2.5px;
   border-radius: 2px;
 }
 
@@ -279,13 +274,13 @@ const getPlatformTooltip = (plat: any) => {
 .filter-toggle-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-radius: 5px;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 6px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -306,25 +301,25 @@ const getPlatformTooltip = (plat: any) => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 2px 4px;
+  padding: 4px 6px;
 }
 
 .empty-left {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
 .empty-icon {
-  font-size: 15px;
+  font-size: 16px;
   color: #f59e0b;
 }
 
 .empty-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 </style>

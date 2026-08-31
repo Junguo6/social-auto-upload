@@ -17,8 +17,14 @@ export function LoginAccount(arg1:string,arg2:string,arg3:boolean):Promise<engin
 
 export function MatrixPublishMedia(arg1:engine.MatrixPublishParam):Promise<Array<engine.AccountPublishResult>>;
 
+export function PipelinePublishMedia(arg1:engine.PipelinePublishParam):Promise<Array<engine.AccountPublishResult>>;
+
 export function PublishMedia(arg1:engine.PublishParam):Promise<string>;
 
 export function SelectLocalFile(arg1:string,arg2:Array<string>):Promise<string>;
 
 export function StopActivePublish():Promise<boolean>;
+
+export function StopSingleTask(arg1:string,arg2:string):Promise<boolean>;
+
+export function StopTaskById(arg1:string):Promise<boolean>;

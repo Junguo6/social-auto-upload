@@ -37,6 +37,16 @@ func (e *Executor) StopActiveTask() bool {
 	return e.tracker.StopActiveTask()
 }
 
+// StopSingleTask 手动中止单个特定账号的子任务
+func (e *Executor) StopSingleTask(platform, account string) bool {
+	return e.tracker.StopSingleTask(platform, account)
+}
+
+// StopTaskById 手动根据 TaskId 中止子任务
+func (e *Executor) StopTaskById(taskId string) bool {
+	return e.tracker.StopTaskById(taskId)
+}
+
 // CheckAccount 检查账号登录凭证有效性
 func (e *Executor) CheckAccount(platform, account string) (bool, string) {
 	return e.account.CheckAccount(platform, account)
@@ -50,6 +60,11 @@ func (e *Executor) LoginAccount(platform, account string, headed bool, onEvent f
 // ExecMatrixPublish 执行全景矩阵差异化并发发布
 func (e *Executor) ExecMatrixPublish(param MatrixPublishParam, onEvent func(EngineEvent)) []AccountPublishResult {
 	return e.scheduler.ExecMatrixPublish(param, onEvent)
+}
+
+// ExecPipelinePublish 执行多协程泳道任务工作流发布
+func (e *Executor) ExecPipelinePublish(param PipelinePublishParam, onEvent func(EngineEvent)) []AccountPublishResult {
+	return e.scheduler.ExecPipelinePublish(param, onEvent)
 }
 
 // ExecBatchPublish 执行普通矩阵批量发布

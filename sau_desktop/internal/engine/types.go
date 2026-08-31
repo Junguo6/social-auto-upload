@@ -38,6 +38,7 @@ type PublishParam struct {
 
 // AccountPublishTask 单个账号的独立发布执行参数 (支持通用继承或专属独立覆盖)
 type AccountPublishTask struct {
+	TaskId             string   `json:"taskId"`             // 前端任务唯一 ID (用于日志与状态严格绑定)
 	Platform           string   `json:"platform"`           // 目标平台标识
 	Account            string   `json:"account"`            // 目标账号磁盘标识
 	Nickname           string   `json:"nickname"`           // 展示昵称 (用于日志打印)
@@ -64,6 +65,8 @@ type AccountPublishTask struct {
 	Bgm                string   `json:"bgm"`                // 背景音乐
 	Note               string   `json:"note"`               // 图文正文
 	Notef              string   `json:"notef"`              // 长正文文件路径
+	InitialDelaySeconds int     `json:"initialDelaySeconds"` // 任务执行前的前置防风控延时(秒)
+	DelaySeconds       int      `json:"delaySeconds"`       // 单步骤特定防风控延时(秒)，<=0时回退使用通道默认延时
 	Headless           bool     `json:"headless"`           // 静默无头模式
 }
 
@@ -105,6 +108,7 @@ type BatchPublishParam struct {
 
 // AccountPublishResult 单个账号发布执行结果
 type AccountPublishResult struct {
+	TaskId   string `json:"taskId"`
 	Platform string `json:"platform"`
 	Account  string `json:"account"`
 	Success  bool   `json:"success"`
@@ -113,7 +117,8 @@ type AccountPublishResult struct {
 
 // EngineEvent 引擎日志与状态事件
 type EngineEvent struct {
-	Type     string `json:"type"` // "log" | "error" | "success" | "progress"
+	Type     string `json:"type"` // "log" | "task_start" | "task_success" | "task_error"
+	TaskId   string `json:"taskId,omitempty"`
 	Platform string `json:"platform,omitempty"`
 	Account  string `json:"account,omitempty"`
 	Message  string `json:"message"`
@@ -178,5 +183,16 @@ type LoginResult struct {
 	Msg       string `json:"msg"`
 }
 
+// PipelineTaskLane 单个工作流并发协程通道 (泳道)
+type PipelineTaskLane struct {
+	LaneID            string               `json:"laneId"`
+	LaneName          string               `json:"laneName"`
+	Tasks             []AccountPublishTask `json:"tasks"`
+	DelayBetweenTasks int                  `json:"delayBetweenTasks"` // 串行任务间防风控延时(秒)
+	ScheduledAt       string               `json:"scheduledAt"`       // 通道计划执行时间
+}
 
-
+// PipelinePublishParam 多线程工作流发布参数
+type PipelinePublishParam struct {
+	Lanes []PipelineTaskLane `json:"lanes"`
+}

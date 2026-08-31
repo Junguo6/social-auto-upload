@@ -70,8 +70,8 @@ defineEmits<{
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 18px;
-  border-radius: 10px;
+  padding: 12px 22px;
+  border-radius: 12px;
   flex-shrink: 0;
   border: 1px solid var(--border-subtle);
   background: var(--bg-card);
@@ -81,23 +81,24 @@ defineEmits<{
 .topbar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .studio-logo-badge {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 18px;
+  font-size: 20px;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
 }
 
 .studio-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-main);
   display: flex;
@@ -106,8 +107,8 @@ defineEmits<{
 }
 
 .badge-pro {
-  font-size: 9px;
-  padding: 1px 5px;
+  font-size: 10px;
+  padding: 2px 6px;
   background: rgba(99, 102, 241, 0.15);
   border: 1px solid rgba(99, 102, 241, 0.35);
   color: #818cf8;
@@ -117,25 +118,25 @@ defineEmits<{
 }
 
 .studio-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
-  margin-top: 1px;
+  margin-top: 3px;
 }
 
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .glass-btn {
   background: var(--bg-detail);
   border: 1px solid var(--border-subtle);
   color: var(--text-main);
-  border-radius: 6px;
-  font-size: 12px;
-  height: 32px;
-  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 13px;
+  height: 34px;
+  padding: 0 14px;
   transition: all 0.2s ease;
 }
 

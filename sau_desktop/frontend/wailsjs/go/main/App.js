@@ -30,6 +30,10 @@ export function MatrixPublishMedia(arg1) {
   return window['go']['main']['App']['MatrixPublishMedia'](arg1);
 }
 
+export function PipelinePublishMedia(arg1) {
+  return window['go']['main']['App']['PipelinePublishMedia'](arg1);
+}
+
 export function PublishMedia(arg1) {
   return window['go']['main']['App']['PublishMedia'](arg1);
 }
@@ -40,4 +44,12 @@ export function SelectLocalFile(arg1, arg2) {
 
 export function StopActivePublish() {
   return window['go']['main']['App']['StopActivePublish']();
+}
+
+export function StopSingleTask(arg1, arg2) {
+  return window['go']['main']['App']['StopSingleTask'](arg1, arg2);
+}
+
+export function StopTaskById(arg1) {
+  return window['go']['main']['App']['StopTaskById'](arg1);
 }

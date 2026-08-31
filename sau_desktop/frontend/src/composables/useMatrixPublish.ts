@@ -124,17 +124,22 @@ export function useMatrixPublish() {
       rawTasks.push(task)
     }
 
-    // 提交到全局任务队列
-    const batchName = `${masterForm.title.slice(0, 18) || '矩阵发布'} (${rawTasks.length}个账号)`
+    // 提取视频源文件名
+    const videoFileName = masterForm.filePath ? masterForm.filePath.split(/[/\\]/).pop() || '' : ''
+    const defaultBatchTitle = masterForm.title.trim() || (videoFileName ? videoFileName.replace(/\.[^/.]+$/, '') : '矩阵发布')
+    const batchName = `${defaultBatchTitle.slice(0, 18)} (${rawTasks.length}个账号)`
+
     const batchId = taskStore.enqueueBatch({
       batchName,
+      videoFileName,
+      thumbnail: masterForm.thumbnail,
       rawTasks,
       concurrency
     })
 
     ElNotification({
       title: '发布任务已创建',
-      message: `已将 ${rawTasks.length} 个账号的发布任务加入后台执行队列。点击可前往「任务管理中心」查看实时进度。`,
+      message: `已将 ${rawTasks.length} 个账号的发布任务加入后台执行队列（已按防风控策略智能分流）。点击可前往「任务管理中心」查看实时进度。`,
       type: 'success',
       duration: 4500,
       onClick: () => {

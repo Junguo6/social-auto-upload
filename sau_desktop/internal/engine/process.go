@@ -10,12 +10,14 @@ import (
 type ProcessTracker struct {
 	ActiveCancel context.CancelFunc
 	ActiveCmds   map[*exec.Cmd]bool
+	TaskCmds     map[string]*exec.Cmd // key: platform:account
 	Mu           sync.Mutex
 }
 
 func NewProcessTracker() *ProcessTracker {
 	return &ProcessTracker{
 		ActiveCmds: make(map[*exec.Cmd]bool),
+		TaskCmds:   make(map[string]*exec.Cmd),
 	}
 }
 
@@ -47,7 +49,50 @@ func (pt *ProcessTracker) UnregisterCmd(cmd *exec.Cmd) {
 	delete(pt.ActiveCmds, cmd)
 }
 
-// StopActiveTask 手动中止当前全部正在运行的任务
+// RegisterTaskCmd 登记按账号颗粒度的子进程
+func (pt *ProcessTracker) RegisterTaskCmd(taskKey string, cmd *exec.Cmd) {
+	pt.Mu.Lock()
+	defer pt.Mu.Unlock()
+	pt.ActiveCmds[cmd] = true
+	pt.TaskCmds[taskKey] = cmd
+}
+
+// UnregisterTaskCmd 注销按账号颗粒度的子进程
+func (pt *ProcessTracker) UnregisterTaskCmd(taskKey string, cmd *exec.Cmd) {
+	pt.Mu.Lock()
+	defer pt.Mu.Unlock()
+	delete(pt.ActiveCmds, cmd)
+	delete(pt.TaskCmds, taskKey)
+}
+
+// StopSingleTask 手动中止单个特定账号的子任务 (仅杀死该进程，不影响通道后续任务及其他通道)
+func (pt *ProcessTracker) StopSingleTask(platform, account string) bool {
+	pt.Mu.Lock()
+	defer pt.Mu.Unlock()
+	taskKey := platform + ":" + account
+	if cmd, ok := pt.TaskCmds[taskKey]; ok && cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+		delete(pt.TaskCmds, taskKey)
+		delete(pt.ActiveCmds, cmd)
+		return true
+	}
+	return false
+}
+
+// StopTaskById 手动根据 TaskId 唯一标识精准杀死进程
+func (pt *ProcessTracker) StopTaskById(taskId string) bool {
+	pt.Mu.Lock()
+	defer pt.Mu.Unlock()
+	if cmd, ok := pt.TaskCmds[taskId]; ok && cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+		delete(pt.TaskCmds, taskId)
+		delete(pt.ActiveCmds, cmd)
+		return true
+	}
+	return false
+}
+
+// StopActiveTask 手动中止当前全部正在运行的任务 (全局中止)
 func (pt *ProcessTracker) StopActiveTask() bool {
 	pt.Mu.Lock()
 	defer pt.Mu.Unlock()

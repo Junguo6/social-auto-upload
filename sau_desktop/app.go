@@ -129,12 +129,49 @@ func (a *App) MatrixPublishMedia(param engine.MatrixPublishParam) ([]engine.Acco
 	return results, nil
 }
 
+// PipelinePublishMedia 多协程泳道任务工作流发布接口 (各线程通道并行，通道内卡片串行调度)
+func (a *App) PipelinePublishMedia(param engine.PipelinePublishParam) ([]engine.AccountPublishResult, error) {
+	if a.authMgr != nil {
+		if err := a.authMgr.RequirePublishAuth(); err != nil {
+			return nil, err
+		}
+	}
+
+	if a.executor == nil {
+		return nil, fmt.Errorf("引擎未正常加载")
+	}
+
+	results := a.executor.ExecPipelinePublish(param, func(evt engine.EngineEvent) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "sau-log", evt)
+		}
+	})
+
+	return results, nil
+}
+
 // StopActivePublish 手动中止当前正在运行的发布任务 (包括所有批量 Goroutines)
 func (a *App) StopActivePublish() bool {
 	if a.executor == nil {
 		return false
 	}
 	return a.executor.StopActiveTask()
+}
+
+// StopSingleTask 手动中止单个特定账号的子任务 (不影响同一通道后续任务及其它通道)
+func (a *App) StopSingleTask(platform, account string) bool {
+	if a.executor == nil {
+		return false
+	}
+	return a.executor.StopSingleTask(platform, account)
+}
+
+// StopTaskById 手动根据 TaskId 中止子任务 (不影响同一通道后续任务及其它通道)
+func (a *App) StopTaskById(taskId string) bool {
+	if a.executor == nil {
+		return false
+	}
+	return a.executor.StopTaskById(taskId)
 }
 
 // CheckAccountStatus 校验账号 Cookie 状态

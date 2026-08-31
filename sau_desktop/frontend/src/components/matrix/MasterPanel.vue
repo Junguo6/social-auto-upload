@@ -17,7 +17,7 @@
       <div class="form-section">
         <div class="section-label">
           <span class="label-text"><el-icon><Film /></el-icon> 作品类型与媒体素材</span>
-          <el-radio-group v-model="masterForm.action" size="small" class="media-type-switch">
+          <el-radio-group v-model="masterForm.action" class="media-type-switch">
             <el-radio-button value="upload-video">高清视频</el-radio-button>
             <el-radio-button value="upload-note">图文图集</el-radio-button>
           </el-radio-group>
@@ -39,8 +39,8 @@
 
           <div v-else class="upload-placeholder hover-lift" @click="chooseVideoFile">
             <div class="upload-icon-pulse"><el-icon><UploadFilled /></el-icon></div>
-            <div class="upload-text">点击浏览或拖入本地短视频</div>
-            <div class="upload-hint">支持 MP4, MOV, MKV, FLV 常见格式</div>
+            <div class="upload-text">点击浏览或拖入本地短视频文件</div>
+            <div class="upload-hint">支持 MP4, MOV, MKV, FLV 常见高清格式</div>
           </div>
         </div>
 
@@ -61,7 +61,7 @@
           <div v-else class="upload-placeholder hover-lift" @click="chooseImageFiles">
             <div class="upload-icon-pulse"><el-icon><PictureFilled /></el-icon></div>
             <div class="upload-text">点击添加本地图文笔记素材 (支持多图)</div>
-            <div class="upload-hint">支持 JPG, PNG, WEBP 高清图片</div>
+            <div class="upload-hint">支持 JPG, PNG, WEBP 等高清图片格式</div>
           </div>
         </div>
       </div>
@@ -103,53 +103,47 @@
         />
       </div>
 
-      <!-- 4. 全局标签话题 -->
+      <!-- 4. 全局话题标签 (Tags) -->
       <div class="form-section">
         <div class="section-label">
-          <span class="label-text"><el-icon><CollectionTag /></el-icon> 全局通用话题标签</span>
+          <span class="label-text"><el-icon><PriceTag /></el-icon> 全局通用热门话题 (以逗号分隔)</span>
         </div>
         <el-input 
           v-model="masterForm.tags" 
-          placeholder="以逗号隔开，如: 自媒体,AI黑科技,自动化工具,短视频"
+          placeholder="如：AI实测, 剪辑技巧, 涨粉干货" 
           clearable
           class="stylish-input"
         />
         <div class="tag-chips">
-          <span 
-            v-for="tag in commonTagPool" 
-            :key="tag" 
-            class="tag-chip hover-scale" 
-            @click="appendMasterTag(tag)"
-          >
-            + {{ tag }}
-          </span>
+          <span class="tag-chip" @click="appendMasterTag('#自媒体运营')">#自媒体运营</span>
+          <span class="tag-chip" @click="appendMasterTag('#爆款视频')">#爆款视频</span>
+          <span class="tag-chip" @click="appendMasterTag('#AI赋能')">#AI赋能</span>
+          <span class="tag-chip" @click="appendMasterTag('#创作者计划')">#创作者计划</span>
+          <span class="tag-chip" @click="appendMasterTag('#知识分享')">#知识分享</span>
         </div>
       </div>
 
-      <!-- 5. 全局主封面与发布时机 -->
+      <!-- 5. 全局通用主封面与定时发布 -->
       <div class="form-section form-row-2">
         <div class="form-col">
-          <div class="section-label"><span class="label-text"><el-icon><Picture /></el-icon> 全局主封面图</span></div>
-          <div class="cover-input-box">
-            <el-input 
-              v-model="masterForm.thumbnail" 
-              placeholder="留空自动抓取首帧"
-              clearable
-              class="stylish-input"
-            >
-              <template #append>
-                <el-button @click="chooseMasterCover"><el-icon><Picture /></el-icon></el-button>
-              </template>
-            </el-input>
+          <div class="section-label">
+            <span class="label-text"><el-icon><Picture /></el-icon> 全局通用主封面</span>
           </div>
+          <el-input v-model="masterForm.thumbnail" placeholder="选填：通用封面图片路径" clearable class="stylish-input">
+            <template #append>
+              <el-button @click="chooseMasterCover"><el-icon><FolderOpened /></el-icon></el-button>
+            </template>
+          </el-input>
         </div>
 
         <div class="form-col">
-          <div class="section-label"><span class="label-text"><el-icon><Clock /></el-icon> 发布时机</span></div>
+          <div class="section-label">
+            <span class="label-text"><el-icon><Clock /></el-icon> 全局定时发布</span>
+          </div>
           <el-date-picker 
             v-model="masterForm.schedule"
             type="datetime"
-            placeholder="留空为立即发布"
+            placeholder="留空则立即发布"
             value-format="YYYY-MM-DD HH:mm:ss"
             style="width: 100%"
             class="stylish-datepicker"
@@ -173,48 +167,48 @@ defineEmits<{
   (e: 'sync-all'): void
 }>()
 
-const commonTagPool = ['自媒体运营', 'AI工具分享', '短视频获客', '科技数码', '生活日常', '干货分享']
-
-const getFileName = (path: string) => {
-  if (!path) return ''
-  const parts = path.replace(/\\/g, '/').split('/')
-  return parts[parts.length - 1]
+const getFileName = (pathStr: string) => {
+  if (!pathStr) return ''
+  const parts = pathStr.split(/[/\\]/)
+  return parts[parts.length - 1] || pathStr
 }
 
 const chooseVideoFile = async () => {
   try {
-    const file = await SelectLocalFile('选择视频素材', ['*.mp4', '*.mov', '*.mkv', '*.flv', '*.avi'])
+    const file = await SelectLocalFile('选择本地发布视频文件', ['*.mp4', '*.mov', '*.mkv', '*.flv', '*.avi'])
     if (file) {
       props.masterForm.filePath = file
-      ElMessage.success(`已选择视频: ${getFileName(file)}`)
+      ElMessage.success(`已选择主视频素材`)
     }
   } catch (err: any) {
-    ElMessage.error(`选择文件失败: ${err.message || err}`)
+    ElMessage.error(`选择视频文件失败: ${err.message || err}`)
   }
 }
 
 const chooseImageFiles = async () => {
   try {
-    const file = await SelectLocalFile('选择图文图片素材', ['*.png', '*.jpg', '*.jpeg', '*.webp'])
+    const file = await SelectLocalFile('选择图文素材图片', ['*.png', '*.jpg', '*.jpeg', '*.webp'])
     if (file) {
-      props.masterForm.images.push(file)
-      ElMessage.success(`已添加图片: ${getFileName(file)}`)
+      if (!props.masterForm.images.includes(file)) {
+        props.masterForm.images.push(file)
+        ElMessage.success(`已添加图片素材`)
+      }
     }
   } catch (err: any) {
     ElMessage.error(`选择图片失败: ${err.message || err}`)
   }
 }
 
-const removeImage = (idx: number) => {
-  props.masterForm.images.splice(idx, 1)
+const removeImage = (index: number) => {
+  props.masterForm.images.splice(index, 1)
 }
 
 const chooseMasterCover = async () => {
   try {
-    const file = await SelectLocalFile('选择全局封面图片', ['*.png', '*.jpg', '*.jpeg', '*.webp'])
+    const file = await SelectLocalFile('选择全局通用封面图片', ['*.png', '*.jpg', '*.jpeg', '*.webp'])
     if (file) {
       props.masterForm.thumbnail = file
-      ElMessage.success(`已设置全局封面: ${getFileName(file)}`)
+      ElMessage.success(`已设置全局封面`)
     }
   } catch (err: any) {
     ElMessage.error(`选择封面失败: ${err.message || err}`)
@@ -222,11 +216,11 @@ const chooseMasterCover = async () => {
 }
 
 const appendMasterTag = (tag: string) => {
-  const clean = tag.replace(/^#/, '')
-  const currentTags = props.masterForm.tags ? props.masterForm.tags.split(',').map(t => t.trim()).filter(Boolean) : []
-  if (!currentTags.includes(clean)) {
-    currentTags.push(clean)
-    props.masterForm.tags = currentTags.join(',')
+  const cleanTag = tag.replace(/^#/, '')
+  const currentTags = props.masterForm.tags ? props.masterForm.tags.split(/[,，\s]+/).filter(Boolean) : []
+  if (!currentTags.includes(cleanTag)) {
+    currentTags.push(cleanTag)
+    props.masterForm.tags = currentTags.join(', ')
   }
 }
 </script>
@@ -235,65 +229,66 @@ const appendMasterTag = (tag: string) => {
 .master-panel {
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--border-subtle);
   background: var(--bg-card);
   backdrop-filter: blur(16px);
+  min-width: 0;
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 11px 16px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--border-subtle);
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(0, 0, 0, 0.08);
   flex-shrink: 0;
 }
 
 .panel-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-main);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
 }
 
 .badge-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
 }
 
 .master-dot {
-  background: #3b82f6;
-  box-shadow: 0 0 8px #3b82f6;
+  background: #6366f1;
+  box-shadow: 0 0 10px #6366f1;
 }
 
 .sync-all-btn {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .panel-scroll-content {
-  padding: 14px 16px;
+  padding: 18px 22px;
   overflow-y: auto;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 18px;
 }
 
 .form-section {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 8px;
 }
 
 .section-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
   display: flex;
@@ -304,12 +299,13 @@ const appendMasterTag = (tag: string) => {
 .label-text {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--text-main);
+  font-size: 13px;
 }
 
 .char-count {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
@@ -318,13 +314,13 @@ const appendMasterTag = (tag: string) => {
 }
 
 .media-picker-zone {
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .upload-placeholder {
   border: 1.5px dashed var(--border-highlight);
-  border-radius: 8px;
-  padding: 18px 12px;
+  border-radius: 10px;
+  padding: 24px 16px;
   text-align: center;
   background: rgba(255, 255, 255, 0.015);
   cursor: pointer;
@@ -337,35 +333,35 @@ const appendMasterTag = (tag: string) => {
 }
 
 .upload-icon-pulse {
-  font-size: 28px;
+  font-size: 32px;
   color: var(--primary-light);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .upload-text {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-main);
 }
 
 .upload-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 .picked-file-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 12px;
+  padding: 12px 16px;
   background: rgba(99, 102, 241, 0.08);
   border: 1px solid rgba(99, 102, 241, 0.25);
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 .file-icon-box {
-  font-size: 22px;
+  font-size: 26px;
   color: #818cf8;
   display: flex;
   align-items: center;
@@ -377,7 +373,7 @@ const appendMasterTag = (tag: string) => {
 }
 
 .file-name {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-main);
   white-space: nowrap;
@@ -386,29 +382,29 @@ const appendMasterTag = (tag: string) => {
 }
 
 .file-path {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 .image-list-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .image-item-card {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 8px;
+  gap: 6px;
+  padding: 6px 10px;
   background: var(--bg-detail);
   border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  font-size: 11px;
+  border-radius: 6px;
+  font-size: 12px;
   color: var(--text-main);
 }
 
@@ -420,11 +416,11 @@ const appendMasterTag = (tag: string) => {
 .add-img-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 6px;
+  padding: 6px 12px;
   border: 1px dashed var(--border-highlight);
-  border-radius: 5px;
-  font-size: 11px;
+  border-radius: 6px;
+  font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s;
@@ -438,14 +434,14 @@ const appendMasterTag = (tag: string) => {
 .tag-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 5px;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .tag-chip {
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 4px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 5px;
   background: var(--bg-detail);
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
@@ -462,6 +458,6 @@ const appendMasterTag = (tag: string) => {
 .form-row-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 14px;
 }
 </style>

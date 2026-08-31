@@ -418,8 +418,8 @@ onMounted(() => {
 }
 
 .top-nav {
-  height: 48px;
-  padding: 0 20px;
+  height: 52px;
+  padding: 0 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -434,7 +434,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .nav-breadcrumb .parent {
@@ -460,12 +460,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 10px;
-  border-radius: 14px;
+  padding: 4px 12px;
+  border-radius: 16px;
   background: rgba(59, 130, 246, 0.15);
   border: 1px solid rgba(59, 130, 246, 0.35);
   color: #60a5fa;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-decoration: none;
   transition: all 0.15s;
@@ -479,9 +479,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 10px;
+  padding: 4px 12px;
   border-radius: 16px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -508,7 +508,7 @@ onMounted(() => {
 
 .page-content {
   flex: 1;
-  padding: 16px 20px;
+  padding: 18px 24px;
   overflow: hidden;
   box-sizing: border-box;
 }

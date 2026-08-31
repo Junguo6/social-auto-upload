@@ -50,7 +50,6 @@
           <span class="switch-label">{{ currentEditingOverride.isCustomized ? '独立定制' : '实时跟随' }}</span>
           <el-switch
             v-model="currentEditingOverride.isCustomized"
-            size="small"
             style="--el-switch-on-color: #6366f1; --el-switch-off-color: #10b981;"
           />
         </div>
@@ -111,7 +110,7 @@
           </span>
         </div>
       </div>
-      <el-button size="small" type="primary" plain class="switch-custom-btn" @click="currentEditingOverride.isCustomized = true">
+      <el-button type="primary" plain class="switch-custom-btn" @click="currentEditingOverride.isCustomized = true">
         <el-icon><EditPen /></el-icon> 开启专属定制
       </el-button>
     </div>
@@ -350,7 +349,7 @@ const choosePlatformCover = async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--border-subtle);
   background: rgba(0, 0, 0, 0.03);
   flex-shrink: 0;
@@ -359,47 +358,48 @@ const choosePlatformCover = async () => {
 .custom-plat-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .plat-icon-circle {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 16px;
+  font-size: 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .title-meta .name-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .title-meta .name {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-main);
 }
 
 .account-tag-list {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-secondary);
-  background: rgba(255, 255, 255, 0.05);
-  padding: 1px 6px;
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 .breadcrumb-context {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
+  gap: 6px;
+  font-size: 12px;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .context-plat {
@@ -407,7 +407,7 @@ const choosePlatformCover = async () => {
 }
 
 .context-sep {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text-muted);
 }
 
@@ -421,9 +421,9 @@ const choosePlatformCover = async () => {
 }
 
 .custom-badge-pill {
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 3px;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
   background: rgba(99, 102, 241, 0.15);
   border: 1px solid rgba(99, 102, 241, 0.35);
   color: #818cf8;
@@ -432,9 +432,9 @@ const choosePlatformCover = async () => {
 }
 
 .inherit-badge-pill {
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 3px;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
   background: rgba(16, 185, 129, 0.1);
   border: 1px solid rgba(16, 185, 129, 0.25);
   color: #10b981;
@@ -445,31 +445,32 @@ const choosePlatformCover = async () => {
 .header-right-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .sync-action-btn {
-  font-size: 11px;
-  height: 28px;
-  border-radius: 5px;
+  font-size: 12px;
+  height: 32px;
+  border-radius: 6px;
 }
 
 .sync-switch-box {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .switch-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .account-segmented-dock {
   display: flex;
   align-items: center;
-  padding: 4px 12px;
-  background: rgba(0, 0, 0, 0.08);
+  padding: 6px 16px;
+  background: rgba(0, 0, 0, 0.06);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
@@ -477,7 +478,7 @@ const choosePlatformCover = async () => {
 .segmented-inner {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   overflow-x: auto;
   width: 100%;
 }
@@ -485,12 +486,12 @@ const choosePlatformCover = async () => {
 .account-pill-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: 5px;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
   background: var(--bg-detail);
   border: 1px solid var(--border-subtle);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s ease;
@@ -512,81 +513,81 @@ const choosePlatformCover = async () => {
 }
 
 .pill-name {
-  max-width: 120px;
+  max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dot-indicator {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: #818cf8;
 }
 
 .sync-preview-banner {
-  margin: 14px 16px;
-  padding: 14px 16px;
-  border-radius: 8px;
+  margin: 18px 20px;
+  padding: 16px 20px;
+  border-radius: 10px;
   background: rgba(16, 185, 129, 0.05);
   border: 1px solid rgba(16, 185, 129, 0.2);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .sync-banner-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .pulse-icon {
-  font-size: 18px;
+  font-size: 22px;
   color: #10b981;
 }
 
 .sync-banner-text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .sync-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: #10b981;
 }
 
 .sync-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
 .switch-custom-btn {
-  font-size: 11px;
-  height: 28px;
+  font-size: 12px;
+  height: 32px;
 }
 
 .custom-editor-scroll {
-  padding: 14px 16px;
+  padding: 18px 22px;
   overflow-y: auto;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .form-section {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 8px;
 }
 
 .section-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
   display: flex;
@@ -596,29 +597,30 @@ const choosePlatformCover = async () => {
 
 .label-text {
   color: var(--text-main);
+  font-size: 13px;
 }
 
 .form-row-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 14px;
 }
 
 .platform-exclusive-box {
   border: 1px solid var(--border-subtle);
   background: rgba(0, 0, 0, 0.12);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 10px;
+  padding: 14px 16px;
 }
 
 .exclusive-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: #818cf8;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .custom-reset-row {
