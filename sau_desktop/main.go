@@ -19,10 +19,10 @@ func main() {
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:     "Social Auto Upload - 矩阵自动化发布桌面端",
-		Width:     1380,
-		Height:    900,
-		MinWidth:  1024,
-		MinHeight: 700,
+		Width:     1580,
+		Height:    960,
+		MinWidth:  1200,
+		MinHeight: 780,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

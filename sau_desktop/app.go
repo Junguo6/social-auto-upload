@@ -108,6 +108,27 @@ func (a *App) BatchPublishMedia(param engine.BatchPublishParam) ([]engine.Accoun
 	return results, nil
 }
 
+// MatrixPublishMedia 全景矩阵差异化发布接口 (支持各平台/各账号独立定制参数与 Goroutines 并发调度)
+func (a *App) MatrixPublishMedia(param engine.MatrixPublishParam) ([]engine.AccountPublishResult, error) {
+	if a.authMgr != nil {
+		if err := a.authMgr.RequirePublishAuth(); err != nil {
+			return nil, err
+		}
+	}
+
+	if a.executor == nil {
+		return nil, fmt.Errorf("引擎未正常加载")
+	}
+
+	results := a.executor.ExecMatrixPublish(param, func(evt engine.EngineEvent) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "sau-log", evt)
+		}
+	})
+
+	return results, nil
+}
+
 // StopActivePublish 手动中止当前正在运行的发布任务 (包括所有批量 Goroutines)
 func (a *App) StopActivePublish() bool {
 	if a.executor == nil {

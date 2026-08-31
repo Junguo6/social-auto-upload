@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { BatchPublishMedia, StopActivePublish } from '../../wailsjs/go/main/App'
+import { BatchPublishMedia, MatrixPublishMedia, StopActivePublish } from '../../wailsjs/go/main/App'
 import { engine } from '../../wailsjs/go/models'
 
 export interface PublishTask {
@@ -21,7 +21,55 @@ export const usePublishStore = defineStore('publish', () => {
   // 记录当前矩阵批次中各个账号的状态映射 (key: `${platform}:${account}`)
   const batchAccountStates = ref<Record<string, 'pending' | 'running' | 'success' | 'failed'>>({})
 
-  // 执行矩阵并发批量发布 (支持全量高级参数)
+  // 执行全景矩阵差异化发布 (每个账号支持专属标题、封面与平台特性)
+  const executeMatrixPublish = async (params: {
+    concurrency: number
+    tasks: engine.AccountPublishTask[]
+  }) => {
+    isPublishing.value = true
+
+    // 初始化每个账号的状态为 running
+    const newStates: Record<string, 'pending' | 'running' | 'success' | 'failed'> = {}
+    params.tasks.forEach(t => {
+      newStates[`${t.platform}:${t.account}`] = 'running'
+    })
+    batchAccountStates.value = newStates
+
+    try {
+      const payload = engine.MatrixPublishParam.createFrom({
+        concurrency: params.concurrency,
+        tasks: params.tasks
+      })
+      const results = await MatrixPublishMedia(payload)
+
+      // 更新最终各账号结果
+      if (results && Array.isArray(results)) {
+        results.forEach((res: engine.AccountPublishResult) => {
+          const key = `${res.platform}:${res.account}`
+          batchAccountStates.value[key] = res.success ? 'success' : 'failed'
+
+          const matchedTask = params.tasks.find(t => t.platform === res.platform && t.account === res.account)
+
+          taskHistory.value.unshift({
+            id: String(Date.now() + Math.random()),
+            platform: res.platform,
+            account: res.account,
+            title: matchedTask?.title || '矩阵发布',
+            filePath: matchedTask?.filePath || '',
+            status: res.success ? 'success' : 'failed',
+            createdAt: new Date().toLocaleTimeString(),
+            errorMsg: res.errorMsg
+          })
+        })
+      }
+
+      return results || []
+    } finally {
+      isPublishing.value = false
+    }
+  }
+
+  // 执行矩阵并发批量发布 (向前兼容)
   const executeBatchPublish = async (params: {
     targets: Array<{ platform: string; account: string }>
     concurrency: number
@@ -52,7 +100,6 @@ export const usePublishStore = defineStore('publish', () => {
   }) => {
     isPublishing.value = true
 
-    // 初始化每个账号的状态为 running
     const newStates: Record<string, 'pending' | 'running' | 'success' | 'failed'> = {}
     params.targets.forEach(t => {
       newStates[`${t.platform}:${t.account}`] = 'running'
@@ -63,7 +110,6 @@ export const usePublishStore = defineStore('publish', () => {
       const payload = engine.BatchPublishParam.createFrom(params)
       const results = await BatchPublishMedia(payload)
 
-      // 更新最终各账号结果
       if (results && Array.isArray(results)) {
         results.forEach((res: engine.AccountPublishResult) => {
           const key = `${res.platform}:${res.account}`
@@ -96,6 +142,7 @@ export const usePublishStore = defineStore('publish', () => {
     isPublishing,
     taskHistory,
     batchAccountStates,
+    executeMatrixPublish,
     executeBatchPublish,
     cancelPublish
   }

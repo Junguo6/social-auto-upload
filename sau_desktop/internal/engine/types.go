@@ -36,7 +36,44 @@ type PublishParam struct {
 	Headless           bool     `json:"headless"`
 }
 
-// BatchPublishParam 矩阵批量发布参数
+// AccountPublishTask 单个账号的独立发布执行参数 (支持通用继承或专属独立覆盖)
+type AccountPublishTask struct {
+	Platform           string   `json:"platform"`           // 目标平台标识
+	Account            string   `json:"account"`            // 目标账号磁盘标识
+	Nickname           string   `json:"nickname"`           // 展示昵称 (用于日志打印)
+	Action             string   `json:"action"`             // upload-video / upload-note
+	FilePath           string   `json:"filePath"`           // 视频或主媒体文件路径
+	Images             []string `json:"images"`             // 图文模式下的图片路径数组
+	Title              string   `json:"title"`              // 该平台/账号专属标题
+	Desc               string   `json:"desc"`               // 该平台/账号专属描述
+	Tags               string   `json:"tags"`               // 该平台/账号专属标签
+	Thumbnail          string   `json:"thumbnail"`          // 专属主封面
+	ThumbnailLandscape string   `json:"thumbnailLandscape"` // 专属横版封面
+	ThumbnailPortrait  string   `json:"thumbnailPortrait"`  // 专属竖版封面
+	Tid                int      `json:"tid"`                // B站分区 ID
+	ShortTitle         string   `json:"shortTitle"`         // 短标题
+	Category           string   `json:"category"`           // 视频号分类
+	Draft              bool     `json:"draft"`              // 存为草稿
+	Schedule           string   `json:"schedule"`           // 定时发布
+	Declaration        string   `json:"declaration"`        // 合规/原创/AI声明
+	Collection         string   `json:"collection"`         // 专栏合集
+	ProductLink        string   `json:"productLink"`        // 带货商品链接
+	ProductTitle       string   `json:"productTitle"`       // 带货商品短标题
+	Visibility         string   `json:"visibility"`         // 可见性
+	Playlist           string   `json:"playlist"`           // 播放列表
+	Bgm                string   `json:"bgm"`                // 背景音乐
+	Note               string   `json:"note"`               // 图文正文
+	Notef              string   `json:"notef"`              // 长正文文件路径
+	Headless           bool     `json:"headless"`           // 静默无头模式
+}
+
+// MatrixPublishParam 矩阵全景差异化发布主请求参数
+type MatrixPublishParam struct {
+	Concurrency int                  `json:"concurrency"` // 最大并发 Goroutine 数 (默认 3)
+	Tasks       []AccountPublishTask `json:"tasks"`       // 各账号差异化发布任务列表
+}
+
+// BatchPublishParam 矩阵批量发布参数 (向前兼容)
 type BatchPublishParam struct {
 	Targets            []TargetAccount `json:"targets"`     // 批量目标账号列表
 	Concurrency        int             `json:"concurrency"` // 最大并发 Goroutine 数

@@ -41,25 +41,17 @@ fi
 
 echo "✅ 基础环境检测通过: Go, Node.js, npm, $PYTHON_CMD, Git"
 
-# 2. 检查并确保 Wails CLI 脚手架
+# 2. 检查并确保 Wails CLI 脚手架 (完全尊重用户系统已有版本，绝不擅自全局升级)
 GOPATH_BIN="$(go env GOPATH)/bin"
 export PATH="$GOPATH_BIN:$PATH"
 
 if ! command -v wails &> /dev/null; then
-    echo "📦 检测到未安装 Wails CLI，正在自动通过 Go 安装..."
+    echo "📦 检测到未安装 Wails CLI，正在协助安装..."
     go install github.com/wailsapp/wails/v2/cmd/wails@latest
     echo "✅ Wails CLI 安装完成！"
 else
     WAILS_RAW=$(wails version 2>/dev/null | head -n 1)
-    # Wails 2.8.x 存在 Go 1.22+ 类型解析 bug (package without types was imported)
-    if echo "$WAILS_RAW" | grep -qE "v2\.[0-8]\."; then
-        echo "⚠️ 检测到当前 Wails CLI ($WAILS_RAW) 版本偏旧，正在自动升级至最新版以兼容 Go 类型解析..."
-        go install github.com/wailsapp/wails/v2/cmd/wails@latest
-        hash -r 2>/dev/null || true
-        echo "✅ Wails CLI 升级完成！($(wails version 2>/dev/null | head -n 1))"
-    else
-        echo "✅ Wails CLI 已就绪 ($WAILS_RAW)"
-    fi
+    echo "✅ Wails CLI 已就绪 ($WAILS_RAW)"
 fi
 
 # 3. 配置文件初始化

@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import PublishCenter from '../views/PublishCenter.vue'
+import TaskCenter from '../views/TaskCenter.vue'
 import AccountList from '../views/AccountList.vue'
 import Dashboard from '../views/Dashboard.vue'
 import Settings from '../views/Settings.vue'
@@ -9,7 +10,13 @@ const routes = [
     path: '/',
     name: 'PublishCenter',
     component: PublishCenter,
-    meta: { title: '矩阵发布中心' }
+    meta: { title: '矩阵发布工作台' }
+  },
+  {
+    path: '/tasks',
+    name: 'TaskCenter',
+    component: TaskCenter,
+    meta: { title: '任务管理中心' }
   },
   {
     path: '/accounts',

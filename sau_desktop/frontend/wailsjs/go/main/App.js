@@ -26,6 +26,10 @@ export function LoginAccount(arg1, arg2, arg3) {
   return window['go']['main']['App']['LoginAccount'](arg1, arg2, arg3);
 }
 
+export function MatrixPublishMedia(arg1) {
+  return window['go']['main']['App']['MatrixPublishMedia'](arg1);
+}
+
 export function PublishMedia(arg1) {
   return window['go']['main']['App']['PublishMedia'](arg1);
 }

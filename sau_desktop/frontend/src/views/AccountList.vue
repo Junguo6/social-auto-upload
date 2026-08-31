@@ -112,6 +112,15 @@
             >
               检测状态
             </el-button>
+            <el-button 
+              size="small" 
+              type="warning" 
+              link 
+              :loading="acc.loading"
+              @click="handleQuickLogin(acc)"
+            >
+              重新登录
+            </el-button>
             <el-button size="small" type="danger" link @click="confirmDelete(acc.platform, acc.account)">
               解绑
             </el-button>
@@ -335,6 +344,20 @@ const confirmDelete = (platform: string, account: string) => {
     accountStore.removeAccount(platform, account)
     ElMessage.success('账号已成功解绑')
   }).catch(() => {})
+}
+
+const handleQuickLogin = async (acc: AccountItem) => {
+  acc.loading = true
+  try {
+    ElMessage.info(`正在为 [${acc.nickname || acc.account}] 拉起授权浏览器，请在弹出窗口中扫码...`)
+    const res: any = await accountStore.loginAccount(acc.platform, acc.account, acc.group, true)
+    const displayNick = res.nickname || res.account || acc.nickname || '账号'
+    ElMessage.success(`🎉 账号「${displayNick}」重新登录授权成功！`)
+  } catch (err: any) {
+    ElMessage.error(`重新登录失败: ${err.message || err}`)
+  } finally {
+    acc.loading = false
+  }
 }
 
 const handleStartLogin = async () => {

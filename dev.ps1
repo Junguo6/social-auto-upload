@@ -37,23 +37,17 @@ if (Get-Command "python" -ErrorAction SilentlyContinue) {
 
 Write-Host "✅ 基础环境检测通过: Go, Node.js, npm, $PYTHON_CMD, Git" -ForegroundColor Green
 
-# 2. 检查 Wails CLI
+# 2. 检查 Wails CLI (完全尊重用户系统已有版本，绝不擅自全局升级)
 $gopath = (go env GOPATH).Trim()
 $env:PATH = "$gopath\bin;$env:PATH"
 
 if (-not (Get-Command "wails" -ErrorAction SilentlyContinue)) {
-    Write-Host "📦 检测到未安装 Wails CLI，正在自动通过 Go 安装..." -ForegroundColor Yellow
+    Write-Host "📦 检测到未安装 Wails CLI，正在协助安装..." -ForegroundColor Yellow
     go install github.com/wailsapp/wails/v2/cmd/wails@latest
     Write-Host "✅ Wails CLI 安装完成！" -ForegroundColor Green
 } else {
     $wailsVer = (& wails version 2>$null | Select-Object -First 1)
-    if ($wailsVer -match "v2\.[0-8]\.") {
-        Write-Host "⚠️ 检测到当前 Wails CLI ($wailsVer) 版本偏旧，正在自动升级至最新版以兼容 Go 类型解析..." -ForegroundColor Yellow
-        go install github.com/wailsapp/wails/v2/cmd/wails@latest
-        Write-Host "✅ Wails CLI 升级完成！" -ForegroundColor Green
-    } else {
-        Write-Host "✅ Wails CLI 已就绪 ($wailsVer)" -ForegroundColor Green
-    }
+    Write-Host "✅ Wails CLI 已就绪 ($wailsVer)" -ForegroundColor Green
 }
 
 # 3. 配置文件初始化
