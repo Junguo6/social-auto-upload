@@ -136,3 +136,4 @@ sau_desktop/bin/
 sau_desktop/build/bin/
 sau_desktop/frontend/dist/
 sau_desktop/frontend/node_modules/
+*.md5
