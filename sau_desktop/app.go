@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sau_desktop/internal/auth"
 	"sau_desktop/internal/engine"
@@ -122,7 +123,11 @@ func (a *App) MatrixPublishMedia(param engine.MatrixPublishParam) ([]engine.Acco
 
 	results := a.executor.ExecMatrixPublish(param, func(evt engine.EngineEvent) {
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "sau-log", evt)
+			if evt.Type == "screencast_frame" {
+				runtime.EventsEmit(a.ctx, "sau-screencast", evt)
+			} else {
+				runtime.EventsEmit(a.ctx, "sau-log", evt)
+			}
 		}
 	})
 
@@ -143,7 +148,11 @@ func (a *App) PipelinePublishMedia(param engine.PipelinePublishParam) ([]engine.
 
 	results := a.executor.ExecPipelinePublish(param, func(evt engine.EngineEvent) {
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "sau-log", evt)
+			if evt.Type == "screencast_frame" {
+				runtime.EventsEmit(a.ctx, "sau-screencast", evt)
+			} else {
+				runtime.EventsEmit(a.ctx, "sau-log", evt)
+			}
 		}
 	})
 
@@ -174,6 +183,38 @@ func (a *App) StopTaskById(taskId string) bool {
 	return a.executor.StopTaskById(taskId)
 }
 
+// GetAccountRiskStatus 查询账号实时风控与健康度状态
+func (a *App) GetAccountRiskStatus(platform, account string) engine.RiskState {
+	if a.executor == nil {
+		return engine.RiskState{Platform: platform, Account: account}
+	}
+	return a.executor.GetAccountRiskStatus(platform, account)
+}
+
+// ResumeAccount 人工已核验处理，解除账号安全熔断状态
+func (a *App) ResumeAccount(platform, account string) bool {
+	if a.executor == nil {
+		return false
+	}
+	return a.executor.ResumeAccount(platform, account)
+}
+
+// GetRiskOverview 获取系统中全部账号的风控概览列表
+func (a *App) GetRiskOverview() []engine.RiskState {
+	if a.executor == nil {
+		return nil
+	}
+	return a.executor.GetRiskOverview()
+}
+
+// DetectBrowserStatus 获取当前浏览器环境诊断状态 (是否已就绪、内核类型与路径)
+func (a *App) DetectBrowserStatus() engine.BrowserEnvironmentInfo {
+	if a.executor == nil {
+		return engine.BrowserEnvironmentInfo{IsReady: false, Summary: "底层自动化引擎未就绪"}
+	}
+	return a.executor.DetectBrowserStatus()
+}
+
 // CheckAccountStatus 校验账号 Cookie 状态
 func (a *App) CheckAccountStatus(platform, account string) engine.AccountStatus {
 	if a.executor == nil {
@@ -202,6 +243,54 @@ func (a *App) LoginAccount(platform, account string, headed bool) (engine.LoginR
 		return res, err
 	}
 	return res, nil
+}
+
+// LoginAccountWithScreencast 使用应用内实时 CDP 画布投屏拉起扫码登录 (无需外部独立弹窗)
+func (a *App) LoginAccountWithScreencast(platform, account string) (engine.LoginResult, error) {
+	if a.executor == nil {
+		return engine.LoginResult{Success: false, Msg: "引擎未正常加载"}, fmt.Errorf("引擎未正常加载")
+	}
+	res, err := a.executor.LoginAccountWithScreencast(platform, account, func(evt engine.EngineEvent) {
+		if a.ctx != nil {
+			if evt.Type == "screencast_frame" {
+				runtime.EventsEmit(a.ctx, "sau-screencast", evt)
+			} else if evt.Type == "login_success" {
+				runtime.EventsEmit(a.ctx, "sau-login-success", evt)
+			} else {
+				runtime.EventsEmit(a.ctx, "sau-log", evt)
+			}
+		}
+	})
+	if err != nil {
+		return res, err
+	}
+	return res, nil
+}
+
+// SendBrowserInput 向正在运行的任务浏览器反向发送鼠标拖拽或键盘交互指令
+func (a *App) SendBrowserInput(taskId string, action string, inputType string, x, y int, button string, deltaX, deltaY int, key, text string) error {
+	if a.executor == nil {
+		return fmt.Errorf("引擎未正常加载")
+	}
+	cmdMap := map[string]interface{}{
+		"action": action,
+	}
+	if action == "mouse" {
+		cmdMap["type"] = inputType
+		cmdMap["x"] = x
+		cmdMap["y"] = y
+		cmdMap["button"] = button
+		if inputType == "mouseWheel" {
+			cmdMap["deltaX"] = deltaX
+			cmdMap["deltaY"] = deltaY
+		}
+	} else if action == "key" {
+		cmdMap["type"] = inputType
+		cmdMap["key"] = key
+		cmdMap["text"] = text
+	}
+	data, _ := json.Marshal(cmdMap)
+	return a.executor.SendBrowserInput(taskId, data)
 }
 
 // SelectLocalFile 打开本地原生文件选择对话框

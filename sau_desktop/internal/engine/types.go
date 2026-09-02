@@ -115,6 +115,16 @@ type AccountPublishResult struct {
 	ErrorMsg string `json:"errorMsg"`
 }
 
+// ScreencastFrame 实时浏览器渲染画面帧
+type ScreencastFrame struct {
+	TaskId          string  `json:"taskId"`
+	Data            string  `json:"data"` // JPEG base64 字符串
+	Width           int     `json:"width"`
+	Height          int     `json:"height"`
+	OffsetTop       float64 `json:"offsetTop"`
+	PageScaleFactor float64 `json:"pageScaleFactor"`
+}
+
 // EngineEvent 引擎日志与状态事件
 type EngineEvent struct {
 	Type     string `json:"type"` // "log" | "task_start" | "task_success" | "task_error"

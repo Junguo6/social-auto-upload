@@ -34,8 +34,26 @@ export interface PublishTask {
   completedAtTimestamp?: number // 完成时刻的毫秒级时间戳 (用于计算动态防风控间隔)
   duration?: number             // 执行耗时(秒)
   errorMsg?: string
+  riskCode?: string             // 命中的风控信号代码 (captcha / rate_limited / login_expired 等)
+  isPaused?: boolean            // 账号是否已被安全熔断
+  pauseReason?: string          // 熔断原因
   logs: TaskLogItem[]
   params: engine.AccountPublishTask // 完整下发参数快照
+}
+
+// 账号实时风控与健康度状态
+export interface RiskState {
+  platform: string
+  account: string
+  lastStartedAt: string
+  lastFinishedAt: string
+  hourlyCount: number
+  dailyCount: number
+  consecutiveFailures: number
+  cooldownUntil: string
+  lastRiskCode: string
+  paused: boolean
+  pauseReason: string
 }
 
 // 单个工作流并发协程通道 (Worker Lane)

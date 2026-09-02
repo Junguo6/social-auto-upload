@@ -2,15 +2,18 @@ package engine
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os/exec"
 	"sync"
 )
 
-// ProcessTracker 管理运行中的子进程与并发 Context
+// ProcessTracker 管理运行中的子进程、并发 Context 与 Stdin 双向输入管道
 type ProcessTracker struct {
 	ActiveCancel context.CancelFunc
 	ActiveCmds   map[*exec.Cmd]bool
-	TaskCmds     map[string]*exec.Cmd // key: platform:account
+	TaskCmds     map[string]*exec.Cmd       // key: platform:account 或 taskId
+	TaskStdin    map[string]io.WriteCloser  // key: platform:account 或 taskId
 	Mu           sync.Mutex
 }
 
@@ -18,6 +21,7 @@ func NewProcessTracker() *ProcessTracker {
 	return &ProcessTracker{
 		ActiveCmds: make(map[*exec.Cmd]bool),
 		TaskCmds:   make(map[string]*exec.Cmd),
+		TaskStdin:  make(map[string]io.WriteCloser),
 	}
 }
 
@@ -102,4 +106,36 @@ func (pt *ProcessTracker) StopActiveTask() bool {
 		return true
 	}
 	return false
+}
+
+// RegisterTaskStdin 注册指定任务的 stdin 写入管道
+func (pt *ProcessTracker) RegisterTaskStdin(key string, stdin io.WriteCloser) {
+	pt.Mu.Lock()
+	defer pt.Mu.Unlock()
+	pt.TaskStdin[key] = stdin
+}
+
+// UnregisterTaskStdin 注销指定任务的 stdin 写入管道
+func (pt *ProcessTracker) UnregisterTaskStdin(key string) {
+	pt.Mu.Lock()
+	defer pt.Mu.Unlock()
+	if w, ok := pt.TaskStdin[key]; ok && w != nil {
+		_ = w.Close()
+	}
+	delete(pt.TaskStdin, key)
+}
+
+// SendInput 向指定任务的子进程 stdin 写入反向交互 JSON 指令 (如鼠标点击、滑块拖动、按键)
+func (pt *ProcessTracker) SendInput(targetId string, data []byte) error {
+	pt.Mu.Lock()
+	defer pt.Mu.Unlock()
+
+	w, ok := pt.TaskStdin[targetId]
+	if !ok || w == nil {
+		return fmt.Errorf("stdin pipe not found for target: %s", targetId)
+	}
+
+	payload := append(data, '\n')
+	_, err := w.Write(payload)
+	return err
 }

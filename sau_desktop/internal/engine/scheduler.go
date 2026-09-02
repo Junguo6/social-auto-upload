@@ -14,18 +14,24 @@ type PublishScheduler struct {
 	runtime *RuntimeManager
 	builder *TaskArgsBuilder
 	tracker *ProcessTracker
+	risk    *RiskController
 }
 
-func NewPublishScheduler(runtime *RuntimeManager, builder *TaskArgsBuilder, tracker *ProcessTracker) *PublishScheduler {
+func NewPublishScheduler(runtime *RuntimeManager, builder *TaskArgsBuilder, tracker *ProcessTracker, risk *RiskController) *PublishScheduler {
 	return &PublishScheduler{
 		runtime: runtime,
 		builder: builder,
 		tracker: tracker,
+		risk:    risk,
 	}
 }
 
 // execSingleTask 抽取单个账号发布任务的核心执行逻辑
 func (s *PublishScheduler) execSingleTask(ctx context.Context, task AccountPublishTask, laneTag string, onEvent func(EngineEvent)) AccountPublishResult {
+	if s.risk != nil {
+		s.risk.OnTaskStart(task)
+	}
+
 	args := s.builder.BuildTaskArgs(task)
 	cmd := s.runtime.BuildCommand(ctx, args...)
 
@@ -34,10 +40,21 @@ func (s *PublishScheduler) execSingleTask(ctx context.Context, task AccountPubli
 	if task.TaskId != "" {
 		s.tracker.RegisterTaskCmd(task.TaskId, cmd)
 	}
+
+	stdin, err := cmd.StdinPipe()
+	if err == nil {
+		s.tracker.RegisterTaskStdin(taskKey, stdin)
+		if task.TaskId != "" {
+			s.tracker.RegisterTaskStdin(task.TaskId, stdin)
+		}
+	}
+
 	defer func() {
 		s.tracker.UnregisterTaskCmd(taskKey, cmd)
+		s.tracker.UnregisterTaskStdin(taskKey)
 		if task.TaskId != "" {
 			s.tracker.UnregisterTaskCmd(task.TaskId, cmd)
+			s.tracker.UnregisterTaskStdin(task.TaskId)
 		}
 	}()
 
@@ -80,9 +97,28 @@ func (s *PublishScheduler) execSingleTask(ctx context.Context, task AccountPubli
 		Message:  fmt.Sprintf("▶ %s 开始执行发布 (标题: %s)...", tagPrefix, task.Title),
 	})
 
+	var logLines []string
 	scanner := bufio.NewScanner(stdout)
+	buf := make([]byte, 1024*1024)
+	scanner.Buffer(buf, 10*1024*1024)
+
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// 拦截并转发 CDP 画面帧 (不计入字符日志列表)
+		if strings.HasPrefix(line, "[CDP_FRAME] ") {
+			framePayload := strings.TrimPrefix(line, "[CDP_FRAME] ")
+			onEvent(EngineEvent{
+				Type:     "screencast_frame",
+				TaskId:   task.TaskId,
+				Platform: task.Platform,
+				Account:  task.Account,
+				Message:  framePayload,
+			})
+			continue
+		}
+
+		logLines = append(logLines, line)
 		onEvent(EngineEvent{
 			Type:     "log",
 			TaskId:   task.TaskId,
@@ -98,6 +134,21 @@ func (s *PublishScheduler) execSingleTask(ctx context.Context, task AccountPubli
 		if strings.Contains(errMsg, "killed") {
 			errMsg = "任务被手动中止"
 		}
+
+		// 智能识别风险信号并更新账号风控状态
+		if s.risk != nil && !strings.Contains(errMsg, "手动中止") {
+			riskCode, paused := s.risk.OnTaskError(task, errMsg, logLines)
+			if paused {
+				onEvent(EngineEvent{
+					Type:     "risk_alert",
+					TaskId:   task.TaskId,
+					Platform: task.Platform,
+					Account:  task.Account,
+					Message:  fmt.Sprintf("⚠️ [%s:%s] 触发平台安全熔断 (%s)，已自动暂停该账号后续发布任务！", task.Platform, displayName, riskCode),
+				})
+			}
+		}
+
 		onEvent(EngineEvent{
 			Type:     "task_error",
 			TaskId:   task.TaskId,
@@ -112,6 +163,10 @@ func (s *PublishScheduler) execSingleTask(ctx context.Context, task AccountPubli
 			Success:  false,
 			ErrorMsg: errMsg,
 		}
+	}
+
+	if s.risk != nil {
+		s.risk.OnTaskSuccess(task)
 	}
 
 	onEvent(EngineEvent{
@@ -129,7 +184,7 @@ func (s *PublishScheduler) execSingleTask(ctx context.Context, task AccountPubli
 	}
 }
 
-// ExecMatrixPublish 执行全景矩阵差异化发布任务 (Goroutine 信号量池并发调度)
+// ExecMatrixPublish 执行全景矩阵差异化发布任务 (Goroutine 信号量池并发调度 + 全局准入与两级锁)
 func (s *PublishScheduler) ExecMatrixPublish(param MatrixPublishParam, onEvent func(EngineEvent)) []AccountPublishResult {
 	if param.Concurrency <= 0 {
 		param.Concurrency = 3
@@ -147,7 +202,7 @@ func (s *PublishScheduler) ExecMatrixPublish(param MatrixPublishParam, onEvent f
 
 	onEvent(EngineEvent{
 		Type:    "info",
-		Message: fmt.Sprintf("启动矩阵并发差异化发布任务 (目标账号数: %d, 最大并发限制: %d)...", total, param.Concurrency),
+		Message: fmt.Sprintf("启动矩阵并发差异化发布任务 (目标账号数: %d, 最大并发限制: %d, 已接入全局风控守门人)...", total, param.Concurrency),
 	})
 
 	sem := make(chan struct{}, param.Concurrency)
@@ -163,6 +218,7 @@ func (s *PublishScheduler) ExecMatrixPublish(param MatrixPublishParam, onEvent f
 				defer func() { <-sem }()
 			case <-ctx.Done():
 				results[idx] = AccountPublishResult{
+					TaskId:   task.TaskId,
 					Platform: task.Platform,
 					Account:  task.Account,
 					Success:  false,
@@ -171,7 +227,49 @@ func (s *PublishScheduler) ExecMatrixPublish(param MatrixPublishParam, onEvent f
 				return
 			}
 
+			// 0. 安全准入检查 (熔断/冷却/配额/内容防重)
+			if s.risk != nil {
+				pre := s.risk.PreflightCheck(task)
+				if !pre.Allowed {
+					onEvent(EngineEvent{
+						Type:     "task_error",
+						TaskId:   task.TaskId,
+						Platform: task.Platform,
+						Account:  task.Account,
+						Message:  fmt.Sprintf("⛔ [%s:%s] 任务安全准入未通过: %s", task.Platform, task.Account, pre.Reason),
+					})
+					results[idx] = AccountPublishResult{
+						TaskId:   task.TaskId,
+						Platform: task.Platform,
+						Account:  task.Account,
+						Success:  false,
+						ErrorMsg: pre.Reason,
+					}
+					return
+				}
+			}
+
+			// 两级全局锁 (账号锁 + 平台锁)
+			var unlock func()
+			if s.risk != nil {
+				var err error
+				unlock, err = s.risk.AcquireDualLocks(ctx, task.Platform, task.Account)
+				if err != nil {
+					results[idx] = AccountPublishResult{
+						TaskId:   task.TaskId,
+						Platform: task.Platform,
+						Account:  task.Account,
+						Success:  false,
+						ErrorMsg: "获取风控互斥锁失败或已取消",
+					}
+					return
+				}
+			}
+
 			results[idx] = s.execSingleTask(ctx, task, "", onEvent)
+			if unlock != nil {
+				unlock()
+			}
 		}(i, t)
 	}
 
@@ -237,23 +335,32 @@ func (s *PublishScheduler) ExecPipelinePublish(param PipelinePublishParam, onEve
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	// 平台级防风控互斥锁池 (保障不同平台完全并发，同平台任务跨泳道亦安全串行)
-	platformLocks := make(map[string]*sync.Mutex)
-	var locksMu sync.Mutex
-	getPlatLock := func(plat string) *sync.Mutex {
-		locksMu.Lock()
-		defer locksMu.Unlock()
-		if lk, ok := platformLocks[plat]; ok {
-			return lk
+	// 浏览器内核前置预检 (开箱即用保障，若缺少内核则直接阻断并友好提示)
+	if s.runtime != nil {
+		bInfo := s.runtime.DetectBrowserStatus()
+		if !bInfo.IsReady {
+			onEvent(EngineEvent{
+				Type:    "task_error",
+				Message: fmt.Sprintf("⛔ 浏览器运行环境预检未通过: %s", bInfo.Summary),
+			})
+			for _, l := range param.Lanes {
+				for _, t := range l.Tasks {
+					allResults = append(allResults, AccountPublishResult{
+						TaskId:   t.TaskId,
+						Platform: t.Platform,
+						Account:  t.Account,
+						Success:  false,
+						ErrorMsg: bInfo.Summary,
+					})
+				}
+			}
+			return allResults
 		}
-		lk := &sync.Mutex{}
-		platformLocks[plat] = lk
-		return lk
 	}
 
 	onEvent(EngineEvent{
 		Type:    "info",
-		Message: fmt.Sprintf("启动多线程任务工作流调度 (总线程泳道数: %d, 已启用平台级防风控安全锁)...", len(param.Lanes)),
+		Message: fmt.Sprintf("启动多线程任务工作流调度 (总线程泳道数: %d, 已启用全局 RiskController 两级安全锁)...", len(param.Lanes)),
 	})
 
 	for laneIdx, lane := range param.Lanes {
@@ -289,6 +396,30 @@ func (s *PublishScheduler) ExecPipelinePublish(param PipelinePublishParam, onEve
 					return
 				}
 
+				// 0. 安全准入前置检查 (Preflight: 熔断暂停/冷却倒计时/配额/24h内容防重)
+				if s.risk != nil {
+					pre := s.risk.PreflightCheck(task)
+					if !pre.Allowed {
+						onEvent(EngineEvent{
+							Type:     "task_error",
+							TaskId:   task.TaskId,
+							Platform: task.Platform,
+							Account:  task.Account,
+							Message:  fmt.Sprintf("⛔ [%s:%s] 任务安全准入未通过: %s", task.Platform, task.Account, pre.Reason),
+						})
+						mu.Lock()
+						allResults = append(allResults, AccountPublishResult{
+							TaskId:   task.TaskId,
+							Platform: task.Platform,
+							Account:  task.Account,
+							Success:  false,
+							ErrorMsg: pre.Reason,
+						})
+						mu.Unlock()
+						continue // 准入失败，安全跳过该任务，通道平稳继续
+					}
+				}
+
 				// 1. 如果该任务配置了前置防风控延时 (例如继承自上一轮已完成任务的时间间隔)，先执行前置安全倒计时
 				if task.InitialDelaySeconds > 0 {
 					if !waitWithCountdown(ctx, task.InitialDelaySeconds, "前置防风控保护", laneTag, onEvent, task.TaskId, task.Platform, task.Account) {
@@ -296,11 +427,21 @@ func (s *PublishScheduler) ExecPipelinePublish(param PipelinePublishParam, onEve
 					}
 				}
 
-				// 2. 平台级防风控锁保护 (避免同平台多账号在不同泳道同时发起调用)
-				platLock := getPlatLock(task.Platform)
-				platLock.Lock()
+				// 2. 两级全局排他锁保护 (先锁账号，再锁平台，跨泳道/跨批次完全互斥安全)
+				var unlock func()
+				if s.risk != nil {
+					var err error
+					unlock, err = s.risk.AcquireDualLocks(ctx, task.Platform, task.Account)
+					if err != nil {
+						return
+					}
+				}
+
 				res := s.execSingleTask(ctx, task, laneTag, onEvent)
-				platLock.Unlock()
+
+				if unlock != nil {
+					unlock()
+				}
 
 				mu.Lock()
 				allResults = append(allResults, res)
@@ -321,7 +462,7 @@ func (s *PublishScheduler) ExecPipelinePublish(param PipelinePublishParam, onEve
 						delayTime = 15 // 兜底默认 15 秒
 					}
 					if !res.Success {
-						delayTime = 2 // 异常或中止时仅做 2 秒缓冲即可继续下一个
+						delayTime = 6 // 异常失败时给予 6 秒安全避震冷却
 					}
 					if !waitWithCountdown(ctx, delayTime, "任务完成", laneTag, onEvent, task.TaskId, task.Platform, task.Account) {
 						return

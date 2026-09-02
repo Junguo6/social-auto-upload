@@ -1,194 +1,51 @@
 <template>
-  <div class="account-workspace">
-    <!-- 1. 顶部操作与筛选大栏 -->
-    <div class="header-section">
-      <div class="header-main">
-        <div class="title-box">
-          <h2 class="section-title">全网自媒体矩阵账号中心</h2>
-          <span class="section-subtitle">支持按平台分类与业务分组双重维度矩阵隔离与 Cookie 凭证检测</span>
-        </div>
+  <div class="account-browser-workspace">
+    <!-- 👈 左侧：矩阵账号通讯录侧边栏 (WeChat-style Contact List) -->
+    <div class="account-sidebar-pane">
+      <!-- 1. 顶部操作与搜索中枢 -->
+      <div class="sidebar-header-section">
+        <div class="sidebar-title-bar">
+          <div class="title-with-pill">
+            <span class="sidebar-title">矩阵账号通讯录</span>
+            <span class="account-count-badge">{{ accountStore.accounts.length }}</span>
+          </div>
 
-        <div class="header-actions">
-          <el-button size="default" type="info" plain @click="showGroupDialog = true">
-            <el-icon><FolderAdd /></el-icon>
-            <span>管理/新建业务分组</span>
-          </el-button>
-          <el-button size="default" type="primary" class="gradient-btn" @click="showLoginDialog = true">
+          <el-button 
+            size="small" 
+            type="primary" 
+            class="add-account-gradient-btn"
+            @click="openNewTab"
+          >
             <el-icon><Plus /></el-icon>
-            <span>扫码添加新平台账号</span>
+            <span>添加账号</span>
           </el-button>
         </div>
-      </div>
 
-      <!-- 双维度过滤卡片 -->
-      <div class="filter-control-card glass-card">
-        <!-- 维度一：平台快速切换胶囊 -->
-        <div class="filter-row">
-          <span class="filter-label">所属平台：</span>
-          <div class="platform-chips">
-            <div 
-              class="plat-chip" 
-              :class="{ active: currentPlatformFilter === 'all' }"
-              @click="currentPlatformFilter = 'all'"
-            >
-              <span>全部平台</span>
-              <el-tag size="small" type="info" round class="count-tag">{{ accountStore.accounts.length }}</el-tag>
-            </div>
-
-            <div 
-              v-for="plat in availablePlatforms" 
-              :key="plat.id"
-              class="plat-chip"
-              :class="{ active: currentPlatformFilter === plat.id }"
-              @click="currentPlatformFilter = plat.id"
-            >
-              <div class="mini-plat-icon" :style="{ background: plat.gradient }">
-                <el-icon><component :is="plat.icon" /></el-icon>
-              </div>
-              <span>{{ plat.name }}</span>
-              <el-tag size="small" type="info" round class="count-tag">{{ getPlatformCount(plat.id) }}</el-tag>
-            </div>
-          </div>
+        <!-- 搜索框 (适配亮色与暗色模式) -->
+        <div class="sidebar-search-box">
+          <el-input 
+            v-model="searchKeyword" 
+            placeholder="搜索昵称 / 账号 / UID..." 
+            prefix-icon="Search" 
+            clearable 
+            size="default"
+          />
         </div>
 
-        <!-- 维度二：业务矩阵分组与搜索 -->
-        <div class="filter-row sub-row">
-          <div class="group-tabs-wrap">
-            <span class="filter-label">业务分组：</span>
-            <el-radio-group v-model="currentGroupFilter" size="small">
-              <el-radio-button label="all">全部分组 ({{ accountStore.accounts.length }})</el-radio-button>
-              <el-radio-button 
-                v-for="grp in accountStore.groups" 
-                :key="grp" 
-                :label="grp"
-              >
-                {{ grp }} ({{ getGroupCount(grp) }})
-              </el-radio-button>
-            </el-radio-group>
-          </div>
-
-          <div class="search-box">
-            <el-input 
-              v-model="searchKeyword" 
-              placeholder="搜索账号名称..." 
-              prefix-icon="Search" 
-              clearable 
-              size="small"
-              style="width: 200px"
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 2. 账号卡片网格列表 -->
-    <div class="account-grid-container">
-      <div v-if="filteredAccounts.length === 0" class="empty-state glass-card">
-        <el-icon class="empty-icon"><UserFilled /></el-icon>
-        <span class="empty-title">未找到匹配条件的矩阵账号</span>
-        <span class="empty-desc">您可以点击上方「扫码添加新平台账号」绑定新矩阵账号</span>
-      </div>
-
-      <div 
-        v-for="acc in filteredAccounts" 
-        :key="acc.platform + acc.account"
-        class="account-card glass-card"
-        :style="{ '--plat-gradient': getPlatformStyle(acc.platform).gradient }"
-      >
-        <!-- 顶部平台标识与操作 -->
-        <div class="card-top">
-          <div class="plat-badge" :style="{ background: getPlatformStyle(acc.platform).gradient }">
-            <el-icon><component :is="getPlatformStyle(acc.platform).icon" /></el-icon>
-            <span class="plat-name">{{ getPlatformStyle(acc.platform).name }}</span>
-          </div>
-
-          <div class="card-actions">
-            <el-button 
-              size="small" 
-              type="primary" 
-              link 
-              :loading="acc.loading"
-              @click="checkStatus(acc)"
-            >
-              检测状态
-            </el-button>
-            <el-button 
-              size="small" 
-              type="warning" 
-              link 
-              :loading="acc.loading"
-              @click="handleQuickLogin(acc)"
-            >
-              重新登录
-            </el-button>
-            <el-button size="small" type="danger" link @click="confirmDelete(acc.platform, acc.account)">
-              解绑
-            </el-button>
-          </div>
-        </div>
-
-        <!-- 账号主体信息 -->
-        <div class="card-body">
-          <div class="account-name-title">{{ acc.nickname || acc.account }}</div>
-          <div class="account-meta">
-            <span class="status-dot" :class="acc.isValid ? 'valid' : 'invalid'"></span>
-            <span class="status-text">{{ acc.checked ? (acc.isValid ? '登录凭证有效' : '凭证失效需重新登录') : '待检测' }}</span>
-            <el-tag v-if="acc.finderUid" size="small" type="info" class="uid-tag">ID: {{ acc.finderUid }}</el-tag>
-          </div>
-        </div>
-
-        <!-- 底部业务分组快速分配下拉 -->
-        <div class="card-footer">
-          <div class="group-select-row">
-            <span class="footer-label">矩阵业务组:</span>
-            <el-select 
-              :model-value="acc.group || '默认分组'" 
-              size="small" 
-              style="width: 140px"
-              @change="(val: string) => accountStore.updateAccountGroup(acc.platform, acc.account, val)"
-            >
-              <el-option 
-                v-for="grp in accountStore.groups" 
-                :key="grp" 
-                :label="grp" 
-                :value="grp" 
-              />
-            </el-select>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 3. 扫码添加新账号弹窗 -->
-    <el-dialog 
-      v-model="showLoginDialog" 
-      title="扫码添加绑定新平台账号" 
-      width="480px"
-      append-to-body
-      destroy-on-close
-    >
-      <el-form label-position="top">
-        <el-form-item label="选择目标媒体平台">
-          <el-select v-model="loginForm.platform" placeholder="选择需要授权的平台" style="width: 100%">
+        <!-- 平台与业务双维度快速筛选 -->
+        <div class="sidebar-filter-bar">
+          <el-select v-model="currentPlatformFilter" size="small" style="width: 110px;">
+            <el-option label="全部平台" value="all" />
             <el-option 
-              v-for="p in PLATFORMS" 
-              :key="p.id" 
-              :label="p.name" 
-              :value="p.id"
+              v-for="plat in availablePlatforms" 
+              :key="plat.id" 
+              :label="plat.name" 
+              :value="plat.id" 
             />
           </el-select>
-        </el-form-item>
 
-        <el-form-item label="自定义账号别名 / 备注 (可选)">
-          <el-input 
-            v-model="loginForm.account" 
-            placeholder="选填：留空将全自动提取平台真实昵称与唯一UID" 
-            clearable
-          />
-        </el-form-item>
-
-        <el-form-item label="归属业务分组">
-          <el-select v-model="loginForm.group" style="width: 100%">
+          <el-select v-model="currentGroupFilter" size="small" style="flex: 1;">
+            <el-option label="全部分组" value="all" />
             <el-option 
               v-for="grp in accountStore.groups" 
               :key="grp" 
@@ -196,29 +53,372 @@
               :value="grp" 
             />
           </el-select>
-        </el-form-item>
 
-        <div class="login-tip">
-          <el-icon><InfoFilled /></el-icon>
-          <span>点击开始后将拉起 Chrome 浏览器页面，请使用对应 App 扫码登录，完成后将自动读取平台昵称并持久化凭证至本地。</span>
+          <el-tooltip content="管理/新建业务分组" placement="top">
+            <el-button size="small" type="info" plain circle @click="showGroupDialog = true">
+              <el-icon><FolderAdd /></el-icon>
+            </el-button>
+          </el-tooltip>
         </div>
-      </el-form>
+      </div>
 
-      <template #footer>
-        <el-button @click="showLoginDialog = false">取消</el-button>
-        <el-button type="primary" class="gradient-btn" :loading="isLoggingIn" @click="handleStartLogin">
-          拉起浏览器并扫码登录
-        </el-button>
-      </template>
-    </el-dialog>
+      <!-- 2. 账号联系人滚动列表 -->
+      <div class="sidebar-contact-list custom-scrollbar">
+        <!-- 空状态 -->
+        <div v-if="filteredAccounts.length === 0" class="contact-empty-state">
+          <el-icon class="empty-icon"><UserFilled /></el-icon>
+          <p class="empty-title">未找到匹配的矩阵账号</p>
+          <el-button size="small" type="primary" link @click="openNewTab">
+            接入新账号
+          </el-button>
+        </div>
 
+        <!-- 账号联系人单元 (微信项风格，深度适配浅色/暗黑主题) -->
+        <div 
+          v-for="acc in filteredAccounts" 
+          :key="acc.platform + ':' + acc.account"
+          class="contact-card-item"
+          :class="{ 'is-active': activeTabId === `${acc.platform}:${acc.account}` }"
+          @click="openAccountTab(acc)"
+        >
+          <!-- 头像模块：平台渐变背景 + 字母大写 Monogram + 右下平台微标 + 左上健康状态灯 -->
+          <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(acc.platform).gradient }">
+            <span class="avatar-char">{{ getAccountAvatarText(acc) }}</span>
+            <!-- 右下角平台微标 -->
+            <span class="avatar-plat-icon">
+              <el-icon><component :is="getPlatformStyle(acc.platform).icon" /></el-icon>
+            </span>
+            <!-- 左上角健康度状态呼吸指示灯 -->
+            <span 
+              class="avatar-status-dot" 
+              :class="acc.checked ? (acc.isValid ? 'is-valid' : 'is-invalid') : 'is-unchecked'"
+              :title="acc.checked ? (acc.isValid ? '登录凭证健康有效' : '登录凭证已失效') : '凭证待检测'"
+            ></span>
+          </div>
 
-    <!-- 4. 管理/新建分组弹窗 -->
+          <!-- 文本与状态信息 -->
+          <div class="contact-meta-content">
+            <div class="contact-first-row">
+              <span class="contact-name-text">{{ acc.nickname || acc.account }}</span>
+              <span class="contact-platform-tag" :style="{ color: getPlatformStyle(acc.platform).brandColor }">
+                {{ getPlatformStyle(acc.platform).name }}
+              </span>
+            </div>
+
+            <div class="contact-second-row">
+              <span class="contact-group-name">#{{ acc.group || '默认组' }}</span>
+              <span 
+                class="contact-status-label" 
+                :class="{ 'status-err': acc.checked && !acc.isValid, 'status-ok': acc.checked && acc.isValid }"
+              >
+                {{ acc.checked ? (acc.isValid ? '凭证有效' : '需重新扫码') : '待检测' }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 👉 右侧：完整拟真浏览器窗口 (Full-fledged Tabbed Browser Shell) -->
+    <div class="browser-window-pane">
+      <!-- 1. 顶部浏览器多标签页栏 (Chrome/Edge Style Tabs Bar) -->
+      <div class="browser-tab-bar">
+        <div class="tab-list-wrapper">
+          <div 
+            v-for="tab in openTabs" 
+            :key="tab.id"
+            class="browser-tab-item"
+            :class="{ 'active': activeTabId === tab.id }"
+            @click="activateTab(tab.id)"
+          >
+            <!-- 平台小图标 / Favicon -->
+            <span class="tab-favicon" v-if="tab.type === 'account'">
+              <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
+            </span>
+            <span class="tab-favicon tab-new-icon" v-else>
+              <el-icon><Compass /></el-icon>
+            </span>
+
+            <!-- 标签页标题 -->
+            <span class="tab-title">{{ tab.title }}</span>
+
+            <!-- 状态小绿点/红点 -->
+            <span 
+              v-if="tab.type === 'account' && tab.accountItem?.checked" 
+              class="tab-health-dot" 
+              :class="tab.accountItem?.isValid ? 'valid' : 'invalid'"
+            ></span>
+
+            <!-- 关闭标签页按钮 -->
+            <el-icon 
+              class="tab-close-btn" 
+              @click.stop="closeTab(tab.id)"
+              v-if="openTabs.length > 1"
+            >
+              <Close />
+            </el-icon>
+          </div>
+
+          <!-- 新建标签页按钮 (+) -->
+          <button class="new-tab-plus-btn" @click="openNewTab" title="打开新标签页 / 接入新账号">
+            <el-icon><Plus /></el-icon>
+          </button>
+        </div>
+
+        <!-- 视窗辅助控件 -->
+        <div class="browser-window-controls">
+          <span class="traffic-dot red" @click="closeCurrentTab" title="关闭当前标签"></span>
+          <span class="traffic-dot yellow" @click="isInteractive = !isInteractive" :title="isInteractive ? '已开启鼠标穿透' : '已关闭鼠标穿透'"></span>
+          <span class="traffic-dot green" title="浏览器状态良好"></span>
+        </div>
+      </div>
+
+      <!-- 2. 浏览器导航与地址工具栏 (Omnibox Navigation Bar) -->
+      <div class="browser-navigation-bar">
+        <!-- 导航按钮 -->
+        <div class="nav-button-group">
+          <button class="nav-icon-btn" title="后退" disabled>
+            <el-icon><Back /></el-icon>
+          </button>
+          <button class="nav-icon-btn" title="前进" disabled>
+            <el-icon><Right /></el-icon>
+          </button>
+          <button class="nav-icon-btn" @click="handleReloadPage" title="重新刷新网页">
+            <el-icon :class="{ 'is-loading': isStartingSession }"><Refresh /></el-icon>
+          </button>
+          <button class="nav-icon-btn" @click="handleGoHome" title="返回创作者首页">
+            <el-icon><HomeFilled /></el-icon>
+          </button>
+        </div>
+
+        <!-- 拟真 URL 地址栏 (Omnibox) -->
+        <div class="browser-omnibox">
+          <el-icon class="ssl-lock-icon"><Lock /></el-icon>
+          <span class="omnibox-url-text">{{ currentActiveTab?.url || 'sau://new-tab' }}</span>
+
+          <!-- 地址栏内部状态胶囊 -->
+          <div class="omnibox-badges" v-if="currentActiveTab?.type === 'account'">
+            <span class="platform-omnibox-tag" :style="{ background: getPlatformStyle(currentActiveTab.platform).gradient }">
+              {{ getPlatformStyle(currentActiveTab.platform).name }}
+            </span>
+            <el-tag 
+              size="small" 
+              :type="currentActiveTab.accountItem?.isValid ? 'success' : 'danger'" 
+              effect="dark" 
+              round
+              class="omnibox-status-tag"
+            >
+              {{ currentActiveTab.accountItem?.isValid ? '✅ 凭证正常' : '⚠️ 需重新扫码' }}
+            </el-tag>
+          </div>
+        </div>
+
+        <!-- 工具栏右侧操作按钮组 -->
+        <div class="browser-toolbar-actions">
+          <template v-if="currentActiveTab?.type === 'account' && currentActiveTab.accountItem">
+            <el-button 
+              size="small" 
+              type="primary" 
+              plain
+              :loading="currentActiveTab.accountItem.loading"
+              @click="checkStatus(currentActiveTab.accountItem)"
+            >
+              <el-icon><Search /></el-icon>
+              <span>检测凭证</span>
+            </el-button>
+
+            <el-button 
+              size="small" 
+              type="warning" 
+              class="relogin-toolbar-btn"
+              :loading="currentActiveTab.isStartingSession"
+              @click="startScreencastForTab(currentActiveTab)"
+            >
+              <el-icon><RefreshRight /></el-icon>
+              <span>{{ currentActiveTab.isSessionActive ? '重新载入' : '重新扫码' }}</span>
+            </el-button>
+
+            <el-button 
+              v-if="currentActiveTab.isSessionActive"
+              size="small" 
+              type="danger" 
+              plain
+              @click="stopSessionForTab(currentActiveTab)"
+            >
+              <el-icon><CircleClose /></el-icon>
+              <span>结束本次会话</span>
+            </el-button>
+
+            <el-tooltip :content="isInteractive ? '已开启双向鼠标反向操作' : '已禁用鼠标反向操作'" placement="top">
+              <el-button 
+                size="small" 
+                :type="isInteractive ? 'primary' : 'info'" 
+                link
+                @click="isInteractive = !isInteractive"
+              >
+                <el-icon><Pointer /></el-icon>
+                <span>{{ isInteractive ? '交互开' : '只读' }}</span>
+              </el-button>
+            </el-tooltip>
+
+            <el-button 
+              size="small" 
+              type="danger" 
+              link
+              @click="confirmDelete(currentActiveTab.platform, currentActiveTab.account)"
+            >
+              <el-icon><Delete /></el-icon>
+            </el-button>
+          </template>
+        </div>
+      </div>
+
+      <!-- 3. 浏览器视窗主内容区 (Browser Viewport) - 多标签各自拥有独立 DOM，切换时不销毁、不重新扫码 -->
+      <div class="browser-viewport-stage">
+        <div 
+          v-for="tab in openTabs" 
+          :key="tab.id"
+          v-show="activeTabId === tab.id"
+          class="tab-viewport-container"
+        >
+          <!-- A. 处于投屏/登录中：直接呈现高清实时 Canvas -->
+          <div v-if="tab.isSessionActive" class="live-canvas-fill">
+            <LiveBrowserCanvas 
+              :taskId="tab.taskId"
+              :title="`${tab.title} - 实时无头浏览器视窗`"
+            />
+          </div>
+
+          <!-- B. 待机状态：账号创作者中心就绪面板 -->
+          <div v-else-if="tab.type === 'account' && tab.accountItem" class="browser-standby-hub">
+            <div class="standby-card-content">
+              <div class="standby-brand-avatar" :style="{ background: getPlatformStyle(tab.platform).gradient }">
+                <span class="avatar-huge-char">{{ getAccountAvatarText(tab.accountItem) }}</span>
+                <span class="brand-sub-badge">
+                  <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
+                </span>
+              </div>
+
+              <h2 class="standby-account-title">{{ tab.accountItem.nickname || tab.accountItem.account }}</h2>
+              <div class="standby-meta-pills">
+                <el-tag size="default" :type="tab.accountItem.isValid ? 'success' : 'danger'" effect="dark" round>
+                  {{ tab.accountItem.isValid ? '✅ 凭证正常 · 随时可执行矩阵任务' : '⚠️ 登录凭证已失效 · 请扫码更新' }}
+                </el-tag>
+                <el-tag size="default" type="info" round v-if="tab.accountItem.finderUid">
+                  UID: {{ tab.accountItem.finderUid }}
+                </el-tag>
+                <el-tag size="default" type="warning" round>
+                  分组: {{ tab.accountItem.group || '默认业务组' }}
+                </el-tag>
+              </div>
+
+              <p class="standby-intro-desc" v-if="tab.accountItem.isValid">
+                本账号登录状态健康，点击下方按钮即可在当前标签页拉起实时投屏，直接操作创作者后台或查看发布动态。切换标签页不会中断会话。
+              </p>
+              <p class="standby-intro-desc warning-text" v-else>
+                当前账号凭证已失效，点击下方按钮将立即拉起无头浏览器，二维码将实时呈现在当前标签页，手机扫码即可无缝完成绑定。
+              </p>
+
+              <div class="standby-action-launch">
+                <el-button 
+                  type="primary" 
+                  class="launch-stream-large-btn" 
+                  size="large"
+                  :loading="tab.isStartingSession"
+                  @click="startScreencastForTab(tab)"
+                >
+                  <el-icon><VideoPlay /></el-icon>
+                  <span>{{ tab.accountItem.isValid ? '启动创作者中心网页视窗' : '立即拉起扫码登录' }}</span>
+                </el-button>
+              </div>
+
+              <div class="standby-feature-tags">
+                <span>⚡ 20~30 FPS 高清实时投屏</span>
+                <span>🔒 本地加密持久化</span>
+                <span>🖱️ 切换标签页后台状态无缝保留</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- C. 新标签页 (New Tab) / 快速接入向导 -->
+          <div v-else class="browser-newtab-hub">
+            <div class="newtab-content-box">
+              <div class="newtab-logo-box">
+                <el-icon class="newtab-logo"><Compass /></el-icon>
+              </div>
+              <h2 class="newtab-heading">接入新自媒体平台账号</h2>
+              <p class="newtab-sub">选择您要接入的目标媒体平台，系统将自动拉起内嵌无头浏览器并在当前视窗实时呈现扫码页面：</p>
+
+              <!-- 平台选择卡片网格 -->
+              <div class="newtab-platforms-grid">
+                <div 
+                  v-for="plat in platformList" 
+                  :key="plat.id"
+                  class="newtab-platform-card"
+                  :class="{ 'selected': newTabSelectedPlatform === plat.id }"
+                  @click="newTabSelectedPlatform = plat.id"
+                >
+                  <div class="card-plat-icon" :style="{ background: plat.gradient }">
+                    <el-icon><component :is="plat.icon" /></el-icon>
+                  </div>
+                  <span class="card-plat-name">{{ plat.name }}</span>
+                </div>
+              </div>
+
+              <!-- 别名输入与启动按钮 -->
+              <div class="newtab-launch-form">
+                <div class="form-row">
+                  <span class="row-label">自定义账号别名:</span>
+                  <el-input 
+                    v-model="newTabAccountAlias" 
+                    placeholder="选填：留空自动读取平台真实昵称与UID" 
+                    size="default" 
+                    style="flex: 1;"
+                    clearable
+                  />
+                </div>
+
+                <div class="form-action-row">
+                  <el-button 
+                    type="primary" 
+                    class="launch-stream-large-btn" 
+                    size="default"
+                    :loading="tab.isStartingSession"
+                    @click="startNewTabLoginForTab(tab)"
+                  >
+                    <el-icon><VideoPlay /></el-icon>
+                    <span>立即拉起内嵌浏览器并扫码</span>
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. 浏览器底部状态栏 (Browser Status Footer) -->
+      <div class="browser-footer-bar" v-if="currentActiveTab?.isSessionActive">
+        <div class="footer-status-left">
+          <span class="active-pulse-dot"></span>
+          <span>{{ currentActiveTab.sessionStatusText }}</span>
+        </div>
+
+        <div class="footer-status-right">
+          <el-button size="small" type="danger" plain @click="stopSessionForTab(currentActiveTab)">
+            <el-icon><CircleClose /></el-icon>
+            <span>结束本次会话</span>
+          </el-button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 业务分组管理弹窗 -->
     <el-dialog
       v-model="showGroupDialog"
       title="业务矩阵分组管理"
       width="420px"
       append-to-body
+      destroy-on-close
     >
       <div class="group-dialog-body">
         <div class="new-group-input">
@@ -253,52 +453,63 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { PLATFORMS, getPlatformConfig } from '../config/platforms'
 import { useAccountStore, AccountItem } from '../stores/accountStore'
+import { LoginAccountWithScreencast, StopTaskById } from '../../wailsjs/go/main/App'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
+import LiveBrowserCanvas from '../components/matrix/LiveBrowserCanvas.vue'
 
 const accountStore = useAccountStore()
+
+// 浏览器标签页结构定义 (每个标签页独立维护自己的会话与画面状态)
+interface BrowserTab {
+  id: string // e.g. "douyin:account_1" 或 "new_tab_..."
+  type: 'account' | 'new'
+  title: string
+  platform: string
+  account: string
+  url: string
+  accountItem?: AccountItem
+  isSessionActive: boolean
+  isStartingSession: boolean
+  taskId: string
+  sessionStatusText: string
+}
+
+const openTabs = ref<BrowserTab[]>([])
+const activeTabId = ref<string>('')
 
 const currentPlatformFilter = ref('all')
 const currentGroupFilter = ref('all')
 const searchKeyword = ref('')
 
-const showLoginDialog = ref(false)
-const isLoggingIn = ref(false)
+const isInteractive = ref(true)
+
+const newTabSelectedPlatform = ref('douyin')
+const newTabAccountAlias = ref('')
+
 const showGroupDialog = ref(false)
 const newGroupName = ref('')
 
-const loginForm = reactive({
-  platform: 'douyin',
-  account: '',
-  group: '美食矩阵组'
+const platformList = computed(() => PLATFORMS)
+const availablePlatforms = computed(() => PLATFORMS)
+
+// 当前激活的标签页
+const currentActiveTab = computed<BrowserTab | null>(() => {
+  return openTabs.value.find(t => t.id === activeTabId.value) || openTabs.value[0] || null
 })
 
-const availablePlatforms = computed(() => {
-  return PLATFORMS
-})
-
-const getPlatformCount = (platId: string) => {
-  return accountStore.accounts.filter(a => a.platform === platId).length
-}
-
-const getGroupCount = (groupName: string) => {
-  return accountStore.accounts.filter(a => a.group === groupName).length
-}
-
-// 综合双维度筛选 + 关键字模糊匹配 (支持匹配昵称、UID或底层标识)
+// 筛选后的左侧账号列表
 const filteredAccounts = computed(() => {
   return accountStore.accounts.filter(acc => {
-    // 平台过滤
     if (currentPlatformFilter.value !== 'all' && acc.platform !== currentPlatformFilter.value) {
       return false
     }
-    // 矩阵分组过滤
     if (currentGroupFilter.value !== 'all' && acc.group !== currentGroupFilter.value) {
       return false
     }
-    // 搜索关键字
     if (searchKeyword.value) {
       const kw = searchKeyword.value.toLowerCase()
       const accMatch = acc.account.toLowerCase().includes(kw)
@@ -315,12 +526,162 @@ const getPlatformStyle = (platformId: string) => {
   return getPlatformConfig(platformId)
 }
 
+const getPlatformCreatorUrl = (platform: string) => {
+  switch (platform) {
+    case 'douyin': return 'https://creator.douyin.com/'
+    case 'xiaohongshu': return 'https://creator.xiaohongshu.com/'
+    case 'kuaishou': return 'https://cp.kuaishou.com/'
+    case 'tencent': return 'https://channels.weixin.qq.com/'
+    case 'bilibili': return 'https://member.bilibili.com/'
+    case 'weibo': return 'https://weibo.com/'
+    case 'baijiahao': return 'https://baijiahao.baidu.com/'
+    default: return 'https://creator.platform.com/'
+  }
+}
+
+const getAccountAvatarText = (acc: AccountItem) => {
+  const name = acc.nickname || acc.account || 'U'
+  return name.trim().slice(0, 1).toUpperCase()
+}
+
+// 激活某个标签页 (平滑切换视窗，保留后台各标签页的投屏连接，绝不关闭会话)
+const activateTab = (tabId: string) => {
+  activeTabId.value = tabId
+}
+
+// 左侧点击用户卡片：在右侧打开或切换到该用户的浏览器标签页！
+const openAccountTab = (acc: AccountItem) => {
+  const tabId = `${acc.platform}:${acc.account}`
+  const existing = openTabs.value.find(t => t.id === tabId)
+  if (existing) {
+    existing.accountItem = acc
+    existing.title = `${getPlatformConfig(acc.platform).name} - ${acc.nickname || acc.account}`
+    activeTabId.value = tabId
+  } else {
+    openTabs.value.push({
+      id: tabId,
+      type: 'account',
+      title: `${getPlatformConfig(acc.platform).name} - ${acc.nickname || acc.account}`,
+      platform: acc.platform,
+      account: acc.account,
+      url: getPlatformCreatorUrl(acc.platform),
+      accountItem: acc,
+      isSessionActive: false,
+      isStartingSession: false,
+      taskId: `login_${acc.platform}_${acc.account}`,
+      sessionStatusText: '等待启动会话...'
+    })
+    activeTabId.value = tabId
+  }
+}
+
+// 打开“新建标签页 / 接入新账号”
+const openNewTab = () => {
+  const newTabId = `new_tab_${Date.now()}`
+  openTabs.value.push({
+    id: newTabId,
+    type: 'new',
+    title: '新建标签页',
+    platform: newTabSelectedPlatform.value,
+    account: '',
+    url: 'sau://new-tab',
+    isSessionActive: false,
+    isStartingSession: false,
+    taskId: `login_new_${Date.now()}`,
+    sessionStatusText: '就绪'
+  })
+  activeTabId.value = newTabId
+}
+
+// 关闭标签页
+const closeTab = async (tabId: string) => {
+  const idx = openTabs.value.findIndex(t => t.id === tabId)
+  if (idx !== -1) {
+    const tabToClose = openTabs.value[idx]
+    if (tabToClose.isSessionActive && tabToClose.taskId) {
+      await StopTaskById(tabToClose.taskId)
+    }
+    openTabs.value.splice(idx, 1)
+    if (activeTabId.value === tabId) {
+      if (openTabs.value.length > 0) {
+        const nextTab = openTabs.value[Math.max(0, idx - 1)]
+        activeTabId.value = nextTab.id
+      } else {
+        openNewTab()
+      }
+    }
+  }
+}
+
+const closeCurrentTab = () => {
+  if (currentActiveTab.value) {
+    closeTab(currentActiveTab.value.id)
+  }
+}
+
+// 为指定标签页拉起无头投屏/扫码登录会话
+const startScreencastForTab = async (tab: BrowserTab) => {
+  const platform = tab.platform
+  const account = tab.account || 'auto'
+  tab.taskId = `login_${platform}_${account}`
+  tab.isSessionActive = true
+  tab.isStartingSession = true
+  tab.sessionStatusText = '正在拉起后台无头浏览器并建立 CDP 画面流...'
+
+  try {
+    const res = await LoginAccountWithScreencast(platform, account)
+    if (res && res.success) {
+      tab.sessionStatusText = `🎉 会话已结束，账号 [${res.nickname || res.account}] 凭证已存盘`
+    } else {
+      tab.sessionStatusText = `会话已结束: ${res?.msg || '操作完成'}`
+    }
+  } catch (err: any) {
+    if (!String(err).includes('手动中止') && !String(err).includes('signal') && !String(err).includes('killed')) {
+      tab.sessionStatusText = `会话已结束: ${err?.message || err}`
+    }
+  } finally {
+    tab.isStartingSession = false
+    tab.isSessionActive = false
+  }
+}
+
+// 新标签页中发起接入
+const startNewTabLoginForTab = (tab: BrowserTab) => {
+  tab.platform = newTabSelectedPlatform.value
+  tab.account = newTabAccountAlias.value.trim() || 'auto'
+  startScreencastForTab(tab)
+}
+
+// 停止指定标签页的投屏会话
+const stopSessionForTab = async (tab: BrowserTab) => {
+  if (tab.taskId) {
+    await StopTaskById(tab.taskId)
+  }
+  tab.isSessionActive = false
+  tab.isStartingSession = false
+  tab.sessionStatusText = '会话已手动中止'
+  ElMessage.info(`已中止「${tab.title}」的浏览器会话`)
+}
+
+const handleReloadPage = () => {
+  if (currentActiveTab.value && currentActiveTab.value.type === 'account') {
+    startScreencastForTab(currentActiveTab.value)
+  }
+}
+
+const handleGoHome = () => {
+  if (currentActiveTab.value && currentActiveTab.value.type === 'account') {
+    currentActiveTab.value.url = getPlatformCreatorUrl(currentActiveTab.value.platform)
+  }
+}
+
+// 账号凭证检测
 const checkStatus = async (acc: AccountItem) => {
   try {
     await accountStore.checkAccount(acc)
-    const displayName = acc.nickname || acc.account || acc.finderUid || '当前账号'
+    const displayName = acc.nickname || acc.account || '当前账号'
     if (acc.isValid) {
-      ElMessage.success(`[${displayName}] 凭证状态有效`)
+      ElMessage.success(`[${displayName}] 凭证状态正常`)
     } else {
       ElMessage.warning(`[${displayName}] 凭证已失效: ${acc.msg || 'invalid'}`)
     }
@@ -329,6 +690,7 @@ const checkStatus = async (acc: AccountItem) => {
   }
 }
 
+// 解除账号绑定
 const confirmDelete = (platform: string, account: string) => {
   const accItem = accountStore.accounts.find(a => a.platform === platform && a.account === account)
   const displayName = accItem?.nickname || account
@@ -343,40 +705,11 @@ const confirmDelete = (platform: string, account: string) => {
   ).then(() => {
     accountStore.removeAccount(platform, account)
     ElMessage.success('账号已成功解绑')
+    closeTab(`${platform}:${account}`)
   }).catch(() => {})
 }
 
-const handleQuickLogin = async (acc: AccountItem) => {
-  acc.loading = true
-  try {
-    ElMessage.info(`正在为 [${acc.nickname || acc.account}] 拉起授权浏览器，请在弹出窗口中扫码...`)
-    const res: any = await accountStore.loginAccount(acc.platform, acc.account, acc.group, true)
-    const displayNick = res.nickname || res.account || acc.nickname || '账号'
-    ElMessage.success(`🎉 账号「${displayNick}」重新登录授权成功！`)
-  } catch (err: any) {
-    ElMessage.error(`重新登录失败: ${err.message || err}`)
-  } finally {
-    acc.loading = false
-  }
-}
-
-const handleStartLogin = async () => {
-  isLoggingIn.value = true
-  try {
-    ElMessage.info('已拉起授权浏览器，请在弹出窗口中完成扫码登录...')
-    const res: any = await accountStore.loginAccount(loginForm.platform, loginForm.account.trim(), loginForm.group, true)
-    const displayNick = res.nickname || res.account || loginForm.account || '新账号'
-    ElMessage.success(`🎉 账号「${displayNick}」授权登录成功，已自动保存凭证！`)
-    showLoginDialog.value = false
-    loginForm.account = ''
-  } catch (err: any) {
-    ElMessage.error(`登录异常: ${err.message || err}`)
-  } finally {
-    isLoggingIn.value = false
-  }
-}
-
-
+// 创建新业务分组
 const handleCreateGroup = () => {
   if (!newGroupName.value.trim()) {
     ElMessage.warning('请输入分组名称')
@@ -386,265 +719,875 @@ const handleCreateGroup = () => {
   ElMessage.success(`已创建矩阵分组「${newGroupName.value.trim()}」`)
   newGroupName.value = ''
 }
+
+let unlistenLoginSuccess: (() => void) | null = null
+
+// 初始化时：打开第一个账号标签页，若无账号则打开新标签页向导
+onMounted(() => {
+  if (accountStore.accounts.length > 0) {
+    openAccountTab(accountStore.accounts[0])
+  } else {
+    openNewTab()
+  }
+
+  // 监听后端即时上报的登录/凭证就绪事件（无头浏览器依然常驻运行，不关闭！）
+  try {
+    unlistenLoginSuccess = EventsOn('sau-login-success', (evt: any) => {
+      const platform = evt?.platform
+      const account = evt?.account || 'auto'
+      const taskId = evt?.taskId
+      const targetTab = openTabs.value.find(t => (taskId && t.taskId === taskId) || (t.platform === platform && (t.account === account || t.account === 'auto')))
+      if (targetTab) {
+        targetTab.sessionStatusText = `🟢 网页视窗运行中 · 账号 [${evt?.nickname || account}] 凭证正常`
+        targetTab.isStartingSession = false
+        targetTab.isSessionActive = true
+        targetTab.account = account
+        const updated = accountStore.saveLoggedInAccount(platform, account, evt?.nickname, evt?.finderUid)
+        targetTab.accountItem = updated
+        targetTab.title = `${getPlatformConfig(platform).name} - ${evt?.nickname || account}`
+      }
+      ElMessage.success(`🎉 账号 [${evt?.nickname || account}] 已连接！网页视窗保持运行中，您可自由浏览与查看个人资料。`)
+    })
+  } catch (err) {
+    console.error('EventsOn sau-login-success failed:', err)
+  }
+})
+
+onUnmounted(() => {
+  if (typeof unlistenLoginSuccess === 'function') {
+    unlistenLoginSuccess()
+  }
+})
+
+// 监听账号列表更新，同步更新标签页中 accountItem 的引用
+watch(() => accountStore.accounts, (newAccounts) => {
+  for (const tab of openTabs.value) {
+    if (tab.type === 'account') {
+      const found = newAccounts.find(a => `${a.platform}:${a.account}` === tab.id)
+      if (found) {
+        tab.accountItem = found
+        tab.title = `${getPlatformConfig(found.platform).name} - ${found.nickname || found.account}`
+      }
+    }
+  }
+  if (openTabs.value.length === 0) {
+    if (newAccounts.length > 0) {
+      openAccountTab(newAccounts[0])
+    } else {
+      openNewTab()
+    }
+  }
+})
 </script>
 
 <style scoped>
-.account-workspace {
-  max-width: 1200px;
-  margin: 0 auto;
+/* 一体化浏览器工作空间布局 */
+.account-browser-workspace {
   display: flex;
-  flex-direction: column;
-  gap: 20px;
+  gap: 14px;
+  width: 100%;
+  height: calc(100vh - 105px);
+  min-height: 640px;
+  overflow: hidden;
 }
 
-.header-section {
+/* 👈 左侧：矩阵通讯录侧边栏 (完美适配浅色/深色主题，杜绝白底下看不清文字) */
+.account-sidebar-pane {
+  width: 320px;
+  min-width: 320px;
+  max-width: 320px;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
 }
 
-.header-main {
+.sidebar-header-section {
+  padding: 12px 14px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-detail);
+}
+
+.sidebar-title-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.section-title {
+.title-with-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-main); /* 适配浅色为深黑，深色为纯白 */
+}
+
+.account-count-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--primary-color);
+}
+
+.add-account-gradient-btn {
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%) !important;
+  border: none !important;
+  font-weight: 700;
+}
+
+.sidebar-search-box {
+  width: 100%;
+}
+
+.sidebar-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 联系人滚动列表 */
+.sidebar-contact-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.contact-empty-state {
+  padding: 40px 14px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.contact-empty-state .empty-icon {
+  font-size: 36px;
+  color: var(--text-disabled);
+}
+
+.contact-empty-state .empty-title {
+  font-size: 13px;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+/* 单个账号联系人项 (微信同款，高对比度清晰排版) */
+.contact-card-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  position: relative;
+}
+
+.contact-card-item:hover {
+  background: var(--bg-detail);
+}
+
+.contact-card-item.is-active {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.contact-card-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: var(--primary-color);
+  box-shadow: 0 0 8px var(--primary-color);
+}
+
+/* 头像微模块 */
+.contact-avatar-wrapper {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.avatar-char {
+  font-size: 20px;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1;
+}
+
+.avatar-plat-icon {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: var(--primary-color);
+}
+
+.avatar-status-dot {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg-card);
+}
+
+.avatar-status-dot.is-valid {
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.avatar-status-dot.is-invalid {
+  background: #ef4444;
+  box-shadow: 0 0 6px #ef4444;
+}
+
+.avatar-status-dot.is-unchecked {
+  background: #94a3b8;
+}
+
+/* 文本信息 (高清晰度对比) */
+.contact-meta-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.contact-first-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.contact-name-text {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-main); /* 浅色为极清晰深色，暗黑为纯白 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-platform-tag {
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.contact-second-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.contact-group-name {
+  color: var(--text-secondary); /* 保证浅色模式清晰 */
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-status-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.contact-status-label.status-ok {
+  color: #10b981;
+  font-weight: 600;
+}
+
+.contact-status-label.status-err {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+/* 👉 右侧：完整拟真浏览器窗口 (Browser Window Pane) */
+.browser-window-pane {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+/* 1. Chrome 风格多标签栏 (Browser Tab Bar) */
+.browser-tab-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  min-height: 38px;
+  background: var(--bg-detail);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 10px 0 6px;
+  gap: 12px;
+}
+
+.tab-list-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  overflow-x: auto;
+  gap: 2px;
+}
+
+.tab-list-wrapper::-webkit-scrollbar {
+  display: none;
+}
+
+/* 单个浏览器标签页 (拟真 Chrome 标签页形态) */
+.browser-tab-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  max-width: 220px;
+  min-width: 120px;
+  padding: 0 12px;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.browser-tab-item:hover {
+  background: rgba(125, 125, 125, 0.08);
+  color: var(--text-main);
+}
+
+.browser-tab-item.active {
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-weight: 700;
+  border-color: var(--border-subtle);
+  border-bottom: 1px solid var(--bg-card);
+  margin-bottom: -1px;
+  z-index: 2;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.tab-favicon {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+}
+
+.tab-new-icon {
+  color: var(--primary-color);
+}
+
+.tab-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-health-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.tab-health-dot.valid {
+  background: #10b981;
+}
+
+.tab-health-dot.invalid {
+  background: #ef4444;
+}
+
+.tab-close-btn {
+  font-size: 11px;
+  border-radius: 50%;
+  padding: 2px;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+
+.tab-close-btn:hover {
+  background: rgba(125, 125, 125, 0.2);
+  color: #ef4444;
+}
+
+.new-tab-plus-btn {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 3px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.new-tab-plus-btn:hover {
+  background: rgba(125, 125, 125, 0.15);
+  color: var(--text-main);
+}
+
+.browser-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.traffic-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.traffic-dot.red { background: #ef4444; }
+.traffic-dot.yellow { background: #f59e0b; }
+.traffic-dot.green { background: #10b981; }
+
+/* 2. 浏览器导航与地址工具栏 (Omnibox Bar) */
+.browser-navigation-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+  gap: 12px;
+  z-index: 1;
+}
+
+.nav-button-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.nav-icon-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.nav-icon-btn:hover:not(:disabled) {
+  background: var(--bg-detail);
+  color: var(--text-main);
+}
+
+.nav-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* 拟真 Omnibox 地址栏 */
+.browser-omnibox {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-detail);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.browser-omnibox:focus-within {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.ssl-lock-icon {
+  color: #10b981;
+  font-size: 12px;
+}
+
+.omnibox-url-text {
+  flex: 1;
+  color: var(--text-main);
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.omnibox-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.platform-omnibox-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #ffffff;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.omnibox-status-tag {
+  height: 18px;
+  line-height: 18px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+
+.browser-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.relogin-toolbar-btn {
+  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%) !important;
+  border: none !important;
+  font-weight: 700;
+  color: #fff !important;
+}
+
+/* 3. 浏览器视窗主内容区 (Viewport Stage) */
+.browser-viewport-stage {
+  flex: 1;
+  position: relative;
+  background: var(--bg-app);
+  overflow: hidden;
+  display: flex;
+}
+
+.tab-viewport-container {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.live-canvas-fill {
+  width: 100%;
+  height: 100%;
+}
+
+/* 创作者中心就绪待机面板 */
+.browser-standby-hub {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.standby-card-content {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.standby-brand-avatar {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+  border: 3px solid var(--bg-card);
+}
+
+.avatar-huge-char {
+  font-size: 36px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.brand-sub-badge {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-color);
+  font-size: 13px;
+}
+
+.standby-account-title {
   margin: 0;
   font-size: 20px;
   font-weight: 800;
   color: var(--text-main);
 }
 
-.section-subtitle {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 4px;
-  display: block;
+.standby-meta-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
-.header-actions {
+.standby-intro-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.standby-intro-desc.warning-text {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.standby-action-launch {
+  width: 100%;
+  margin: 8px 0;
+}
+
+.launch-stream-large-btn {
+  width: 100%;
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%) !important;
+  border: none !important;
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);
+}
+
+.standby-feature-tags {
   display: flex;
   align-items: center;
   gap: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
-/* 双维度过滤卡片 */
-.filter-control-card {
-  padding: 16px 20px;
+/* 新标签页 (New Tab) 接入向导面板 */
+.browser-newtab-hub {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.newtab-content-box {
+  max-width: 520px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  border-radius: 12px;
-}
-
-.filter-row {
-  display: flex;
   align-items: center;
+  text-align: center;
   gap: 12px;
 }
 
-.filter-row.sub-row {
-  justify-content: space-between;
-  border-top: 1px dashed var(--border-subtle);
-  padding-top: 12px;
-}
-
-.group-tabs-wrap {
+.newtab-logo-box {
+  width: 68px;
+  height: 68px;
+  border-radius: 20px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.25);
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
 }
 
-.filter-label {
+.newtab-logo {
+  font-size: 36px;
+  color: var(--primary-color);
+}
+
+.newtab-heading {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.newtab-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.newtab-platforms-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  width: 100%;
+  margin: 6px 0;
+}
+
+.newtab-platform-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  background: var(--bg-detail);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.newtab-platform-card:hover {
+  border-color: var(--primary-color);
+  transform: translateY(-2px);
+}
+
+.newtab-platform-card.selected {
+  border-color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.card-plat-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 16px;
+}
+
+.card-plat-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.newtab-launch-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-detail);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row-label {
   font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary);
   white-space: nowrap;
 }
 
-.platform-chips {
+/* 4. 浏览器底部状态栏 */
+.browser-footer-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.plat-chip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  justify-content: space-between;
   padding: 6px 14px;
   background: var(--bg-detail);
-  border: 1px solid var(--border-subtle);
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.plat-chip:hover {
-  border-color: var(--border-highlight);
-}
-
-.plat-chip.active {
-  background: rgba(99, 102, 241, 0.12);
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
-}
-
-.mini-plat-icon {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 10px;
-}
-
-.count-tag {
-  height: 16px;
-  line-height: 16px;
-  padding: 0 5px;
-  font-size: 10px;
-}
-
-/* 账号卡片网格 */
-.account-grid-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-.empty-state {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-  text-align: center;
-}
-
-.empty-icon {
-  font-size: 48px;
-  color: var(--text-disabled);
-  margin-bottom: 12px;
-}
-
-.empty-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.empty-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 6px;
-}
-
-.account-card {
-  padding: 16px;
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  transition: all 0.2s ease;
-}
-
-.account-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-}
-
-.card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.plat-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.account-name-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-main);
-  margin-bottom: 4px;
-}
-
-.account-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
-.status-dot.valid {
-  background: var(--status-success);
-  box-shadow: 0 0 6px var(--status-success);
-}
-
-.status-dot.invalid {
-  background: var(--status-danger);
-  box-shadow: 0 0 6px var(--status-danger);
-}
-
-.status-text {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.card-footer {
   border-top: 1px solid var(--border-subtle);
-  padding-top: 10px;
+  font-size: 11px;
 }
 
-.group-select-row {
+.footer-status-left {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
+  color: var(--primary-color);
+  font-weight: 700;
 }
 
-.footer-label {
-  font-size: 11px;
-  color: var(--text-muted);
+.active-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
 }
 
-/* 弹窗样式 */
-.login-tip {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.2);
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  margin-top: 10px;
-}
-
+/* 分组管理弹窗 */
 .group-dialog-body {
   display: flex;
   flex-direction: column;

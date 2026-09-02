@@ -5,8 +5,36 @@ import sys
 from pathlib import Path
 
 def _resolve_default_browsers_path() -> str:
-    if os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
-        return os.environ["PLAYWRIGHT_BROWSERS_PATH"]
+    # 0. 优先尊重外部已显式指定的环境变量
+    custom_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if custom_path and Path(custom_path).exists():
+        return custom_path
+
+    # 1. 优先探测当前程序目录或安装包内置的绿色浏览器目录 (开箱即用，0 外部依赖)
+    candidate_bundled_dirs = [
+        Path.cwd() / "ms-playwright",
+        Path.cwd() / "bin" / "ms-playwright",
+        Path(__file__).parent / "ms-playwright",
+        Path(__file__).parent / "bin" / "ms-playwright",
+        Path(__file__).parent / "sau_desktop" / "bin" / "ms-playwright",
+    ]
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).parent
+        candidate_bundled_dirs.extend([
+            exe_dir / "ms-playwright",
+            exe_dir.parent / "Resources" / "ms-playwright",  # macOS .app/Contents/Resources
+            exe_dir / "_internal" / "ms-playwright",
+            exe_dir.parent / "ms-playwright",
+        ])
+
+    for b_dir in candidate_bundled_dirs:
+        try:
+            if b_dir.exists() and any(b_dir.glob("chromium*")):
+                return str(b_dir.resolve())
+        except Exception:
+            pass
+
+    # 2. 回退到用户系统的标准缓存目录 (~/Library/Caches/ms-playwright 或 %LOCALAPPDATA%/ms-playwright)
     if sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
     elif sys.platform == "darwin":
@@ -15,10 +43,12 @@ def _resolve_default_browsers_path() -> str:
         base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
     return str(Path(base) / "ms-playwright")
 
+
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = _resolve_default_browsers_path()
 
 import argparse
 import asyncio
+import json
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -800,6 +830,8 @@ def schedule_value(value: str):
 
 def add_runtime_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+    parser.add_argument("--screencast", action="store_true", help="Enable CDP live canvas screencast stream")
+    parser.add_argument("--task-id", default="", help="Associated task ID for screencast frame identification")
     headless_group = parser.add_mutually_exclusive_group()
     headless_group.add_argument("--headed", dest="headless", action="store_false", help="Run with browser UI")
     headless_group.add_argument("--headless", dest="headless", action="store_true", help="Run in headless mode")
@@ -1054,7 +1086,140 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+CREATOR_PLATFORM_URLS = {
+    "douyin": "https://creator.douyin.com/",
+    "xiaohongshu": "https://creator.xiaohongshu.com/",
+    "kuaishou": "https://cp.kuaishou.com/",
+    "tencent": "https://channels.weixin.qq.com/platform",
+    "bilibili": "https://member.bilibili.com/",
+    "weibo": "https://weibo.com/",
+    "baijiahao": "https://baijiahao.baidu.com/",
+}
+
+
+async def run_interactive_browser_session(platform: str, account_name: str, headless: bool = True) -> int:
+    """拉起内嵌长连接无头浏览器会话，支持扫码登录或直接浏览创作者后台，直到用户手动关闭。"""
+    account_file = resolve_account_file(platform, account_name)
+    creator_url = CREATOR_PLATFORM_URLS.get(platform, "https://creator.douyin.com/")
+
+    try:
+        from patchright.async_api import async_playwright
+    except ImportError:
+        from playwright.async_api import async_playwright
+
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(
+            headless=headless,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+        )
+        context_kwargs = {
+            "viewport": {"width": 1280, "height": 720}
+        }
+        if account_file.exists():
+            try:
+                context = await browser.new_context(storage_state=str(account_file), **context_kwargs)
+            except Exception:
+                context = await browser.new_context(**context_kwargs)
+        else:
+            context = await browser.new_context(**context_kwargs)
+
+        try:
+            from uploader.douyin_uploader.main import set_init_script
+            context = await set_init_script(context)
+        except Exception:
+            pass
+
+        page = await context.new_page()
+        sys.stdout.write(f"[CDP_INFO] Opening creator studio URL for {platform}: {creator_url}\n")
+        sys.stdout.flush()
+        try:
+            await page.goto(creator_url, wait_until="domcontentloaded")
+        except Exception as e:
+            sys.stderr.write(f"Warning navigating to {creator_url}: {e}\n")
+
+        login_notified = False
+        try:
+            while True:
+                if not login_notified:
+                    current_url = page.url
+                    is_logged_in = False
+                    if platform == "tencent":
+                        if "channels.weixin.qq.com" in current_url and "login.html" not in current_url:
+                            is_logged_in = True
+                    elif platform == "douyin":
+                        if "creator.douyin.com" in current_url and "login" not in current_url:
+                            is_logged_in = True
+                    elif platform == "xiaohongshu":
+                        if "creator.xiaohongshu.com" in current_url and "login" not in current_url:
+                            is_logged_in = True
+                    else:
+                        is_logged_in = "login" not in current_url.lower()
+
+                    if is_logged_in:
+                        extracted_nickname = ""
+                        extracted_uid = ""
+                        try:
+                            for sel in ["h2.finder-nickname", "div.side-bar-footer .account-info span.name", "span.name", "div.avatar-wrap + span"]:
+                                el = page.locator(sel).first
+                                if await el.count() and await el.is_visible():
+                                    t = (await el.inner_text()).strip()
+                                    if t and len(t) < 30:
+                                        extracted_nickname = t
+                                        break
+                        except Exception:
+                            pass
+
+                        try:
+                            uid_el = page.locator("span.finder-uniq-id, #finder-uid-copy").first
+                            if await uid_el.count():
+                                extracted_uid = (await uid_el.inner_text()).strip()
+                        except Exception:
+                            pass
+
+                        try:
+                            await context.storage_state(path=str(account_file))
+                        except Exception:
+                            pass
+
+                        meta_dict = {
+                            "success": True,
+                            "nickname": extracted_nickname or account_name,
+                            "finder_uid": extracted_uid,
+                            "account_name": account_name,
+                            "platform": platform
+                        }
+                        sys.stdout.write(f"{platform.capitalize()} login flow completed: {json.dumps(meta_dict, ensure_ascii=False)}\n")
+                        sys.stdout.flush()
+                        login_notified = True
+
+                await asyncio.sleep(1)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            pass
+        finally:
+            try:
+                await context.storage_state(path=str(account_file))
+            except Exception:
+                pass
+            await browser.close()
+
+    return 0
+
+
 async def dispatch(args: argparse.Namespace) -> int:
+    if getattr(args, "task_id", ""):
+        os.environ["CURRENT_TASK_ID"] = args.task_id
+    if getattr(args, "screencast", False):
+        os.environ["ENABLE_SCREENCAST"] = "1"
+        try:
+            from myUtils.cdp_screencast import install_global_screencast_hook
+            install_global_screencast_hook()
+        except Exception as e:
+            sys.stderr.write(f"Failed to install screencast hook: {e}\n")
+
+    # 桌面端内嵌无头浏览器长连接会话（支持扫码、自由操作、查看个人资料与数据，直到用户手动关闭）
+    if getattr(args, "screencast", False) and args.action == "login":
+        return await run_interactive_browser_session(args.platform, args.account, headless=args.headless)
+
     if args.platform == "douyin":
         if args.action == "login":
             result = await login_douyin_account(args.account, headless=args.headless)

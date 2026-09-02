@@ -1,13 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
-import { PipelinePublishMedia, StopActivePublish, StopSingleTask, StopTaskById } from '../../wailsjs/go/main/App'
+import { ElMessage, ElNotification } from 'element-plus'
+import { PipelinePublishMedia, StopActivePublish, StopSingleTask, StopTaskById, ResumeAccount, GetAccountRiskStatus, GetRiskOverview } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import { engine } from '../../wailsjs/go/models'
 import { useSettingsStore } from './settingsStore'
-import type { PublishTask, TaskBatch, TaskStatus, TaskLogItem, TaskLane } from '../types/task'
+import type { PublishTask, TaskBatch, TaskStatus, TaskLogItem, TaskLane, RiskState } from '../types/task'
 
-const STORAGE_KEY = 'sau_task_workflow_v7'
+const STORAGE_KEY = 'sau_task_workflow_v8'
 
 export const useTaskStore = defineStore('task', () => {
   const settingsStore = useSettingsStore()
@@ -230,6 +230,18 @@ export const useTaskStore = defineStore('task', () => {
           targetTask.completedAt = timeStr
           targetTask.completedAtTimestamp = Date.now()
           targetTask.errorMsg = cleanMsg
+          refreshAllLanesStatus()
+        } else if (type === 'risk_alert') {
+          targetTask.status = 'failed'
+          targetTask.isPaused = true
+          targetTask.pauseReason = cleanMsg
+          targetTask.errorMsg = cleanMsg
+          ElNotification({
+            title: '⚠️ 触发账号安全熔断',
+            message: cleanMsg,
+            type: 'warning',
+            duration: 9000
+          })
           refreshAllLanesStatus()
         }
         return
@@ -739,6 +751,40 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
+  // 13. 人工已处理，解除账号安全熔断状态并自动恢复队列
+  const resumeAccountRisk = async (platform: string, account: string) => {
+    try {
+      await ResumeAccount(platform, account)
+      tasks.value.forEach(t => {
+        if (t.platform === platform && t.account === account) {
+          t.isPaused = false
+          t.pauseReason = ''
+          if (t.status === 'failed' && (t.errorMsg?.includes('熔断') || t.errorMsg?.includes('准入'))) {
+            t.status = 'queued'
+            t.errorMsg = ''
+          }
+        }
+      })
+      lanes.value.forEach(l => {
+        l.tasks.forEach(t => {
+          if (t.platform === platform && t.account === account) {
+            t.isPaused = false
+            t.pauseReason = ''
+            if (t.status === 'failed' && (t.errorMsg?.includes('熔断') || t.errorMsg?.includes('准入'))) {
+              t.status = 'queued'
+              t.errorMsg = ''
+            }
+          }
+        })
+      })
+      refreshAllLanesStatus()
+      saveTasksToStorage()
+      ElMessage.success(`已成功解除 [${platform}:${account}] 的安全熔断，相关任务已重新排队`)
+    } catch (err: any) {
+      ElMessage.error(`解除熔断失败: ${err.message || err}`)
+    }
+  }
+
   return {
     tasks,
     batches,
@@ -769,6 +815,7 @@ export const useTaskStore = defineStore('task', () => {
     cancelWorkflow,
     cancelTask,
     retryTask,
+    resumeAccountRisk,
     clearFinishedTasks,
     clearAllTasks,
     saveTasksToStorage

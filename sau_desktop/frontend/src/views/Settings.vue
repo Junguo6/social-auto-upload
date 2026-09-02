@@ -70,6 +70,21 @@
               <el-input-number v-model="form.autoRetryCount" :min="0" :max="3" size="default" />
             </div>
           </div>
+
+          <div class="setting-item">
+            <div class="setting-meta">
+              <span class="title">自动化浏览器内核与运行环境</span>
+              <span class="desc">{{ browserInfo?.summary || '正在探测本地自动化浏览器内核环境...' }}</span>
+            </div>
+            <div class="setting-control" style="display: flex; align-items: center; gap: 8px;">
+              <el-tag :type="browserInfo?.isReady ? 'success' : 'danger'" size="default" effect="dark">
+                {{ browserInfo?.isReady ? (browserInfo.browserType === 'bundled_chromium' ? '✅ 内置绿色 Chromium' : '✅ 系统原生浏览器') : '❌ 未就绪' }}
+              </el-tag>
+              <el-button size="small" type="primary" link @click="checkBrowser">
+                <el-icon><RefreshRight /></el-icon> 重新检测
+              </el-button>
+            </div>
+          </div>
         </div>
       </el-card>
 
@@ -124,9 +139,10 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, onMounted } from 'vue'
+import { reactive, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Key } from '@element-plus/icons-vue'
+import { DetectBrowserStatus } from '../../wailsjs/go/main/App'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePublishStore } from '../stores/publishStore'
 import { useAuthStore } from '../stores/authStore'
@@ -134,6 +150,16 @@ import { useAuthStore } from '../stores/authStore'
 const settingsStore = useSettingsStore()
 const publishStore = usePublishStore()
 const authStore = useAuthStore()
+
+const browserInfo = ref<any>(null)
+
+const checkBrowser = async () => {
+  try {
+    browserInfo.value = await DetectBrowserStatus()
+  } catch (err) {
+    console.error('检测浏览器内核失败:', err)
+  }
+}
 
 const form = reactive({
   concurrency: 3,
@@ -147,6 +173,7 @@ onMounted(() => {
   form.headless = settingsStore.settings.headless
   form.autoRetryCount = settingsStore.settings.autoRetryCount
   form.chromePath = settingsStore.settings.chromePath
+  checkBrowser()
 })
 
 const handleSave = () => {

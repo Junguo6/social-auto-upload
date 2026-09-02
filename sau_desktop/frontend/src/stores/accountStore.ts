@@ -141,6 +141,43 @@ export const useAccountStore = defineStore('account', () => {
     return res
   }
 
+  // 刷新并从本地存储重新同步账号数据
+  const fetchAccounts = () => {
+    const saved = localStorage.getItem('sau_accounts')
+    if (saved) {
+      try {
+        accounts.value = JSON.parse(saved)
+      } catch (e) {}
+    }
+  }
+
+  // 快捷保存/更新刚登录成功的账号凭证
+  const saveLoggedInAccount = (platform: string, account: string, nickname?: string, finderUid?: string) => {
+    let exist = accounts.value.find(a => a.platform === platform && a.account === account)
+    if (!exist && finderUid) {
+      exist = accounts.value.find(a => a.platform === platform && a.finderUid === finderUid)
+    }
+    if (!exist) {
+      exist = {
+        platform,
+        account,
+        nickname: nickname || account,
+        finderUid: finderUid || '',
+        group: '默认分组',
+        isValid: true,
+        checked: true
+      }
+      accounts.value.push(exist)
+    } else {
+      exist.account = account
+      if (nickname) exist.nickname = nickname
+      if (finderUid) exist.finderUid = finderUid
+      exist.isValid = true
+      exist.checked = true
+    }
+    saveToStorage()
+    return exist
+  }
 
   return {
     groups,
@@ -151,6 +188,8 @@ export const useAccountStore = defineStore('account', () => {
     removeAccount,
     checkAccount,
     checkAllAccounts,
-    loginAccount
+    loginAccount,
+    fetchAccounts,
+    saveLoggedInAccount
   }
 })

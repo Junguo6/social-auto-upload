@@ -97,8 +97,30 @@
         </div>
       </div>
 
-      <!-- 3. 实时终端控制台 -->
-      <div class="terminal-container">
+      <!-- 2.5 视图模式切换: 实时画面 vs 终端日志 -->
+      <div class="view-mode-tabs">
+        <el-radio-group v-model="activeTab" size="small">
+          <el-radio-button label="live">
+            <el-icon><VideoCamera /></el-icon>
+            <span>📺 实时运行画面 (CDP)</span>
+          </el-radio-button>
+          <el-radio-button label="terminal">
+            <el-icon><Monitor /></el-icon>
+            <span>📄 终端标准输出日志</span>
+          </el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <!-- 3. 实时运行画面视窗 (CDP Canvas) -->
+      <div v-show="activeTab === 'live'" class="live-canvas-wrapper">
+        <LiveBrowserCanvas 
+          :taskId="task?.id"
+          :title="task ? `${task.platform} - ${task.nickname || task.account} 运行监视器` : '全局浏览器监视器'"
+        />
+      </div>
+
+      <!-- 4. 实时终端控制台 -->
+      <div v-show="activeTab === 'terminal'" class="terminal-container">
         <div class="terminal-header">
           <div class="header-left">
             <el-icon><Monitor /></el-icon>
@@ -139,6 +161,7 @@ import { ElMessage } from 'element-plus'
 import { getPlatformConfig } from '../../config/platforms'
 import { useTaskStore } from '../../stores/taskStore'
 import type { PublishTask, TaskLogItem } from '../../types/task'
+import LiveBrowserCanvas from './LiveBrowserCanvas.vue'
 
 const props = defineProps<{
   modelValue: boolean
@@ -150,6 +173,7 @@ defineEmits<{
 }>()
 
 const taskStore = useTaskStore()
+const activeTab = ref('live')
 const showParams = ref(false)
 const terminalBodyRef = ref<HTMLElement | null>(null)
 
@@ -444,6 +468,18 @@ watch(() => currentLogs.value.length, () => {
 .log-time {
   color: #64748b;
   margin-right: 8px;
+}
+
+.view-mode-tabs {
+  margin: 10px 0 6px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.live-canvas-wrapper {
+  height: 380px;
+  width: 100%;
+  margin-bottom: 12px;
 }
 
 .log-line.error .log-msg { color: #f87171; }

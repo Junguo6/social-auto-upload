@@ -261,6 +261,17 @@
                   <span class="card-title-text">{{ task.title }}</span>
                 </div>
 
+                <!-- 风险熔断与准入拦截横幅 -->
+                <div class="card-risk-banner" v-if="task.isPaused || task.errorMsg?.includes('熔断') || task.errorMsg?.includes('准入')">
+                  <el-icon class="risk-icon"><WarningFilled /></el-icon>
+                  <span class="risk-banner-text" :title="task.pauseReason || task.errorMsg">
+                    {{ task.pauseReason || task.errorMsg }}
+                  </span>
+                  <el-button size="small" type="danger" link @click.stop="taskStore.resumeAccountRisk(task.platform, task.account)">
+                    解除熔断
+                  </el-button>
+                </div>
+
                 <div class="card-footer-row">
                   <span class="card-status-pill" :class="task.status">
                     <el-icon v-if="task.status === 'running'" class="is-loading"><Loading /></el-icon>
@@ -1137,6 +1148,33 @@ const handleDropOnUnassigned = (_e: DragEvent) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.card-risk-banner {
+  margin-top: 3px;
+  padding: 2px 5px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  color: #f87171;
+}
+
+.risk-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+  color: #ef4444;
+}
+
+.risk-banner-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
 }
 
 .card-footer-row {

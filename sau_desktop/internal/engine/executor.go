@@ -8,6 +8,7 @@ type Executor struct {
 	builder   *TaskArgsBuilder
 	tracker   *ProcessTracker
 	account   *AccountManager
+	risk      *RiskController
 	scheduler *PublishScheduler
 }
 
@@ -20,16 +21,33 @@ func NewExecutor() (*Executor, error) {
 
 	builder := NewTaskArgsBuilder(rt.WorkDir)
 	tracker := NewProcessTracker()
-	account := NewAccountManager(rt)
-	scheduler := NewPublishScheduler(rt, builder, tracker)
+	account := NewAccountManager(rt, tracker)
+	risk := NewRiskController(rt.WorkDir)
+	scheduler := NewPublishScheduler(rt, builder, tracker, risk)
 
 	return &Executor{
 		runtime:   rt,
 		builder:   builder,
 		tracker:   tracker,
 		account:   account,
+		risk:      risk,
 		scheduler: scheduler,
 	}, nil
+}
+
+// GetAccountRiskStatus 获取指定账号的风控与健康度状态
+func (e *Executor) GetAccountRiskStatus(platform, account string) RiskState {
+	return e.risk.GetAccountRiskStatus(platform, account)
+}
+
+// ResumeAccount 人工解除指定账号的熔断状态
+func (e *Executor) ResumeAccount(platform, account string) bool {
+	return e.risk.ResumeAccount(platform, account)
+}
+
+// GetRiskOverview 获取系统中全部账号的风控概览
+func (e *Executor) GetRiskOverview() []RiskState {
+	return e.risk.GetRiskOverview()
 }
 
 // StopActiveTask 手动中止当前正在运行的全部任务 (单发或批处理)
@@ -47,6 +65,16 @@ func (e *Executor) StopTaskById(taskId string) bool {
 	return e.tracker.StopTaskById(taskId)
 }
 
+// SendBrowserInput 向正在运行的任务浏览器反向发送鼠标拖拽或按键指令
+func (e *Executor) SendBrowserInput(taskId string, data []byte) error {
+	return e.tracker.SendInput(taskId, data)
+}
+
+// DetectBrowserStatus 检查当前环境是否具备可运行的浏览器内核
+func (e *Executor) DetectBrowserStatus() BrowserEnvironmentInfo {
+	return e.runtime.DetectBrowserStatus()
+}
+
 // CheckAccount 检查账号登录凭证有效性
 func (e *Executor) CheckAccount(platform, account string) (bool, string) {
 	return e.account.CheckAccount(platform, account)
@@ -55,6 +83,11 @@ func (e *Executor) CheckAccount(platform, account string) (bool, string) {
 // LoginAccount 拉起界面/终端登录并自动解析账号昵称与 UID
 func (e *Executor) LoginAccount(platform, account string, headed bool, onEvent func(evt EngineEvent)) (LoginResult, error) {
 	return e.account.LoginAccount(platform, account, headed, onEvent)
+}
+
+// LoginAccountWithScreencast 拉起后台无头登录并实时抽取 CDP 画面帧流供应用内画布交互
+func (e *Executor) LoginAccountWithScreencast(platform, account string, onEvent func(evt EngineEvent)) (LoginResult, error) {
+	return e.account.LoginAccountWithScreencast(platform, account, onEvent)
 }
 
 // ExecMatrixPublish 执行全景矩阵差异化并发发布

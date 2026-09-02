@@ -9,11 +9,19 @@ export function BatchPublishMedia(arg1:engine.BatchPublishParam):Promise<Array<e
 
 export function CheckAccountStatus(arg1:string,arg2:string):Promise<engine.AccountStatus>;
 
+export function DetectBrowserStatus():Promise<engine.BrowserEnvironmentInfo>;
+
+export function GetAccountRiskStatus(arg1:string,arg2:string):Promise<engine.RiskState>;
+
 export function GetAuthOverview():Promise<auth.AuthOverview>;
 
 export function GetDeviceID():Promise<string>;
 
+export function GetRiskOverview():Promise<Array<engine.RiskState>>;
+
 export function LoginAccount(arg1:string,arg2:string,arg3:boolean):Promise<engine.LoginResult>;
+
+export function LoginAccountWithScreencast(arg1:string,arg2:string):Promise<engine.LoginResult>;
 
 export function MatrixPublishMedia(arg1:engine.MatrixPublishParam):Promise<Array<engine.AccountPublishResult>>;
 
@@ -21,7 +29,11 @@ export function PipelinePublishMedia(arg1:engine.PipelinePublishParam):Promise<A
 
 export function PublishMedia(arg1:engine.PublishParam):Promise<string>;
 
+export function ResumeAccount(arg1:string,arg2:string):Promise<boolean>;
+
 export function SelectLocalFile(arg1:string,arg2:Array<string>):Promise<string>;
+
+export function SendBrowserInput(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number,arg6:string,arg7:number,arg8:number,arg9:string,arg10:string):Promise<void>;
 
 export function StopActivePublish():Promise<boolean>;
 

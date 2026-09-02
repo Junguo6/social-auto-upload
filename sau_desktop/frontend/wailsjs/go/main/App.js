@@ -14,6 +14,14 @@ export function CheckAccountStatus(arg1, arg2) {
   return window['go']['main']['App']['CheckAccountStatus'](arg1, arg2);
 }
 
+export function DetectBrowserStatus() {
+  return window['go']['main']['App']['DetectBrowserStatus']();
+}
+
+export function GetAccountRiskStatus(arg1, arg2) {
+  return window['go']['main']['App']['GetAccountRiskStatus'](arg1, arg2);
+}
+
 export function GetAuthOverview() {
   return window['go']['main']['App']['GetAuthOverview']();
 }
@@ -22,8 +30,16 @@ export function GetDeviceID() {
   return window['go']['main']['App']['GetDeviceID']();
 }
 
+export function GetRiskOverview() {
+  return window['go']['main']['App']['GetRiskOverview']();
+}
+
 export function LoginAccount(arg1, arg2, arg3) {
   return window['go']['main']['App']['LoginAccount'](arg1, arg2, arg3);
+}
+
+export function LoginAccountWithScreencast(arg1, arg2) {
+  return window['go']['main']['App']['LoginAccountWithScreencast'](arg1, arg2);
 }
 
 export function MatrixPublishMedia(arg1) {
@@ -38,8 +54,16 @@ export function PublishMedia(arg1) {
   return window['go']['main']['App']['PublishMedia'](arg1);
 }
 
+export function ResumeAccount(arg1, arg2) {
+  return window['go']['main']['App']['ResumeAccount'](arg1, arg2);
+}
+
 export function SelectLocalFile(arg1, arg2) {
   return window['go']['main']['App']['SelectLocalFile'](arg1, arg2);
+}
+
+export function SendBrowserInput(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
+  return window['go']['main']['App']['SendBrowserInput'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
 export function StopActivePublish() {
