@@ -17,7 +17,7 @@ class CDPScreencastBridge:
         self._running = False
         self._input_task: Optional[asyncio.Task] = None
 
-    async def start(self, quality: int = 55, max_width: int = 1280, max_height: int = 720, target_fps: int = 18):
+    async def start(self, quality: int = 85, max_width: int = 1440, max_height: int = 900, target_fps: int = 20):
         try:
             # 兼容 patchright 与 playwright 的 new_cdp_session
             self.cdp = await self.page.context.new_cdp_session(self.page)
@@ -80,6 +80,24 @@ class CDPScreencastBridge:
                 "everyNthFrame": 1
             })
 
+            # 监听页面跨域跳转与刷新，自动重绑 Screencast 激活，防止扫码跳转后 Chromium 静默挂起卡死
+            async def _on_navigated(frame):
+                if not self._running or not self.cdp:
+                    return
+                try:
+                    if frame == self.page.main_frame:
+                        await self.cdp.send("Page.startScreencast", {
+                            "format": "jpeg",
+                            "quality": quality,
+                            "maxWidth": max_width,
+                            "maxHeight": max_height,
+                            "everyNthFrame": 1
+                        })
+                except Exception:
+                    pass
+
+            self.page.on("framenavigated", _on_navigated)
+
             # 启动 stdin 输入监听协程
             self._input_task = asyncio.create_task(self._listen_stdin())
             sys.stdout.write(f"[CDP_INFO] Screencast started successfully for task {self.task_id} (FPS: {target_fps})\n")
@@ -118,11 +136,11 @@ class CDPScreencastBridge:
         action = cmd.get("action")
 
         # 视口尺寸等比映射：将前端投屏画面坐标精确映射到 Chromium 内部网页视口坐标
-        vp = getattr(self.page, "viewport_size", None) or {"width": 1280, "height": 720}
-        vp_w = float(vp.get("width", 1280))
-        vp_h = float(vp.get("height", 720))
-        fw = float(getattr(self, "_frame_width", 1280) or 1280)
-        fh = float(getattr(self, "_frame_height", 720) or 720)
+        vp = getattr(self.page, "viewport_size", None) or {"width": 1440, "height": 900}
+        vp_w = float(vp.get("width", 1440))
+        vp_h = float(vp.get("height", 900))
+        fw = float(getattr(self, "_frame_width", 1440) or 1440)
+        fh = float(getattr(self, "_frame_height", 900) or 900)
         scale_x = vp_w / fw if fw > 0 else 1.0
         scale_y = vp_h / fh if fh > 0 else 1.0
 

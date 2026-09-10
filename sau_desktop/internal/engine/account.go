@@ -41,6 +41,11 @@ func (am *AccountManager) LoginAccount(platform, account string, headed bool, on
 	return am.loginInternal(platform, account, headed, false, onEvent)
 }
 
+// LoginAccountWithAppWindow 在原生系统拉起独立的纯净 Chrome App 沉浸式视窗 (4K 原生画质与 0 延迟，剥离地址栏)
+func (am *AccountManager) LoginAccountWithAppWindow(platform, account string, onEvent func(evt EngineEvent)) (LoginResult, error) {
+	return am.loginInternal(platform, account, true, false, onEvent)
+}
+
 // LoginAccountWithScreencast 在后台以无头模式拉起登录，并通过 CDP 实时抽取画面流供前端画布呈现与反向交互
 func (am *AccountManager) LoginAccountWithScreencast(platform, account string, onEvent func(evt EngineEvent)) (LoginResult, error) {
 	return am.loginInternal(platform, account, false, true, onEvent)
@@ -53,7 +58,7 @@ func (am *AccountManager) loginInternal(platform, account string, headed bool, s
 	loginTaskId := fmt.Sprintf("login_%s_%s", platform, account)
 	args := []string{platform, "login", "--account", account}
 	if headed {
-		args = append(args, "--headed")
+		args = append(args, "--headed", "--app-mode", "--task-id", loginTaskId)
 	} else {
 		args = append(args, "--headless")
 	}
@@ -110,60 +115,66 @@ func (am *AccountManager) loginInternal(platform, account string, headed bool, s
 		Message: fmt.Sprintf("▶ 开始登录流程 (内嵌实时投屏: %v): sau %s", screencast, strings.Join(args, " ")),
 	})
 
-	scanner := bufio.NewScanner(stdout)
-	// 设置 10MB 缓冲区，防止 base64 图片帧超出默认 64KB 限制
-	buf := make([]byte, 1024*1024)
-	scanner.Buffer(buf, 10*1024*1024)
+	reader := bufio.NewReaderSize(stdout, 1024*1024)
+	for {
+		lineBytes, err := reader.ReadBytes('\n')
+		if len(lineBytes) > 0 {
+			line := strings.TrimRight(string(lineBytes), "\r\n")
 
-	for scanner.Scan() {
-		line := scanner.Text()
+			// 捕获并分发 CDP 实时投屏帧，不污染普通日志抽屉
+			if strings.HasPrefix(line, "[CDP_FRAME] ") {
+				framePayload := strings.TrimPrefix(line, "[CDP_FRAME] ")
+				onEvent(EngineEvent{
+					Type:     "screencast_frame",
+					TaskId:   loginTaskId,
+					Platform: platform,
+					Account:  account,
+					Message:  framePayload,
+				})
+				if err != nil {
+					break
+				}
+				continue
+			}
 
-		// 捕获并分发 CDP 实时投屏帧，不污染普通日志抽屉
-		if strings.HasPrefix(line, "[CDP_FRAME] ") {
-			framePayload := strings.TrimPrefix(line, "[CDP_FRAME] ")
 			onEvent(EngineEvent{
-				Type:     "screencast_frame",
+				Type:     "log",
 				TaskId:   loginTaskId,
 				Platform: platform,
 				Account:  account,
-				Message:  framePayload,
-			})
-			continue
-		}
-
-		onEvent(EngineEvent{
-			Type:     "log",
-			TaskId:   loginTaskId,
-			Platform: platform,
-			Account:  account,
-			Message:  line,
-		})
-
-		// 匹配结构化登录元数据
-		if strings.Contains(line, "login flow completed") {
-			res.Success = true
-			if idx := strings.Index(line, "{"); idx != -1 {
-				jsonStr := line[idx:]
-				var meta map[string]interface{}
-				if jsonErr := json.Unmarshal([]byte(jsonStr), &meta); jsonErr == nil {
-					if nick, ok := meta["nickname"].(string); ok && nick != "" {
-						res.Nickname = nick
-					}
-					if uid, ok := meta["finder_uid"].(string); ok && uid != "" {
-						res.FinderUid = uid
-					}
-					if acc, ok := meta["account_name"].(string); ok && acc != "" {
-						res.Account = acc
-					}
-				}
-			}
-			onEvent(EngineEvent{
-				Type:     "login_success",
-				TaskId:   loginTaskId,
-				Platform: platform,
-				Account:  res.Account,
 				Message:  line,
 			})
+
+			// 匹配结构化登录元数据
+			if strings.Contains(line, "login flow completed") {
+				res.Success = true
+				if idx := strings.Index(line, "{"); idx != -1 {
+					jsonStr := line[idx:]
+					var meta map[string]interface{}
+					if jsonErr := json.Unmarshal([]byte(jsonStr), &meta); jsonErr == nil {
+						if nick, ok := meta["nickname"].(string); ok && nick != "" {
+							res.Nickname = nick
+						}
+						if uid, ok := meta["finder_uid"].(string); ok && uid != "" {
+							res.FinderUid = uid
+						}
+						if acc, ok := meta["account_name"].(string); ok && acc != "" {
+							res.Account = acc
+						}
+					}
+				}
+				onEvent(EngineEvent{
+					Type:     "login_success",
+					TaskId:   loginTaskId,
+					Platform: platform,
+					Account:  account,
+					Message:  line,
+				})
+			}
+		}
+
+		if err != nil {
+			break
 		}
 	}
 
@@ -174,8 +185,21 @@ func (am *AccountManager) loginInternal(platform, account string, headed bool, s
 		return res, waitErr
 	}
 
-	res.Success = true
-	res.Msg = "登录成功"
+	targetAcc := account
+	if res.Account != "" && res.Account != "auto" {
+		targetAcc = res.Account
+	}
+
+	// 终审仲裁：以原作者官方 check 命令结果作为最终事实依据
+	isValid, checkMsg := am.CheckAccount(platform, targetAcc)
+	if isValid {
+		res.Success = true
+		res.Msg = "登录成功且凭证有效"
+	} else {
+		res.Success = false
+		res.Msg = fmt.Sprintf("凭证未就绪或未检测到有效登录 (%s)", checkMsg)
+	}
+
 	if res.Nickname == "" || res.Nickname == "auto" {
 		if res.Account != "" && res.Account != "auto" {
 			res.Nickname = res.Account

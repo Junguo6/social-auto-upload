@@ -1,98 +1,122 @@
 <template>
-  <div class="matrix-studio-workspace">
-    <!-- 1. 顶部工作台状态与操作栏 -->
-    <StudioTopBar 
+  <div class="matrix-studio-workspace custom-scrollbar">
+    <!-- 1. 顶部操作栏与预设模板 -->
+    <StudioTopBar
       :saved-templates="savedTemplates"
       @template-command="handleTemplateCommand"
       @fill-demo="fillDemoContent"
       @reset-all="resetAllForm"
     />
 
-    <!-- 2. 主体左右双驱全景工作区 -->
-    <div class="studio-body">
-      <!-- ◀ 左侧：全局基础通用主模板 -->
-      <MasterPanel 
-        :master-form="masterForm"
-        @sync-all="syncAllPlatformsToMaster"
-      />
-
-      <!-- ▶ 右侧：矩阵账号与平台差异化调优 -->
-      <div class="matrix-panel glass-card">
-        <!-- 头部精简导航栏：账号选择触发器 -->
-        <div class="matrix-top-header">
-          <div class="header-summary-box">
-            <span class="badge-dot matrix-dot"></span>
-            <span class="summary-title">2. 矩阵平台与账号差异化调优</span>
-            <div class="target-account-badge" @click="showAccountModal = true">
-              <el-icon><UserFilled /></el-icon>
-              <span>已选 <strong>{{ selectedTargets.length }}</strong> 个有效矩阵账号 (覆盖 {{ activePlatformCount }} 个平台)</span>
-              <el-icon class="arrow-icon"><ArrowRight /></el-icon>
-            </div>
-          </div>
-
-          <div class="header-right-actions">
-            <el-button class="manage-accounts-btn gradient-btn-sm" type="primary" size="small" @click="showAccountModal = true">
-              <el-icon><Operation /></el-icon> 选择/调整矩阵账号
-            </el-button>
-          </div>
-        </div>
-
-        <!-- 现代极简平台图标 Dock 栏 (Icon Dock，智能跟随已选账号平台呈现) -->
-        <PlatformIconDock 
-          v-model="currentPlatformTab"
-          :platform-overrides="platformOverrides"
-          :selected-target-keys="selectedTargetKeys"
-          @open-account-modal="showAccountModal = true"
-        />
-
-        <!-- 选中平台的专属差异化配置卡片 (包含二级账号分段控制器与插件表单) -->
-        <PlatformCustomCard 
-          v-if="selectedTargets.length > 0 && currentPlatformTab"
-          :platform-id="currentPlatformTab"
-          :platform-override="currentPlatformOverride"
-          :account-overrides="accountOverrides"
-          :master-form="masterForm"
-          :account-list="currentPlatformAccounts"
-          @open-sync-modal="openSyncConfigModal"
-        />
-
-        <!-- 无选中账号时的空状态提示 -->
-        <div v-else class="matrix-empty-placeholder">
-          <div class="empty-glow-box">
-            <el-icon><UserFilled /></el-icon>
-          </div>
-          <div class="empty-title">当前尚未选择矩阵发布账号</div>
-          <div class="empty-sub">请先勾选需要发布的平台账号，系统将自动展示对应平台的专属差异化调优卡片</div>
-          <el-button type="primary" class="gradient-btn-matrix" @click="showAccountModal = true">
-            <el-icon><Operation /></el-icon> 立即选择矩阵账号
-          </el-button>
-        </div>
+    <!-- 步骤导航指示条 -->
+    <div class="step-guide-bar glass-card">
+      <div class="guide-step" :class="{ done: mediaList.length > 0, active: mediaList.length === 0 }">
+        <span class="step-num">{{ mediaList.length > 0 ? '✓' : '1' }}</span>
+        <span class="step-text">添加待发视频 ({{ mediaList.length }})</span>
+      </div>
+      <div class="step-connector"></div>
+      <div class="guide-step" :class="{ done: selectedAccountKeys.length > 0, active: mediaList.length > 0 && selectedAccountKeys.length === 0 }">
+        <span class="step-num">{{ selectedAccountKeys.length > 0 ? '✓' : '2' }}</span>
+        <span class="step-text">选择矩阵账号 ({{ selectedAccountKeys.length }})</span>
+      </div>
+      <div class="step-connector"></div>
+      <div class="guide-step" :class="{ done: !!masterForm.title, active: selectedAccountKeys.length > 0 && !masterForm.title }">
+        <span class="step-num">{{ masterForm.title ? '✓' : '3' }}</span>
+        <span class="step-text">规则与批量变量</span>
+      </div>
+      <div class="step-connector"></div>
+      <div class="guide-step" :class="{ active: mediaList.length > 0 && selectedAccountKeys.length > 0 }">
+        <span class="step-num">4</span>
+        <span class="step-text">透视矩阵确认</span>
       </div>
     </div>
 
-    <!-- 3. 底部常驻调度执行控制栏 (Dock Bar) -->
-    <StudioBottomDock 
-      v-model:concurrency="concurrency"
-      v-model:is-headless="isHeadless"
-      :active-platform-count="activePlatformCount"
-      :selected-count="selectedTargets.length"
-      @start="handleStartPublish"
-    />
+    <!-- 2. 主体工作区 (四步线性与矩阵流) -->
+    <div class="studio-content-flow">
+      <!-- 上半区：步骤 1 与 步骤 2 (双列并排) -->
+      <div class="two-col-grid">
+        <!-- 步骤 1: 待发视频素材清单 -->
+        <MediaListCard
+          v-model:media-list="mediaList"
+          v-model:selected-media-ids="selectedMediaIds"
+        />
 
-    <!-- 4. 弹窗：选择矩阵目标账号 (健康检测 + 业务分组) -->
-    <AccountSelectModal 
-      v-model="showAccountModal"
-      :selected-keys="selectedTargetKeys"
-      @select-platform="currentPlatformTab = $event"
-    />
+        <!-- 步骤 2: 目标矩阵账号选择 -->
+        <AccountCardPicker
+          v-model:selected-keys="selectedAccountKeys"
+        />
+      </div>
 
-    <!-- 5. 弹窗：跨账号/跨平台一键同步配置克隆器 -->
-    <SyncConfigModal 
+      <!-- 中间区：步骤 3 全局信息与批量变量规则 -->
+      <PublishRuleForm
+        v-model:master-form="masterForm"
+        v-model:rule-config="ruleConfig"
+        :media-list="activeMediaList"
+      />
+
+      <!-- 下半区：步骤 4 视频 × 账号双视角交叉透视矩阵 -->
+      <CrossPublishMatrix
+        :media-list="activeMediaList"
+        :selected-accounts="activeAccounts"
+        v-model:matrix-map="matrixMap"
+        :master-form="masterForm"
+        :rule-config="ruleConfig"
+        @open-sync="handleOpenSyncModal"
+      />
+    </div>
+
+    <!-- 3. 底部常驻调度执行控制 Dock -->
+    <div class="studio-bottom-bar glass-card">
+      <div class="summary-info">
+        <span class="summary-dot"></span>
+        <span class="summary-main">
+          已就绪 <strong>{{ activeMediaList.length }}</strong> 个待发视频 ·
+          共激活 <strong>{{ totalActivatedTaskCount }}</strong> 次独立发布 ·
+          涉及 <strong>{{ activeAccounts.length }}</strong> 个矩阵账号
+        </span>
+      </div>
+
+      <div class="dock-controls">
+        <div class="control-item">
+          <span class="control-label">并发 Goroutines:</span>
+          <el-input-number
+            v-model="concurrency"
+            :min="1"
+            :max="8"
+            size="small"
+            class="concurrency-input"
+          />
+        </div>
+
+        <div class="control-item">
+          <el-tooltip content="静默在后台以无头无窗模式运行浏览器发布" placement="top">
+            <el-switch
+              v-model="isHeadless"
+              active-text="静默无头执行"
+              inactive-text="前台可见"
+            />
+          </el-tooltip>
+        </div>
+
+        <el-button
+          type="primary"
+          class="gradient-btn-lg publish-submit-btn"
+          :disabled="activeMediaList.length === 0 || activeAccounts.length === 0 || totalActivatedTaskCount === 0"
+          @click="handleStartPublish"
+        >
+          <el-icon><Promotion /></el-icon>
+          <span>立即执行矩阵发布 ({{ totalActivatedTaskCount }})</span>
+        </el-button>
+      </div>
+    </div>
+
+    <!-- 4. 弹窗：跨账号/跨平台一键同步配置克隆器 -->
+    <SyncConfigModal
       v-model="showSyncModal"
       :source-description="syncSourceDesc"
       :current-platform="syncSourcePlatform"
       :current-account-key="syncSourceAccountKey"
-      :selected-targets="selectedTargets"
+      :selected-targets="activeAccounts"
       @confirm-sync="handleExecuteSyncConfig"
     />
   </div>
@@ -100,283 +124,265 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { PLATFORMS } from '../config/platforms'
 import { useAccountStore } from '../stores/accountStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useMatrixPresets } from '../composables/useMatrixPresets'
 import { useMatrixPublish } from '../composables/useMatrixPublish'
-import type { MasterForm, PlatformOverrideSetting, SyncConfigFields } from '../types/matrix'
+import type {
+  MediaItem,
+  MasterForm,
+  BatchRuleConfig,
+  MatrixCellConfig,
+  PlatformOverrideSetting,
+  SyncConfigFields
+} from '../types/matrix'
 
-// 模块化子组件引入
+// 子组件引入
 import StudioTopBar from '../components/matrix/StudioTopBar.vue'
-import MasterPanel from '../components/matrix/MasterPanel.vue'
-import PlatformIconDock from '../components/matrix/PlatformIconDock.vue'
-import PlatformCustomCard from '../components/matrix/PlatformCustomCard.vue'
-import AccountSelectModal from '../components/matrix/AccountSelectModal.vue'
+import MediaListCard from '../components/matrix/MediaListCard.vue'
+import AccountCardPicker from '../components/matrix/AccountCardPicker.vue'
+import PublishRuleForm from '../components/matrix/PublishRuleForm.vue'
+import CrossPublishMatrix from '../components/matrix/CrossPublishMatrix.vue'
 import SyncConfigModal from '../components/matrix/SyncConfigModal.vue'
-import StudioBottomDock from '../components/matrix/StudioBottomDock.vue'
 
-// 1. 全局 Stores
+const router = useRouter()
 const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
+const { savedTemplates, saveAsTemplate, loadTemplate } = useMatrixPresets()
+const { createCrossMatrixPublishBatch } = useMatrixPublish()
 
-// 2. 主模板表单 (Master Form)
+// 1. 待发视频清单与已选 ID
+const mediaList = ref<MediaItem[]>([])
+const selectedMediaIds = ref<string[]>([])
+
+// 2. 目标矩阵账号 keys ("platform:account")
+const selectedAccountKeys = ref<string[]>([])
+
+// 3. 通用基础主模板 (Master Form)
 const masterForm = reactive<MasterForm>({
   action: 'upload-video',
   filePath: '',
   images: [],
-  title: '',
-  desc: '',
-  tags: '',
+  title: '短剧第一季 - 第{集数}集 | {视频名}',
+  desc: '家人们追更啦~ 每天更新一集，记得关注不迷路 #短剧 #追更',
+  tags: '短剧, 爆款, 热播短剧',
   thumbnail: '',
   schedule: ''
 })
 
-// 3. 多平台独立覆盖参数字典 (Platform Overrides)
-const platformOverrides = reactive<Record<string, PlatformOverrideSetting>>({})
-PLATFORMS.forEach(p => {
-  platformOverrides[p.id] = {
-    isCustomized: false,
-    title: '',
-    desc: '',
-    tags: '',
-    thumbnail: '',
-    thumbnailLandscape: '',
-    thumbnailPortrait: '',
-    tid: p.id === 'bilibili' ? 230 : 0,
-    shortTitle: '',
-    category: '',
-    draft: false,
-    schedule: '',
-    declaration: '',
-    collection: '',
-    productLink: '',
-    productTitle: '',
-    visibility: '0',
-    playlist: '',
-    bgm: '',
-    note: '',
-    notef: ''
+// 批量排期与变量规则配置
+const ruleConfig = reactive<BatchRuleConfig>({
+  titleTemplate: '短剧第一季 - 第{集数}集 | {视频名}',
+  scheduleType: 'immediate',
+  startScheduleTime: '',
+  intervalMinutes: 30
+})
+
+// 4. 视频 × 账号 交叉透视矩阵字典: mediaId -> "platform:account" -> CellConfig
+const matrixMap = reactive<Record<string, Record<string, MatrixCellConfig>>>({})
+
+// 底部调度控制
+const concurrency = ref(settingsStore.concurrency || 3)
+const isHeadless = ref(true)
+
+// 同步克隆弹窗状态
+const showSyncModal = ref(false)
+const syncSourceDesc = ref('')
+const syncSourcePlatform = ref('')
+const syncSourceAccountKey = ref('')
+const activeSyncCell = ref<any>(null)
+
+// 活跃的有效待发视频清单 (勾选项优先，若未勾选单项则默认全部)
+const activeMediaList = computed(() => {
+  if (selectedMediaIds.value.length > 0) {
+    return mediaList.value.filter(m => selectedMediaIds.value.includes(m.id))
   }
+  return mediaList.value
 })
 
-// 4. 账号级独立覆盖字典 (Account Overrides)
-const accountOverrides = reactive<Record<string, PlatformOverrideSetting>>({})
-
-// 5. 工作台视图状态机 (并发数默认与系统设置保持联动)
-const currentPlatformTab = ref<string>('tencent')
-const concurrency = ref<number>(settingsStore.settings.concurrency || 3)
-const isHeadless = ref<boolean>(settingsStore.settings.headless || false)
-const showAccountModal = ref<boolean>(false)
-const selectedTargetKeys = ref<Set<string>>(new Set())
-
-// 同步弹窗状态
-const showSyncModal = ref<boolean>(false)
-const syncSourceDesc = ref<string>('')
-const syncSourcePlatform = ref<string>('')
-const syncSourceAccountKey = ref<string>('')
-
-// 6. Composables 业务逻辑抽离
-const { savedTemplates, loadTemplatesFromStorage, handleTemplateCommand } = useMatrixPresets(
-  masterForm,
-  platformOverrides,
-  accountOverrides
-)
-const { createPublishBatch } = useMatrixPublish()
-
-// -----------------------------------------------------------------------------
-// 计算属性
-// -----------------------------------------------------------------------------
-const selectedTargets = computed(() => {
-  const list: Array<{ platform: string; account: string; nickname?: string }> = []
-  selectedTargetKeys.value.forEach(key => {
-    const [plat, acc] = key.split(':')
-    const found = accountStore.accounts.find(a => a.platform === plat && a.account === acc)
-    if (found && !(found.checked === true && found.isValid === false)) {
-      list.push({
-        platform: plat,
-        account: acc,
-        nickname: found.nickname || acc
-      })
+// 活跃的目标账号列表
+const activeAccounts = computed(() => {
+  return selectedAccountKeys.value.map(k => {
+    const [plat, acc] = k.split(':')
+    const item = accountStore.accounts.find(a => a.platform === plat && a.account === acc)
+    return {
+      platform: plat,
+      account: acc,
+      nickname: item?.nickname || acc,
+      isValid: item?.isValid
     }
   })
-  return list
 })
 
-const activePlatformCount = computed(() => {
-  const set = new Set<string>()
-  selectedTargets.value.forEach(t => set.add(t.platform))
-  return set.size
-})
-
-const currentPlatformOverride = computed(() => {
-  return platformOverrides[currentPlatformTab.value] || platformOverrides['tencent']
-})
-
-const currentPlatformAccounts = computed(() => {
-  const list: Array<{ account: string; nickname?: string }> = []
-  selectedTargetKeys.value.forEach(k => {
-    if (k.startsWith(currentPlatformTab.value + ':')) {
-      const acc = k.split(':')[1]
-      const found = accountStore.accounts.find(a => a.platform === currentPlatformTab.value && a.account === acc)
-      if (found && !(found.checked === true && found.isValid === false)) {
-        list.push({
-          account: acc,
-          nickname: found.nickname || acc
-        })
+// 计算当前矩阵中已启用的有效发布任务总数
+const totalActivatedTaskCount = computed(() => {
+  let count = 0
+  activeMediaList.value.forEach(m => {
+    activeAccounts.value.forEach(acc => {
+      const accKey = `${acc.platform}:${acc.account}`
+      const cell = matrixMap[m.id]?.[accKey]
+      if (!cell || cell.enabled) {
+        count++
       }
-    }
+    })
   })
-  return list
+  return count
 })
 
-// -----------------------------------------------------------------------------
-// 同步与重置操作
-// -----------------------------------------------------------------------------
-const syncAllPlatformsToMaster = () => {
-  PLATFORMS.forEach(p => {
-    platformOverrides[p.id].isCustomized = false
-    platformOverrides[p.id].title = masterForm.title
-    platformOverrides[p.id].desc = masterForm.desc
-    platformOverrides[p.id].tags = masterForm.tags
-    platformOverrides[p.id].thumbnail = masterForm.thumbnail
-  })
-  ElMessage.success('已将全局通用配置同步至所有平台')
+// 顶部模板操作
+const handleTemplateCommand = (cmd: string) => {
+  if (cmd === '__save__') {
+    ElMessageBox.prompt('请输入该预设模板名称 (如：短剧连载模板)', '保存为矩阵发布模板', {
+      confirmButtonText: '确定保存',
+      cancelButtonText: '取消',
+      inputPattern: /\S+/,
+      inputErrorMessage: '模板名称不能为空'
+    }).then(({ value }) => {
+      saveAsTemplate(value.trim(), masterForm, {}, {})
+      ElMessage.success(`模板 [${value.trim()}] 保存成功`)
+    }).catch(() => {})
+    return
+  }
+
+  const found = loadTemplate(cmd)
+  if (found) {
+    Object.assign(masterForm, found.master)
+    ElMessage.success(`已应用预设模板: ${found.name}`)
+  }
 }
 
-const openSyncConfigModal = (payload: { sourceDesc: string; currentPlatform: string; currentAccountKey: string }) => {
-  syncSourceDesc.value = payload.sourceDesc
-  syncSourcePlatform.value = payload.currentPlatform
-  syncSourceAccountKey.value = payload.currentAccountKey
+// 示例数据填充
+const fillDemoContent = () => {
+  masterForm.title = 'AI科技实测 - 第{集数}集 | {视频名}'
+  masterForm.desc = '今天给大家深度测试最新自动化发布工作流，效率直接翻倍！点赞关注获取更多黑科技。'
+  masterForm.tags = 'AI工具, 效率提升, 黑科技, 自动化'
+  ElMessage.success('已填入常用示例规则')
+}
+
+// 一键重置
+const resetAllForm = () => {
+  mediaList.value = []
+  selectedMediaIds.value = []
+  selectedAccountKeys.value = []
+  masterForm.title = ''
+  masterForm.desc = ''
+  masterForm.tags = ''
+  masterForm.schedule = ''
+  ElMessage.info('已清空当前工作台内容')
+}
+
+// 打开克隆同步弹窗
+const handleOpenSyncModal = (cellData: any) => {
+  if (!cellData) return
+  activeSyncCell.value = cellData
+  syncSourcePlatform.value = cellData.platform
+  syncSourceAccountKey.value = `${cellData.platform}:${cellData.account}`
+  syncSourceDesc.value = `视频 [${cellData.mediaName}] · ${cellData.platform} @${cellData.nickname || cellData.account}`
   showSyncModal.value = true
 }
 
-const handleExecuteSyncConfig = ({ fields, targetKeys }: { fields: SyncConfigFields; targetKeys: string[] }) => {
-  // 获取源配置对象
-  let sourceObj: PlatformOverrideSetting
-  if (syncSourceAccountKey.value === '__platform__') {
-    sourceObj = platformOverrides[syncSourcePlatform.value]
-  } else {
-    sourceObj = accountOverrides[syncSourceAccountKey.value] || platformOverrides[syncSourcePlatform.value]
-  }
+// 执行配置克隆同步
+const handleExecuteSyncConfig = (payload: { targetAccountKeys: string[]; fields: SyncConfigFields }) => {
+  if (!activeSyncCell.value) return
+  const srcCell = activeSyncCell.value.cell
+  const srcMediaId = activeSyncCell.value.mediaId
 
-  targetKeys.forEach(key => {
-    if (!accountOverrides[key]) {
-      const [plat] = key.split(':')
-      accountOverrides[key] = {
+  payload.targetAccountKeys.forEach(targetKey => {
+    // 确保目标单元格存在
+    if (!matrixMap[srcMediaId]) matrixMap[srcMediaId] = {}
+    if (!matrixMap[srcMediaId][targetKey]) {
+      const [p, a] = targetKey.split(':')
+      matrixMap[srcMediaId][targetKey] = {
+        enabled: true,
+        scheduleMode: 'inherit',
         isCustomized: true,
-        title: '',
-        desc: '',
-        tags: '',
-        thumbnail: '',
-        thumbnailLandscape: '',
-        thumbnailPortrait: '',
-        tid: plat === 'bilibili' ? 230 : 0,
-        shortTitle: '',
-        category: '',
-        draft: false,
-        schedule: '',
-        declaration: '',
-        collection: '',
-        productLink: '',
-        productTitle: '',
-        visibility: '0',
-        playlist: '',
-        bgm: '',
-        note: '',
-        notef: ''
+        override: {
+          isCustomized: true,
+          title: '',
+          desc: '',
+          tags: '',
+          thumbnail: '',
+          thumbnailLandscape: '',
+          thumbnailPortrait: '',
+          tid: p === 'bilibili' ? 230 : 0,
+          shortTitle: '',
+          category: '',
+          draft: false,
+          schedule: '',
+          declaration: '',
+          collection: '',
+          productLink: '',
+          productTitle: '',
+          visibility: 'public',
+          playlist: '',
+          bgm: '',
+          note: '',
+          notef: ''
+        }
       }
     }
 
-    const target = accountOverrides[key]
-    target.isCustomized = true
-
-    if (fields.title) target.title = sourceObj.title || masterForm.title
-    if (fields.desc) target.desc = sourceObj.desc || masterForm.desc
-    if (fields.tags) target.tags = sourceObj.tags || masterForm.tags
-    if (fields.thumbnail) target.thumbnail = sourceObj.thumbnail || masterForm.thumbnail
-    if (fields.schedule) target.schedule = sourceObj.schedule || masterForm.schedule
-
-    if (fields.platformExclusive) {
-      target.thumbnailLandscape = sourceObj.thumbnailLandscape
-      target.thumbnailPortrait = sourceObj.thumbnailPortrait
-      target.tid = sourceObj.tid
-      target.shortTitle = sourceObj.shortTitle
-      target.category = sourceObj.category
-      target.draft = sourceObj.draft
-      target.declaration = sourceObj.declaration
-      target.collection = sourceObj.collection
-      target.productLink = sourceObj.productLink
-      target.productTitle = sourceObj.productTitle
-      target.visibility = sourceObj.visibility
-      target.playlist = sourceObj.playlist
-      target.bgm = sourceObj.bgm
-      target.note = sourceObj.note
-      target.notef = sourceObj.notef
+    const tgt = matrixMap[srcMediaId][targetKey]
+    if (payload.fields.title && srcCell.customTitle) {
+      tgt.customTitle = srcCell.customTitle
+    }
+    if (payload.fields.desc && srcCell.override.desc) {
+      tgt.override.desc = srcCell.override.desc
+    }
+    if (payload.fields.tags && srcCell.override.tags) {
+      tgt.override.tags = srcCell.override.tags
+    }
+    if (payload.fields.schedule && srcCell.customSchedule) {
+      tgt.scheduleMode = 'scheduled'
+      tgt.customSchedule = srcCell.customSchedule
     }
   })
+
+  ElMessage.success(`已将配置一键同步至 ${payload.targetAccountKeys.length} 个账号`)
+  showSyncModal.value = false
 }
 
-const fillDemoContent = () => {
-  masterForm.title = '2026 最新 AI 智能自动化矩阵发布系统实测'
-  masterForm.desc = '全平台自媒体矩阵高并发一键发布体验！支持微信视频号、抖音、快手、小红书、B站等各大主流平台。\n\n全流程自动化调度，提升自媒体运营效率 10 倍以上！'
-  masterForm.tags = '自媒体黑科技,AI工具,视频号运营,自动化分发,爆款技巧'
-  ElMessage.success('已填入标准演示作品文案')
-}
+// 提交矩阵批量发布
+const handleStartPublish = async () => {
+  if (activeMediaList.value.length === 0) {
+    ElMessage.warning('请先在步骤 ① 导入待发布视频')
+    return
+  }
+  if (activeAccounts.value.length === 0) {
+    ElMessage.warning('请先在步骤 ② 勾选目标矩阵账号')
+    return
+  }
 
-const resetAllForm = () => {
-  ElMessageBox.confirm('确定要清空当前所有通用文案与各平台差异化设置吗？', '重置确认', {
-    type: 'warning'
-  }).then(() => {
-    masterForm.title = ''
-    masterForm.desc = ''
-    masterForm.tags = ''
-    masterForm.filePath = ''
-    masterForm.thumbnail = ''
-    masterForm.images = []
-    masterForm.schedule = ''
-
-    PLATFORMS.forEach(p => {
-      platformOverrides[p.id].isCustomized = false
-      platformOverrides[p.id].title = ''
-      platformOverrides[p.id].desc = ''
-      platformOverrides[p.id].tags = ''
-      platformOverrides[p.id].thumbnail = ''
-    })
-
-    Object.keys(accountOverrides).forEach(k => {
-      delete accountOverrides[k]
-    })
-
-    ElMessage.success('配置已重置')
-  }).catch(() => {})
-}
-
-const handleStartPublish = () => {
-  createPublishBatch({
-    selectedTargets: selectedTargets.value,
+  const batchId = createCrossMatrixPublishBatch({
+    mediaList: activeMediaList.value,
+    selectedAccounts: activeAccounts.value,
+    matrixMap,
     masterForm,
-    platformOverrides,
-    accountOverrides,
+    ruleConfig,
     concurrency: concurrency.value,
     isHeadless: isHeadless.value
   })
+
+  if (batchId) {
+    // 延迟引导跳转到任务管理中心
+    setTimeout(() => {
+      router.push('/tasks')
+    }, 800)
+  }
 }
 
-// -----------------------------------------------------------------------------
-// 生命周期与事件监听
-// -----------------------------------------------------------------------------
+// 页面挂载默认选中有效账号
 onMounted(() => {
-  loadTemplatesFromStorage()
-
-  // 默认全选所有可用账号
-  selectedTargetKeys.value.clear()
-  accountStore.accounts.forEach(a => {
-    if (!(a.checked === true && a.isValid === false)) {
-      selectedTargetKeys.value.add(`${a.platform}:${a.account}`)
-    }
-  })
+  if (accountStore.accounts.length > 0 && selectedAccountKeys.value.length === 0) {
+    // 默认勾选前 4 个凭证正常的账号
+    const valids = accountStore.accounts
+      .filter(a => a.isValid)
+      .slice(0, 4)
+      .map(a => `${a.platform}:${a.account}`)
+    selectedAccountKeys.value = valids
+  }
 })
 </script>
 
@@ -384,148 +390,167 @@ onMounted(() => {
 .matrix-studio-workspace {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 84px);
-  gap: 12px;
-  overflow: hidden;
+  gap: 16px;
+  height: calc(100vh - 64px);
+  overflow-y: auto;
+  padding: 16px 20px 100px;
   box-sizing: border-box;
 }
 
-.studio-body {
-  display: grid;
-  grid-template-columns: minmax(480px, 4.4fr) minmax(580px, 5.6fr);
-  gap: 16px;
-  flex: 1;
-  min-height: 0;
-}
-
-.matrix-panel {
-  display: flex;
-  flex-direction: column;
-  border-radius: 14px;
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-card);
-  backdrop-filter: blur(16px);
-  min-width: 0;
-}
-
-.matrix-top-header {
+/* 步骤指示条 */
+.step-guide-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: rgba(0, 0, 0, 0.08);
-  flex-shrink: 0;
+  padding: 12px 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
 }
 
-.header-summary-box {
+.guide-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  transition: all 0.25s ease;
+}
+
+.guide-step.active {
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.guide-step.done {
+  color: var(--status-success);
+}
+
+.step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-input);
+  border: 1.5px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.guide-step.active .step-num {
+  background: var(--primary-gradient);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+}
+
+.guide-step.done .step-num {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: var(--status-success);
+  color: var(--status-success);
+}
+
+.step-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border-subtle);
+  margin: 0 16px;
+}
+
+/* 四步流布局 */
+.studio-content-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.two-col-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 1080px) {
+  .two-col-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 底部执行 Dock */
+.studio-bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 220px;
+  right: 0;
+  height: 68px;
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 24px;
+  z-index: 99;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+  transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.summary-info {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.summary-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.badge-dot {
+.summary-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--status-success);
+  box-shadow: 0 0 10px var(--status-success);
 }
 
-.matrix-dot {
-  background: #a855f7;
-  box-shadow: 0 0 10px #a855f7;
-}
-
-.target-account-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 20px;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  font-size: 12px;
-  color: var(--text-main);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.target-account-badge:hover {
-  background: rgba(99, 102, 241, 0.22);
-  border-color: var(--primary-light);
-  transform: translateY(-1px);
-}
-
-.target-account-badge strong {
-  color: #818cf8;
-  font-weight: 700;
-}
-
-.arrow-icon {
-  font-size: 11px;
-  color: #94a3b8;
-}
-
-.gradient-btn-sm {
-  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%) !important;
-  border: none !important;
-  font-weight: 600;
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
-}
-
-.matrix-empty-placeholder {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
-  text-align: center;
-}
-
-.empty-glow-box {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  color: #818cf8;
-  box-shadow: 0 0 24px rgba(99, 102, 241, 0.2);
-  margin-bottom: 16px;
-}
-
-.empty-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-main);
-  margin-bottom: 6px;
-}
-
-.empty-sub {
+.summary-main {
   font-size: 13px;
   color: var(--text-secondary);
-  max-width: 420px;
-  line-height: 1.6;
-  margin-bottom: 20px;
 }
 
-.gradient-btn-matrix {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%) !important;
-  border: none !important;
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
-  font-weight: 700;
+.summary-main strong {
+  color: var(--primary-color);
+  font-size: 15px;
+}
+
+.dock-controls {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.control-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.concurrency-input {
+  width: 90px;
+}
+
+.publish-submit-btn {
   padding: 10px 24px;
-  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>

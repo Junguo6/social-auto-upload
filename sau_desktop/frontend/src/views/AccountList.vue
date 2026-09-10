@@ -235,7 +235,7 @@
               @click="startScreencastForTab(currentActiveTab)"
             >
               <el-icon><RefreshRight /></el-icon>
-              <span>{{ currentActiveTab.isSessionActive ? '重新载入' : '重新扫码' }}</span>
+              <span>{{ currentActiveTab.isSessionActive ? '重新载入' : '启动视窗' }}</span>
             </el-button>
 
             <el-button 
@@ -281,13 +281,74 @@
           v-show="activeTabId === tab.id"
           class="tab-viewport-container"
         >
-          <!-- A. 处于投屏/登录中：直接呈现高清实时 Canvas -->
-          <div v-if="tab.isSessionActive" class="live-canvas-fill">
-            <LiveBrowserCanvas 
-              :taskId="tab.taskId"
-              :title="`${tab.title} - 实时无头浏览器视窗`"
-            />
-          </div>
+          <!-- A. 处于会话中 -->
+          <template v-if="tab.isSessionActive">
+            <!-- A1. 原生 Chrome App 沉浸式真机视窗模式 (4K Retina · 0 延迟) -->
+            <div v-if="tab.sessionMode === 'app'" class="browser-appmode-hub">
+              <div class="appmode-card">
+                <div class="appmode-header">
+                  <div class="appmode-badge-live">
+                    <span class="live-pulse-dot"></span>
+                    <span>原生 Chrome App 视窗运行中</span>
+                  </div>
+                  <el-tag size="small" effect="dark" type="success" round>4K 视网膜极清 · 0 延迟直通</el-tag>
+                </div>
+
+                <div class="appmode-avatar-box" :style="{ background: getPlatformStyle(tab.platform).gradient }">
+                  <span class="avatar-char">{{ getAccountAvatarText(tab.accountItem) }}</span>
+                  <span class="avatar-badge">
+                    <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
+                  </span>
+                </div>
+
+                <h3 class="appmode-title">{{ tab.accountItem?.nickname || tab.accountItem?.account || tab.title }}</h3>
+                <p class="appmode-url">{{ tab.url }}</p>
+
+                <div class="appmode-guide-tip">
+                  <el-icon><CircleCheck /></el-icon>
+                  <span>独立真机 Chrome 视窗已为您展开在桌面！拥有 100% 原始视网膜画质与原生手势交互，支持直接使用输入法打字、拖拽上传视频。最新会话凭证每 30 秒自动快照存盘。</span>
+                </div>
+
+                <div class="appmode-actions">
+                  <el-button 
+                    type="primary" 
+                    size="large" 
+                    class="focus-window-btn"
+                    @click="startAppWindowForTab(tab)"
+                  >
+                    <el-icon><RefreshRight /></el-icon>
+                    <span>重新唤起 / 置顶视窗</span>
+                  </el-button>
+
+                  <el-button 
+                    type="danger" 
+                    size="large" 
+                    plain
+                    class="stop-session-btn"
+                    @click="stopSessionForTab(tab)"
+                  >
+                    <el-icon><CircleClose /></el-icon>
+                    <span>结束本次会话并存盘</span>
+                  </el-button>
+                </div>
+
+                <div class="appmode-switch-mode">
+                  <el-button link type="info" size="small" @click="switchToScreencastMode(tab)">
+                    <el-icon><VideoPlay /></el-icon>
+                    <span>需要在此界面直接呈现投屏？点击切换为「应用内投屏模式」</span>
+                  </el-button>
+                </div>
+              </div>
+            </div>
+
+            <!-- A2. 轻量无头 Canvas 投屏流模式 -->
+            <div v-else class="live-canvas-fill">
+              <LiveBrowserCanvas 
+                :taskId="tab.taskId"
+                :title="`${tab.title} - 实时无头浏览器视窗`"
+              />
+            </div>
+          </template>
 
           <!-- B. 待机状态：账号创作者中心就绪面板 -->
           <div v-else-if="tab.type === 'account' && tab.accountItem" class="browser-standby-hub">
@@ -313,10 +374,10 @@
               </div>
 
               <p class="standby-intro-desc" v-if="tab.accountItem.isValid">
-                本账号登录状态健康，点击下方按钮即可在当前标签页拉起实时投屏，直接操作创作者后台或查看发布动态。切换标签页不会中断会话。
+                本账号登录状态健康，点击下方按钮即可直接在当前右侧视窗内嵌打开创作者服务平台，享受高清视网膜字效与精准交互。
               </p>
               <p class="standby-intro-desc warning-text" v-else>
-                当前账号凭证已失效，点击下方按钮将立即拉起无头浏览器，二维码将实时呈现在当前标签页，手机扫码即可无缝完成绑定。
+                当前账号凭证已失效，点击下方按钮将在当前右侧视窗内嵌呈现扫码页面，手机微信/抖音扫码即可无缝完成绑定更新。
               </p>
 
               <div class="standby-action-launch">
@@ -328,14 +389,27 @@
                   @click="startScreencastForTab(tab)"
                 >
                   <el-icon><VideoPlay /></el-icon>
-                  <span>{{ tab.accountItem.isValid ? '启动创作者中心网页视窗' : '立即拉起扫码登录' }}</span>
+                  <span>{{ tab.accountItem.isValid ? '🚀 启动内嵌网页视窗' : '🚀 立即拉起内嵌扫码' }}</span>
+                </el-button>
+
+                <el-button 
+                  type="info" 
+                  plain 
+                  size="default" 
+                  class="launch-screencast-sub-btn"
+                  :loading="tab.isStartingSession"
+                  @click="startAppWindowForTab(tab)"
+                >
+                  <el-icon><Monitor /></el-icon>
+                  <span>在独立纯净视窗中打开 (可选)</span>
                 </el-button>
               </div>
 
               <div class="standby-feature-tags">
-                <span>⚡ 20~30 FPS 高清实时投屏</span>
+                <span>🖼️ 纯正应用内嵌体验</span>
+                <span>💎 85% 高保真抗锯齿</span>
+                <span>🖱️ 原子级精准点击与拖拽</span>
                 <span>🔒 本地加密持久化</span>
-                <span>🖱️ 切换标签页后台状态无缝保留</span>
               </div>
             </div>
           </div>
@@ -457,7 +531,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { PLATFORMS, getPlatformConfig } from '../config/platforms'
 import { useAccountStore, AccountItem } from '../stores/accountStore'
-import { LoginAccountWithScreencast, StopTaskById } from '../../wailsjs/go/main/App'
+import { LoginAccountWithAppWindow, LoginAccountWithScreencast, StopTaskById } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import LiveBrowserCanvas from '../components/matrix/LiveBrowserCanvas.vue'
 
@@ -473,6 +547,7 @@ interface BrowserTab {
   url: string
   accountItem?: AccountItem
   isSessionActive: boolean
+  sessionMode?: 'app' | 'screencast'
   isStartingSession: boolean
   taskId: string
   sessionStatusText: string
@@ -619,11 +694,45 @@ const closeCurrentTab = () => {
   }
 }
 
+// 为指定标签页拉起原生 Chrome App 沉浸式真机视窗 (4K 原生画质与 0 延迟)
+const startAppWindowForTab = async (tab: BrowserTab) => {
+  const platform = tab.platform
+  const account = tab.account || 'auto'
+  tab.taskId = `login_${platform}_${account}`
+  tab.sessionMode = 'app'
+  tab.isSessionActive = true
+  tab.isStartingSession = true
+  tab.sessionStatusText = '正在拉起原生 Chrome App 沉浸式视窗 (4K 视网膜画质 · 0 延迟)...'
+
+  try {
+    const res = await LoginAccountWithAppWindow(platform, account)
+    if (res && res.success) {
+      tab.sessionStatusText = `🎉 会话已结束，账号 [${res.nickname || res.account}] 凭证已存盘`
+      ElMessage.success(`账号 [${res.nickname || res.account}] 凭证已同步存盘`)
+    } else {
+      tab.sessionStatusText = `会话已结束: ${res?.msg || '操作完成'}`
+    }
+  } catch (err: any) {
+    if (!String(err).includes('手动中止') && !String(err).includes('signal') && !String(err).includes('killed')) {
+      tab.sessionStatusText = `会话已结束: ${err?.message || err}`
+    }
+  } finally {
+    tab.isStartingSession = false
+    tab.isSessionActive = false
+    await accountStore.fetchAccounts()
+    const targetAcc = accountStore.accounts.find(a => a.platform === platform && (a.account === account || a.account === tab.account))
+    if (targetAcc) {
+      await accountStore.checkAccount(targetAcc)
+    }
+  }
+}
+
 // 为指定标签页拉起无头投屏/扫码登录会话
 const startScreencastForTab = async (tab: BrowserTab) => {
   const platform = tab.platform
   const account = tab.account || 'auto'
   tab.taskId = `login_${platform}_${account}`
+  tab.sessionMode = 'screencast'
   tab.isSessionActive = true
   tab.isStartingSession = true
   tab.sessionStatusText = '正在拉起后台无头浏览器并建立 CDP 画面流...'
@@ -642,17 +751,34 @@ const startScreencastForTab = async (tab: BrowserTab) => {
   } finally {
     tab.isStartingSession = false
     tab.isSessionActive = false
+    await accountStore.fetchAccounts()
+    const targetAcc = accountStore.accounts.find(a => a.platform === platform && (a.account === account || a.account === tab.account))
+    if (targetAcc) {
+      await accountStore.checkAccount(targetAcc)
+    }
   }
+}
+
+// 在会话运行中动态切换为应用内投屏
+const switchToScreencastMode = async (tab: BrowserTab) => {
+  await stopSessionForTab(tab)
+  startScreencastForTab(tab)
+}
+
+// 在会话运行中动态切换为原生超清 App 视窗
+const switchToAppWindowMode = async (tab: BrowserTab) => {
+  await stopSessionForTab(tab)
+  startAppWindowForTab(tab)
 }
 
 // 新标签页中发起接入
 const startNewTabLoginForTab = (tab: BrowserTab) => {
   tab.platform = newTabSelectedPlatform.value
   tab.account = newTabAccountAlias.value.trim() || 'auto'
-  startScreencastForTab(tab)
+  startAppWindowForTab(tab)
 }
 
-// 停止指定标签页的投屏会话
+// 停止指定标签页的会话
 const stopSessionForTab = async (tab: BrowserTab) => {
   if (tab.taskId) {
     await StopTaskById(tab.taskId)
@@ -660,12 +786,16 @@ const stopSessionForTab = async (tab: BrowserTab) => {
   tab.isSessionActive = false
   tab.isStartingSession = false
   tab.sessionStatusText = '会话已手动中止'
-  ElMessage.info(`已中止「${tab.title}」的浏览器会话`)
+  ElMessage.info(`已结束「${tab.title}」的浏览器会话`)
 }
 
 const handleReloadPage = () => {
   if (currentActiveTab.value && currentActiveTab.value.type === 'account') {
-    startScreencastForTab(currentActiveTab.value)
+    if (currentActiveTab.value.sessionMode === 'screencast') {
+      startScreencastForTab(currentActiveTab.value)
+    } else {
+      startAppWindowForTab(currentActiveTab.value)
+    }
   }
 }
 
@@ -738,15 +868,23 @@ onMounted(() => {
       const taskId = evt?.taskId
       const targetTab = openTabs.value.find(t => (taskId && t.taskId === taskId) || (t.platform === platform && (t.account === account || t.account === 'auto')))
       if (targetTab) {
-        targetTab.sessionStatusText = `🟢 网页视窗运行中 · 账号 [${evt?.nickname || account}] 凭证正常`
+        targetTab.sessionStatusText = `🟢 检测到登录信息 · 账号 [${evt?.nickname || account}] 正在校验凭证...`
         targetTab.isStartingSession = false
         targetTab.isSessionActive = true
         targetTab.account = account
         const updated = accountStore.saveLoggedInAccount(platform, account, evt?.nickname, evt?.finderUid)
         targetTab.accountItem = updated
         targetTab.title = `${getPlatformConfig(platform).name} - ${evt?.nickname || account}`
+        // 权威终审：由原作者官方 check 命令进行凭证有效性确认
+        accountStore.checkAccount(updated).then((res) => {
+          if (res?.isValid) {
+            targetTab.sessionStatusText = `🟢 网页视窗运行中 · 账号 [${evt?.nickname || account}] 凭证有效`
+            ElMessage.success(`🎉 账号 [${evt?.nickname || account}] 登录成功且凭证有效！`)
+          } else {
+            targetTab.sessionStatusText = `⚠️ 账号 [${evt?.nickname || account}] 凭证未就绪或未通过校验`
+          }
+        })
       }
-      ElMessage.success(`🎉 账号 [${evt?.nickname || account}] 已连接！网页视窗保持运行中，您可自由浏览与查看个人资料。`)
     })
   } catch (err) {
     console.error('EventsOn sau-login-success failed:', err)
@@ -1335,6 +1473,166 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .live-canvas-fill {
   width: 100%;
   height: 100%;
+}
+
+/* 原生 Chrome App 沉浸式伴侣控制台样式 */
+.browser-appmode-hub {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: radial-gradient(circle at 50% 30%, rgba(99, 102, 241, 0.08) 0%, transparent 70%);
+}
+
+.appmode-card {
+  max-width: 540px;
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.15);
+  animation: fadeIn 0.3s ease;
+}
+
+.appmode-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.appmode-badge-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #10b981;
+}
+
+.live-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 10px #10b981;
+  animation: pulse 1.6s infinite;
+}
+
+.appmode-avatar-box {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.avatar-char {
+  font-size: 32px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.avatar-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-color);
+  font-size: 13px;
+}
+
+.appmode-title {
+  margin: 0 0 6px 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.appmode-url {
+  margin: 0 0 16px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: monospace;
+  background: var(--bg-detail);
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appmode-guide-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  text-align: left;
+  margin-bottom: 20px;
+}
+
+.appmode-guide-tip .el-icon {
+  font-size: 16px;
+  color: #10b981;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.appmode-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.focus-window-btn {
+  flex: 1;
+  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%) !important;
+  border: none !important;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+}
+
+.stop-session-btn {
+  font-weight: 700;
+}
+
+.appmode-switch-mode {
+  font-size: 12px;
+}
+
+.launch-screencast-sub-btn {
+  margin-top: 10px;
+  width: 100%;
+  border-style: dashed !important;
 }
 
 /* 创作者中心就绪待机面板 */

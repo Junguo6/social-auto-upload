@@ -72,3 +72,33 @@ export interface SyncConfigFields {
   schedule: boolean
   platformExclusive: boolean
 }
+
+// 7. 待发布素材项 (Media Item)
+export interface MediaItem {
+  id: string
+  filePath: string
+  fileName: string
+  fileSize?: string
+  duration?: string
+  format?: string
+  parsedEpisode?: number
+}
+
+// 8. 矩阵单元格配置 (Matrix Cell Config)
+export interface MatrixCellConfig {
+  enabled: boolean            // 是否发布
+  scheduleMode: 'immediate' | 'scheduled' | 'inherit' // 立即 / 独立定时 / 继承全局
+  customSchedule?: string     // 独立定时时间 YYYY-MM-DD HH:mm
+  customTitle?: string        // 单元格独立专属标题
+  isCustomized: boolean       // 是否存在专属微调
+  override: PlatformOverrideSetting // 平台专属差异化配置
+}
+
+// 9. 批量变量与规则配置 (Batch Rule Config)
+export interface BatchRuleConfig {
+  titleTemplate: string       // 如: "短剧第一季 - 第{集数}集 | {视频名}"
+  scheduleType: 'immediate' | 'interval' | 'custom' // 统一立即 / 递增排期间隔 / 自定义
+  startScheduleTime: string   // 递增起始时间
+  intervalMinutes: number     // 递增发布间隔(分钟)，如 30
+}
+

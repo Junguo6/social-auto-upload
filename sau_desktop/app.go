@@ -236,7 +236,31 @@ func (a *App) LoginAccount(platform, account string, headed bool) (engine.LoginR
 	}
 	res, err := a.executor.LoginAccount(platform, account, headed, func(evt engine.EngineEvent) {
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "sau-log", evt)
+			if evt.Type == "login_success" {
+				runtime.EventsEmit(a.ctx, "sau-login-success", evt)
+			} else {
+				runtime.EventsEmit(a.ctx, "sau-log", evt)
+			}
+		}
+	})
+	if err != nil {
+		return res, err
+	}
+	return res, nil
+}
+
+// LoginAccountWithAppWindow 拉起独立的 Chrome App 沉浸式真机视窗 (4K 原生画质与 0 延迟，剥离地址栏)
+func (a *App) LoginAccountWithAppWindow(platform, account string) (engine.LoginResult, error) {
+	if a.executor == nil {
+		return engine.LoginResult{Success: false, Msg: "引擎未正常加载"}, fmt.Errorf("引擎未正常加载")
+	}
+	res, err := a.executor.LoginAccountWithAppWindow(platform, account, func(evt engine.EngineEvent) {
+		if a.ctx != nil {
+			if evt.Type == "login_success" {
+				runtime.EventsEmit(a.ctx, "sau-login-success", evt)
+			} else {
+				runtime.EventsEmit(a.ctx, "sau-log", evt)
+			}
 		}
 	})
 	if err != nil {
@@ -310,5 +334,24 @@ func (a *App) SelectLocalFile(title string, filterPatterns []string) (string, er
 		return "", err
 	}
 	return filePath, nil
+}
+
+// SelectLocalFiles 打开本地原生文件多选对话框 (支持按住 Ctrl/Cmd 批量多选视频或素材)
+func (a *App) SelectLocalFiles(title string, filterPatterns []string) ([]string, error) {
+	filters := []runtime.FileFilter{}
+	if len(filterPatterns) > 0 {
+		filters = append(filters, runtime.FileFilter{
+			DisplayName: "媒体文件",
+			Pattern:     filterPatterns[0],
+		})
+	}
+	filePaths, err := runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   title,
+		Filters: filters,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return filePaths, nil
 }
 

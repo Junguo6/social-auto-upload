@@ -831,6 +831,7 @@ def schedule_value(value: str):
 def add_runtime_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--screencast", action="store_true", help="Enable CDP live canvas screencast stream")
+    parser.add_argument("--app-mode", action="store_true", help="Launch in clean, native Chrome App mode (borderless, 0 latency, 4K quality)")
     parser.add_argument("--task-id", default="", help="Associated task ID for screencast frame identification")
     headless_group = parser.add_mutually_exclusive_group()
     headless_group.add_argument("--headed", dest="headless", action="store_false", help="Run with browser UI")
@@ -1098,7 +1099,11 @@ CREATOR_PLATFORM_URLS = {
 
 
 async def run_interactive_browser_session(platform: str, account_name: str, headless: bool = True) -> int:
-    """拉起内嵌长连接无头浏览器会话，支持扫码登录或直接浏览创作者后台，直到用户手动关闭。"""
+    """拉起长连接浏览器会话：
+    - 若 headless=False (原生模式)：拉起原生 Chrome App 沉浸式应用视窗 (4K Retina 视网膜画质，0 延迟，原生打字与手势)；
+    - 若 headless=True (投屏模式)：拉起无头浏览器并通过 CDP 向前端 Canvas 实时推流。
+    直到用户在桌面端手动关闭或主动退出窗口。
+    """
     account_file = resolve_account_file(platform, account_name)
     creator_url = CREATOR_PLATFORM_URLS.get(platform, "https://creator.douyin.com/")
 
@@ -1108,67 +1113,154 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
         from playwright.async_api import async_playwright
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
-            headless=headless,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
-        )
-        context_kwargs = {
-            "viewport": {"width": 1280, "height": 720}
-        }
-        if account_file.exists():
+        browser = None
+        if not headless:
+            # 🚀 方案 A：原生真机 Chrome App 沉浸式视窗
+            user_data_dir = BASE_DIR / "browser_data" / f"{platform}_{account_name}"
+            user_data_dir.mkdir(parents=True, exist_ok=True)
+
+            context = await playwright.chromium.launch_persistent_context(
+                user_data_dir=str(user_data_dir),
+                headless=False,
+                args=[
+                    f"--app={creator_url}",
+                    "--window-size=1280,820",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-blink-features=AutomationControlled",
+                ]
+            )
+            # 预注入已存盘的 cookies
+            if account_file.exists():
+                try:
+                    with open(account_file, "r", encoding="utf-8") as f:
+                        state_data = json.load(f)
+                    cookies = state_data.get("cookies", [])
+                    if cookies:
+                        await context.add_cookies(cookies)
+                except Exception:
+                    pass
+
             try:
-                context = await browser.new_context(storage_state=str(account_file), **context_kwargs)
+                from uploader.douyin_uploader.main import set_init_script
+                context = await set_init_script(context)
             except Exception:
-                context = await browser.new_context(**context_kwargs)
+                pass
+
+            page = context.pages[0] if context.pages else await context.new_page()
+            sys.stdout.write(f"[APP_INFO] Native Chrome App window launched for {platform}: {creator_url}\n")
+            sys.stdout.flush()
+            try:
+                await page.goto(creator_url, wait_until="domcontentloaded")
+            except Exception as e:
+                sys.stderr.write(f"Warning navigating to {creator_url}: {e}\n")
         else:
-            context = await browser.new_context(**context_kwargs)
+            browser = await playwright.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+            )
+            context_kwargs = {
+                "viewport": {"width": 1440, "height": 900}
+            }
+            if account_file.exists():
+                try:
+                    context = await browser.new_context(storage_state=str(account_file), **context_kwargs)
+                except Exception:
+                    context = await browser.new_context(**context_kwargs)
+            else:
+                context = await browser.new_context(**context_kwargs)
 
-        try:
-            from uploader.douyin_uploader.main import set_init_script
-            context = await set_init_script(context)
-        except Exception:
-            pass
+            try:
+                from uploader.douyin_uploader.main import set_init_script
+                context = await set_init_script(context)
+            except Exception:
+                pass
 
-        page = await context.new_page()
-        sys.stdout.write(f"[CDP_INFO] Opening creator studio URL for {platform}: {creator_url}\n")
-        sys.stdout.flush()
-        try:
-            await page.goto(creator_url, wait_until="domcontentloaded")
-        except Exception as e:
-            sys.stderr.write(f"Warning navigating to {creator_url}: {e}\n")
+            page = await context.new_page()
+            sys.stdout.write(f"[CDP_INFO] Opening creator studio URL for {platform}: {creator_url}\n")
+            sys.stdout.flush()
+            try:
+                await page.goto(creator_url, wait_until="domcontentloaded")
+            except Exception as e:
+                sys.stderr.write(f"Warning navigating to {creator_url}: {e}\n")
 
         login_notified = False
         try:
             while True:
+                # 检查页面是否已被用户手动关闭
+                if page.is_closed():
+                    sys.stdout.write("[APP_INFO] Browser page was closed by user.\n")
+                    sys.stdout.flush()
+                    break
+
                 if not login_notified:
                     current_url = page.url
                     is_logged_in = False
+                    extracted_nickname = ""
+                    extracted_uid = ""
+
                     if platform == "tencent":
-                        if "channels.weixin.qq.com" in current_url and "login.html" not in current_url:
-                            is_logged_in = True
+                        # 腾讯视频号：页面未登录时往往也是 channels.weixin.qq.com/platform 路径，但会内嵌扫码 iframe 或弹出登录框
+                        has_qr_frame = any("open.weixin.qq.com/connect/qrconnect" in fr.url for fr in page.frames)
+                        has_login_url = "login.html" in current_url
+                        if not has_qr_frame and not has_login_url and "channels.weixin.qq.com" in current_url:
+                            # 必须能查找到可见的创作者昵称元素，才确认为已成功登录态
+                            try:
+                                for sel in ["h2.finder-nickname", "div.finder-nickname", "div.side-bar-footer .account-info span.name"]:
+                                    el = page.locator(sel).first
+                                    if await el.count() and await el.is_visible():
+                                        t = (await el.inner_text()).strip()
+                                        if t and len(t) < 40:
+                                            extracted_nickname = t
+                                            is_logged_in = True
+                                            break
+                            except Exception:
+                                pass
                     elif platform == "douyin":
                         if "creator.douyin.com" in current_url and "login" not in current_url:
-                            is_logged_in = True
+                            try:
+                                for sel in ["div.avatar-wrap + span", "div.user-info-name", "div.name-wrap span"]:
+                                    el = page.locator(sel).first
+                                    if await el.count() and await el.is_visible():
+                                        t = (await el.inner_text()).strip()
+                                        if t:
+                                            extracted_nickname = t
+                                            is_logged_in = True
+                                            break
+                            except Exception:
+                                pass
                     elif platform == "xiaohongshu":
                         if "creator.xiaohongshu.com" in current_url and "login" not in current_url:
-                            is_logged_in = True
+                            try:
+                                for sel in ["div.user-info span.name", "div.name"]:
+                                    el = page.locator(sel).first
+                                    if await el.count() and await el.is_visible():
+                                        t = (await el.inner_text()).strip()
+                                        if t:
+                                            extracted_nickname = t
+                                            is_logged_in = True
+                                            break
+                            except Exception:
+                                pass
+                    elif platform == "kuaishou":
+                        if "cp.kuaishou.com" in current_url and "login" not in current_url:
+                            try:
+                                for sel in ["div.user-name", "span.user-name"]:
+                                    el = page.locator(sel).first
+                                    if await el.count() and await el.is_visible():
+                                        t = (await el.inner_text()).strip()
+                                        if t:
+                                            extracted_nickname = t
+                                            is_logged_in = True
+                                            break
+                            except Exception:
+                                pass
                     else:
-                        is_logged_in = "login" not in current_url.lower()
+                        # 其它平台：URL 不含 login 且有用户信息元素
+                        if "login" not in current_url.lower():
+                            is_logged_in = True
 
                     if is_logged_in:
-                        extracted_nickname = ""
-                        extracted_uid = ""
-                        try:
-                            for sel in ["h2.finder-nickname", "div.side-bar-footer .account-info span.name", "span.name", "div.avatar-wrap + span"]:
-                                el = page.locator(sel).first
-                                if await el.count() and await el.is_visible():
-                                    t = (await el.inner_text()).strip()
-                                    if t and len(t) < 30:
-                                        extracted_nickname = t
-                                        break
-                        except Exception:
-                            pass
-
                         try:
                             uid_el = page.locator("span.finder-uniq-id, #finder-uid-copy").first
                             if await uid_el.count():
@@ -1193,6 +1285,12 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                         login_notified = True
 
                 await asyncio.sleep(1)
+                # 每 30 秒自动快照存盘
+                if int(asyncio.get_event_loop().time()) % 30 == 0:
+                    try:
+                        await context.storage_state(path=str(account_file))
+                    except Exception:
+                        pass
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
         finally:
@@ -1200,7 +1298,15 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                 await context.storage_state(path=str(account_file))
             except Exception:
                 pass
-            await browser.close()
+            try:
+                await context.close()
+            except Exception:
+                pass
+            if browser:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
 
     return 0
 
@@ -1216,8 +1322,8 @@ async def dispatch(args: argparse.Namespace) -> int:
         except Exception as e:
             sys.stderr.write(f"Failed to install screencast hook: {e}\n")
 
-    # 桌面端内嵌无头浏览器长连接会话（支持扫码、自由操作、查看个人资料与数据，直到用户手动关闭）
-    if getattr(args, "screencast", False) and args.action == "login":
+    # 桌面端原生真机 App 视窗或内嵌无头长连接会话（支持扫码、自由操作、查看个人资料与数据，直到用户手动关闭）
+    if (getattr(args, "screencast", False) or getattr(args, "app_mode", False)) and args.action == "login":
         return await run_interactive_browser_session(args.platform, args.account, headless=args.headless)
 
     if args.platform == "douyin":

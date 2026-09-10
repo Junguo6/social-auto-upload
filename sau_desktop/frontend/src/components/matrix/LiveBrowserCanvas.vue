@@ -19,6 +19,14 @@
           <el-icon><Pointer /></el-icon>
           <span>{{ isInteractive ? '交互开' : '只读' }}</span>
         </el-button>
+
+        <el-tooltip :content="viewMode === 'contain' ? '当前：全貌适应(无截断)，点击切换为 1:1 原始尺寸' : '当前：1:1 原生高清(平滑滚动)，点击切换为全貌适应'" placement="bottom">
+          <el-button size="small" type="primary" link @click="toggleViewMode">
+            <el-icon><FullScreen /></el-icon>
+            <span>{{ viewMode === 'contain' ? '全貌适应' : '1:1 原生' }}</span>
+          </el-button>
+        </el-tooltip>
+
         <el-button size="small" type="primary" link @click="handleRefresh">
           <el-icon><Refresh /></el-icon>
         </el-button>
@@ -26,7 +34,7 @@
     </div>
 
     <!-- 画面主视窗 -->
-    <div class="canvas-viewport" ref="viewportRef">
+    <div class="canvas-viewport" :class="{ 'mode-scroll': viewMode === 'original' }" ref="viewportRef">
       <canvas 
         ref="canvasRef" 
         tabindex="0"
@@ -76,6 +84,11 @@ const isInteractive = ref(true)
 const fps = ref(0)
 const frameWidth = ref(0)
 const frameHeight = ref(0)
+const viewMode = ref<'contain' | 'original'>('contain')
+
+const toggleViewMode = () => {
+  viewMode.value = viewMode.value === 'contain' ? 'original' : 'contain'
+}
 
 let frameCount = 0
 let fpsTimer: any = null
@@ -186,21 +199,26 @@ const handleRefresh = () => {
 let sharedImg: HTMLImageElement | null = null
 let isDecoding = false
 let queuedFrame: { data: string; width?: number; height?: number } | null = null
+let decodeWatchdog: any = null
 
-const processQueuedFrame = () => {
-  if (!queuedFrame || isDecoding) return
-  isDecoding = true
-  const frame = queuedFrame
-  queuedFrame = null
+// 将 Base64 快速解包为二进制 Uint8Array Blob，交付底层显卡异步解码
+const b64ToBlob = (b64: string): Blob => {
+  const binary = atob(b64)
+  const len = binary.length
+  const bytes = new Uint8Array(len)
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return new Blob([bytes], { type: 'image/jpeg' })
+}
 
+const fallbackDecode = (frame: any, onComplete: () => void) => {
   if (!sharedImg) {
     sharedImg = new Image()
   }
-
   sharedImg.onload = () => {
-    isDecoding = false
     if (canvasRef.value && sharedImg) {
-      const ctx = canvasRef.value.getContext('2d')
+      const ctx = canvasRef.value.getContext('2d', { alpha: false })
       if (ctx) {
         if (canvasRef.value.width !== sharedImg.width || canvasRef.value.height !== sharedImg.height) {
           canvasRef.value.width = sharedImg.width
@@ -215,20 +233,68 @@ const processQueuedFrame = () => {
         frameCount++
       }
     }
-    // 若在当前帧解码渲染期间又有新帧到达，下一动画帧立即处理最新帧，跳过中间过期帧
-    if (queuedFrame) {
-      requestAnimationFrame(processQueuedFrame)
-    }
+    onComplete()
   }
+  sharedImg.onerror = () => onComplete()
+  sharedImg.src = 'data:image/jpeg;base64,' + frame.data
+}
 
-  sharedImg.onerror = () => {
+const processQueuedFrame = () => {
+  if (!queuedFrame || isDecoding) return
+  isDecoding = true
+  const frame = queuedFrame
+  queuedFrame = null
+
+  const onComplete = () => {
+    if (decodeWatchdog) {
+      clearTimeout(decodeWatchdog)
+      decodeWatchdog = null
+    }
     isDecoding = false
     if (queuedFrame) {
       requestAnimationFrame(processQueuedFrame)
     }
   }
 
-  sharedImg.src = 'data:image/jpeg;base64,' + frame.data
+  // 150ms 自动看门狗：杜绝 WebKit 内核偶发丢弃 onload/onerror 导致 isDecoding 永远为 true 的致命死锁
+  if (decodeWatchdog) clearTimeout(decodeWatchdog)
+  decodeWatchdog = setTimeout(() => {
+    if (isDecoding) {
+      onComplete()
+    }
+  }, 150)
+
+  try {
+    if (typeof window !== 'undefined' && 'createImageBitmap' in window) {
+      const blob = b64ToBlob(frame.data)
+      createImageBitmap(blob).then(bitmap => {
+        if (canvasRef.value) {
+          const ctx = canvasRef.value.getContext('2d', { alpha: false })
+          if (ctx) {
+            if (canvasRef.value.width !== bitmap.width || canvasRef.value.height !== bitmap.height) {
+              canvasRef.value.width = bitmap.width
+              canvasRef.value.height = bitmap.height
+              frameWidth.value = bitmap.width
+              frameHeight.value = bitmap.height
+            }
+            ctx.drawImage(bitmap, 0, 0)
+            hasReceivedFirstFrame.value = true
+            isReceiving.value = true
+            lastFrameTime = Date.now()
+            frameCount++
+          }
+        }
+        bitmap.close()
+        onComplete()
+      }).catch(() => {
+        fallbackDecode(frame, onComplete)
+      })
+    } else {
+      fallbackDecode(frame, onComplete)
+    }
+  } catch {
+    onComplete()
+  }
 }
 
 // 接收 CDP 帧并以跳帧/合并机制绘制，彻底消除背压卡顿
@@ -352,6 +418,7 @@ onUnmounted(() => {
   position: relative;
   flex: 1;
   width: 100%;
+  height: 100%;
   min-height: 280px;
   display: flex;
   align-items: center;
@@ -360,11 +427,30 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+/* 1:1 原生高清滚动模式：启用平滑横纵滚动条，杜绝右侧截断 */
+.canvas-viewport.mode-scroll {
+  overflow: auto !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  padding: 8px;
+}
+
 .screencast-canvas {
   max-width: 100%;
   max-height: 100%;
+  width: auto;
+  height: auto;
   object-fit: contain;
   display: block;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+.canvas-viewport.mode-scroll .screencast-canvas {
+  max-width: none !important;
+  max-height: none !important;
+  width: auto !important;
+  height: auto !important;
 }
 
 .screencast-canvas.can-interact {

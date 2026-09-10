@@ -138,13 +138,163 @@ export function useMatrixPublish() {
     })
 
     ElNotification({
-      title: '发布任务已创建',
-      message: `已将 ${rawTasks.length} 个账号的发布任务加入后台执行队列（已按防风控策略智能分流）。点击可前往「任务管理中心」查看实时进度。`,
+      title: '🚀 矩阵发布任务已成功提交！',
+      message: `已入队 [${batchName}]，包含 ${rawTasks.length} 个矩阵分发通道。系统将自动按最大 ${concurrency} 并发有序调度！`,
       type: 'success',
-      duration: 4500,
-      onClick: () => {
-        router.push('/tasks')
-      }
+      duration: 4000
+    })
+
+    return batchId
+  }
+
+  /**
+   * 基于【视频 × 账号】交叉透视矩阵，一次性组装多视频 × 多账号的多任务批次
+   */
+  const createCrossMatrixPublishBatch = (params: {
+    mediaList: MediaItem[]
+    selectedAccounts: Array<{ platform: string; account: string; nickname?: string }>
+    matrixMap: Record<string, Record<string, any>>
+    masterForm: MasterForm
+    ruleConfig: any
+    concurrency: number
+    isHeadless: boolean
+  }) => {
+    const { mediaList, selectedAccounts, matrixMap, masterForm, ruleConfig, concurrency, isHeadless } = params
+
+    if (mediaList.length === 0) {
+      ElMessage.warning('请先在步骤 ① 添加至少 1 个待发布视频文件')
+      return null
+    }
+
+    if (selectedAccounts.length === 0) {
+      ElMessage.warning('请先在步骤 ② 勾选至少 1 个目标矩阵账号')
+      return null
+    }
+
+    const rawTasks: engine.AccountPublishTask[] = []
+    const todayStr = new Date().toISOString().split('T')[0]
+
+    // 遍历每一个视频 × 每一个账号
+    mediaList.forEach((media, mIdx) => {
+      const ep = media.parsedEpisode || (mIdx + 1)
+      const baseName = media.fileName.replace(/\.[^/.]+$/, '')
+
+      selectedAccounts.forEach((acc) => {
+        const accKey = `${acc.platform}:${acc.account}`
+        const cell = matrixMap[media.id]?.[accKey]
+
+        // 若未配置或被用户标记为不发布，则跳过
+        if (cell && !cell.enabled) return
+
+        // 1. 计算该单元格最终标题
+        let finalTitle = ''
+        if (cell?.customTitle?.trim()) {
+          finalTitle = cell.customTitle.trim()
+        } else {
+          const tpl = masterForm.title.trim() || media.fileName
+          finalTitle = tpl
+            .replace(/\{集数\}/g, String(ep))
+            .replace(/\{视频名\}/g, baseName)
+            .replace(/\{日期\}/g, todayStr)
+        }
+
+        // 2. 计算描述与标签
+        const finalDesc = cell?.override?.desc !== undefined && cell.override.desc !== ''
+          ? cell.override.desc
+          : masterForm.desc
+
+        const finalTags = cell?.override?.tags !== undefined && cell.override.tags !== ''
+          ? cell.override.tags
+          : masterForm.tags
+
+        // 3. 计算排期时间
+        let finalSchedule = ''
+        const schedMode = cell?.scheduleMode || 'inherit'
+
+        if (schedMode === 'immediate') {
+          finalSchedule = ''
+        } else if (schedMode === 'scheduled' && cell?.customSchedule) {
+          finalSchedule = cell.customSchedule
+        } else {
+          // 继承全局
+          if (ruleConfig.scheduleType === 'immediate') {
+            finalSchedule = ''
+          } else if (ruleConfig.scheduleType === 'interval' && ruleConfig.startScheduleTime) {
+            try {
+              const start = new Date(ruleConfig.startScheduleTime.replace(/-/g, '/'))
+              const offsetMs = mIdx * (ruleConfig.intervalMinutes || 30) * 60 * 1000
+              const sched = new Date(start.getTime() + offsetMs)
+              const y = sched.getFullYear()
+              const m = String(sched.getMonth() + 1).padStart(2, '0')
+              const d = String(sched.getDate()).padStart(2, '0')
+              const h = String(sched.getHours()).padStart(2, '0')
+              const min = String(sched.getMinutes()).padStart(2, '0')
+              finalSchedule = `${y}-${m}-${d} ${h}:${min}`
+            } catch (e) {
+              finalSchedule = ''
+            }
+          } else if (ruleConfig.scheduleType === 'custom' && masterForm.schedule) {
+            finalSchedule = masterForm.schedule
+          }
+        }
+
+        const ov = cell?.override || {}
+
+        const task = engine.AccountPublishTask.createFrom({
+          platform: acc.platform,
+          account: acc.account,
+          nickname: acc.nickname || acc.account,
+          action: 'upload-video',
+          filePath: media.filePath,
+          images: [],
+          title: finalTitle || baseName,
+          desc: finalDesc,
+          tags: finalTags,
+          thumbnail: ov.thumbnail || masterForm.thumbnail,
+          thumbnailLandscape: ov.thumbnailLandscape || '',
+          thumbnailPortrait: ov.thumbnailPortrait || '',
+          tid: ov.tid > 0 ? ov.tid : (acc.platform === 'bilibili' ? 230 : 0),
+          shortTitle: ov.shortTitle || '',
+          category: ov.category || '',
+          draft: ov.draft || false,
+          schedule: finalSchedule,
+          declaration: ov.declaration || '',
+          collection: ov.collection || '',
+          productLink: ov.productLink || '',
+          productTitle: ov.productTitle || '',
+          visibility: ov.visibility || 'public',
+          playlist: ov.playlist || '',
+          bgm: ov.bgm || '',
+          note: ov.note || '',
+          notef: ov.notef || '',
+          headless: isHeadless
+        })
+
+        rawTasks.push(task)
+      })
+    })
+
+    if (rawTasks.length === 0) {
+      ElMessage.warning('矩阵中没有勾选任何有效的发布单元格')
+      return null
+    }
+
+    const firstMediaName = mediaList[0]?.fileName?.replace(/\.[^/.]+$/, '') || '多视频矩阵'
+    const batchName = `${firstMediaName} 等 ${mediaList.length} 个视频 (${rawTasks.length}次发布)`
+
+    const batchId = taskStore.enqueueBatch({
+      batchName,
+      videoFileName: mediaList.map(m => m.fileName).join(', '),
+      thumbnail: masterForm.thumbnail,
+      rawTasks,
+      concurrency
+    })
+
+    ElNotification({
+      title: '🚀 批量矩阵发布任务已提交！',
+      message: `已将 ${mediaList.length} 个视频、共 ${rawTasks.length} 次发布任务推入调度器，最大 ${concurrency} 并发执行中。`,
+      type: 'success',
+      duration: 4500
     })
 
     return batchId

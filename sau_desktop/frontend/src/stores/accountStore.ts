@@ -151,8 +151,8 @@ export const useAccountStore = defineStore('account', () => {
     }
   }
 
-  // 快捷保存/更新刚登录成功的账号凭证
-  const saveLoggedInAccount = (platform: string, account: string, nickname?: string, finderUid?: string) => {
+  // 快捷保存/更新刚识别到的账号凭证 (不盲信 isValid: true，有效性统一由 check 命令裁决)
+  const saveLoggedInAccount = (platform: string, account: string, nickname?: string, finderUid?: string, isValid?: boolean) => {
     let exist = accounts.value.find(a => a.platform === platform && a.account === account)
     if (!exist && finderUid) {
       exist = accounts.value.find(a => a.platform === platform && a.finderUid === finderUid)
@@ -164,16 +164,18 @@ export const useAccountStore = defineStore('account', () => {
         nickname: nickname || account,
         finderUid: finderUid || '',
         group: '默认分组',
-        isValid: true,
-        checked: true
+        isValid: isValid !== undefined ? isValid : false,
+        checked: isValid !== undefined
       }
       accounts.value.push(exist)
     } else {
       exist.account = account
       if (nickname) exist.nickname = nickname
       if (finderUid) exist.finderUid = finderUid
-      exist.isValid = true
-      exist.checked = true
+      if (isValid !== undefined) {
+        exist.isValid = isValid
+        exist.checked = true
+      }
     }
     saveToStorage()
     return exist

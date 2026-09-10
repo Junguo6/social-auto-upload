@@ -38,6 +38,10 @@ export function LoginAccount(arg1, arg2, arg3) {
   return window['go']['main']['App']['LoginAccount'](arg1, arg2, arg3);
 }
 
+export function LoginAccountWithAppWindow(arg1, arg2) {
+  return window['go']['main']['App']['LoginAccountWithAppWindow'](arg1, arg2);
+}
+
 export function LoginAccountWithScreencast(arg1, arg2) {
   return window['go']['main']['App']['LoginAccountWithScreencast'](arg1, arg2);
 }
@@ -60,6 +64,10 @@ export function ResumeAccount(arg1, arg2) {
 
 export function SelectLocalFile(arg1, arg2) {
   return window['go']['main']['App']['SelectLocalFile'](arg1, arg2);
+}
+
+export function SelectLocalFiles(arg1, arg2) {
+  return window['go']['main']['App']['SelectLocalFiles'](arg1, arg2);
 }
 
 export function SendBrowserInput(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {

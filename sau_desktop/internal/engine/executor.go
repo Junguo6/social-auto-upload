@@ -85,6 +85,11 @@ func (e *Executor) LoginAccount(platform, account string, headed bool, onEvent f
 	return e.account.LoginAccount(platform, account, headed, onEvent)
 }
 
+// LoginAccountWithAppWindow 拉起原生 Chrome App 沉浸式真机视窗 (4K 原生画质与 0 延迟)
+func (e *Executor) LoginAccountWithAppWindow(platform, account string, onEvent func(evt EngineEvent)) (LoginResult, error) {
+	return e.account.LoginAccountWithAppWindow(platform, account, onEvent)
+}
+
 // LoginAccountWithScreencast 拉起后台无头登录并实时抽取 CDP 画面帧流供应用内画布交互
 func (e *Executor) LoginAccountWithScreencast(platform, account string, onEvent func(evt EngineEvent)) (LoginResult, error) {
 	return e.account.LoginAccountWithScreencast(platform, account, onEvent)
