@@ -49,9 +49,18 @@ func NewRuntimeManager() (*RuntimeManager, error) {
 }
 
 func resolveEngineAndWorkDir() (string, string, string, string, bool, error) {
+	exePath, _ := os.Executable()
+	var exeDir string
+	if exePath != "" {
+		exeDir = filepath.Dir(exePath)
+	}
+
 	dir, err := os.Getwd()
 	if err != nil {
-		return "", "", "", "", false, err
+		dir = exeDir
+	}
+	if exeDir == "" {
+		exeDir = dir
 	}
 
 	// 1. 定位项目根目录 (包含 conf.py 或 sau_cli.py 的目录)
@@ -60,6 +69,9 @@ func resolveEngineAndWorkDir() (string, string, string, string, bool, error) {
 		dir,
 		filepath.Join(dir, ".."),
 		filepath.Join(dir, "..", ".."),
+		exeDir,
+		filepath.Join(exeDir, ".."),
+		filepath.Join(exeDir, "..", ".."),
 	}
 
 	for _, c := range candidates {
@@ -83,6 +95,9 @@ func resolveEngineAndWorkDir() (string, string, string, string, bool, error) {
 		filepath.Join(workDir, ".venv", pyName),
 		filepath.Join(dir, ".venv", pyName),
 		filepath.Join(dir, "..", ".venv", pyName),
+		filepath.Join(exeDir, ".venv", pyName),
+		filepath.Join(exeDir, "..", ".venv", pyName),
+		filepath.Join(exeDir, "..", "..", ".venv", pyName),
 	}
 
 	sauCliPath := filepath.Join(workDir, "sau_cli.py")
@@ -102,16 +117,28 @@ func resolveEngineAndWorkDir() (string, string, string, string, bool, error) {
 	}
 
 	possiblePaths := []string{
+		// 优先当前可执行文件同级目录 (针对发布整包 build/bin)
+		filepath.Join(exeDir, "sau_engine", binName),
+		filepath.Join(exeDir, "bin", "sau_engine", binName),
+		filepath.Join(exeDir, binName),
+		// 工作目录与开发目录
 		filepath.Join(workDir, "sau_desktop", "bin", "sau_engine", binName),
+		filepath.Join(workDir, "bin", "sau_engine", binName),
 		filepath.Join(workDir, "dist", "sau_engine", binName),
+		filepath.Join(dir, "sau_engine", binName),
 		filepath.Join(dir, "bin", "sau_engine", binName),
 		filepath.Join(dir, "sau_desktop", "bin", "sau_engine", binName),
 		filepath.Join(dir, "..", "dist", "sau_engine", binName),
+		filepath.Join(exeDir, "..", "..", "dist", "sau_engine", binName),
+		filepath.Join(exeDir, "..", "..", "sau_desktop", "bin", "sau_engine", binName),
 		filepath.Join(dir, binName),
 	}
 
 	var foundBin string
 	for _, p := range possiblePaths {
+		if p == "" {
+			continue
+		}
 		absP, _ := filepath.Abs(p)
 		if _, err := os.Stat(absP); err == nil {
 			foundBin = absP
@@ -121,6 +148,11 @@ func resolveEngineAndWorkDir() (string, string, string, string, bool, error) {
 
 	if foundBin == "" {
 		return "", "", "", "", false, fmt.Errorf("sau_engine 可执行二进制或 Python 源码环境未找到，查找路径包括: %v", possiblePaths)
+	}
+
+	// 若未找到源码根目录（独立运行在无代码电脑），工作目录以 exeDir 为准
+	if _, err := os.Stat(filepath.Join(workDir, "conf.py")); err != nil {
+		workDir = exeDir
 	}
 
 	return foundBin, workDir, "", "", false, nil
@@ -200,7 +232,7 @@ func (r *RuntimeManager) DetectBrowserStatus() BrowserEnvironmentInfo {
 			IsReady:     true,
 			BrowserType: "bundled_chromium",
 			Path:        r.BrowsersDir,
-			Summary:     fmt.Sprintf("已就绪 (内置/缓存 Chromium: %s)", filepath.Base(r.BrowsersDir)),
+			Summary:     fmt.Sprintf("已就绪 (内置绿色 Chromium: %s)", filepath.Base(r.BrowsersDir)),
 		}
 	}
 	if r.LocalChromePath != "" {
@@ -223,12 +255,14 @@ func (r *RuntimeManager) DetectBrowserStatus() BrowserEnvironmentInfo {
 func resolveBrowsersDir(workDir, execDir string) string {
 	candidates := []string{
 		// 1. 本地工作区/程序同级目录 (开箱即用绿色内置)
+		filepath.Join(execDir, "ms-playwright"),
+		filepath.Join(execDir, "bin", "ms-playwright"),
+		filepath.Join(execDir, "..", "Resources", "ms-playwright"), // macOS .app
+		filepath.Join(execDir, "..", "ms-playwright"),
+		filepath.Join(execDir, "..", "..", "sau_desktop", "bin", "ms-playwright"),
 		filepath.Join(workDir, "ms-playwright"),
 		filepath.Join(workDir, "bin", "ms-playwright"),
 		filepath.Join(workDir, "sau_desktop", "bin", "ms-playwright"),
-		filepath.Join(execDir, "ms-playwright"),
-		filepath.Join(execDir, "..", "Resources", "ms-playwright"), // macOS .app
-		filepath.Join(execDir, "..", "ms-playwright"),
 	}
 
 	// 2. 操作系统全局缓存目录 (Playwright 标准位置)
@@ -237,6 +271,10 @@ func resolveBrowsersDir(workDir, execDir string) string {
 		localApp := os.Getenv("LOCALAPPDATA")
 		if localApp != "" {
 			candidates = append(candidates, filepath.Join(localApp, "ms-playwright"))
+		}
+		userProfile := os.Getenv("USERPROFILE")
+		if userProfile != "" {
+			candidates = append(candidates, filepath.Join(userProfile, "AppData", "Local", "ms-playwright"))
 		}
 	} else if runtime.GOOS == "darwin" && homeDir != "" {
 		candidates = append(candidates, filepath.Join(homeDir, "Library", "Caches", "ms-playwright"))
@@ -271,12 +309,19 @@ func resolveSystemChrome() string {
 			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 		}
 	} else if runtime.GOOS == "windows" {
+		localApp := os.Getenv("LOCALAPPDATA")
+		progFiles := os.Getenv("ProgramFiles")
+		progFilesX86 := os.Getenv("ProgramFiles(x86)")
 		candidates = []string{
 			`C:\Program Files\Google\Chrome\Application\chrome.exe`,
 			`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
-			filepath.Join(os.Getenv("LOCALAPPDATA"), `Google\Chrome\Application\chrome.exe`),
+			filepath.Join(localApp, `Google\Chrome\Application\chrome.exe`),
+			filepath.Join(progFiles, `Google\Chrome\Application\chrome.exe`),
+			filepath.Join(progFilesX86, `Google\Chrome\Application\chrome.exe`),
 			`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
 			`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+			filepath.Join(progFiles, `Microsoft\Edge\Application\msedge.exe`),
+			filepath.Join(progFilesX86, `Microsoft\Edge\Application\msedge.exe`),
 		}
 	} else {
 		candidates = []string{

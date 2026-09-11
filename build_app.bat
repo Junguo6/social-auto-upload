@@ -80,41 +80,41 @@ if %ERRORLEVEL% NEQ 0 (
   exit /b %ERRORLEVEL%
 )
 
-:: 4. 同步引擎产物与内置 Chromium 内核至 Wails bin 目录
+:: 4. 同步引擎产物至开发与产物发布目录
 echo.
-echo ▶ [Step 2/3] 同步引擎产物与内置 Chromium 浏览器内核...
-if exist "%PROJECT_ROOT%sau_desktop\bin\sau_engine" (
-  rd /s /q "%PROJECT_ROOT%sau_desktop\bin\sau_engine"
-)
+echo ▶ [Step 2/4] 同步 Python 引擎产物...
+if exist "%PROJECT_ROOT%sau_desktop\bin\sau_engine" rd /s /q "%PROJECT_ROOT%sau_desktop\bin\sau_engine"
 mkdir "%PROJECT_ROOT%sau_desktop\bin\sau_engine"
 xcopy /E /Y /I "%PROJECT_ROOT%dist\sau_engine\*" "%PROJECT_ROOT%sau_desktop\bin\sau_engine\" >nul
 
-:: 内嵌 Windows 本地 Playwright Chromium 内核 (实现真正的开箱即用免安装)
-set "SRC_PLAYWRIGHT=%LOCALAPPDATA%\ms-playwright"
-set "DEST_PLAYWRIGHT=%PROJECT_ROOT%sau_desktop\bin\ms-playwright"
-
-if not exist "%SRC_PLAYWRIGHT%\chromium-*" (
-  echo 📦 正在拉取 Chromium 内核供打包内置...
-  "%PYTHON_EXE%" -m patchright install chromium || "%PYTHON_EXE%" -m playwright install chromium
+:: 5. 确保并内嵌 Chromium 浏览器内核 (开箱即用绿色版)
+echo.
+echo ▶ [Step 3/4] 检查并内嵌自动化 Chromium 浏览器内核...
+"%PYTHON_EXE%" -m patchright install chromium
+if %ERRORLEVEL% NEQ 0 (
+  "%PYTHON_EXE%" -m playwright install chromium
 )
 
+set "SRC_PLAYWRIGHT=%LOCALAPPDATA%\ms-playwright"
+if not exist "%SRC_PLAYWRIGHT%" (
+  set "SRC_PLAYWRIGHT=%USERPROFILE%\AppData\Local\ms-playwright"
+)
+
+set "DEV_PLAYWRIGHT=%PROJECT_ROOT%sau_desktop\bin\ms-playwright"
+if exist "%DEV_PLAYWRIGHT%" rd /s /q "%DEV_PLAYWRIGHT%"
+mkdir "%DEV_PLAYWRIGHT%"
 if exist "%SRC_PLAYWRIGHT%" (
-  echo 📦 正在复制 Chromium 内核到应用内置资源目录: %DEST_PLAYWRIGHT%...
-  if exist "%DEST_PLAYWRIGHT%" rd /s /q "%DEST_PLAYWRIGHT%"
-  mkdir "%DEST_PLAYWRIGHT%"
+  echo 正在同步 Chromium 内核至应用资源库...
   for /d %%d in ("%SRC_PLAYWRIGHT%\chromium-*" "%SRC_PLAYWRIGHT%\ffmpeg-*") do (
     echo   -^> 内嵌: %%~nxd
-    xcopy /E /Y /I "%%d" "%DEST_PLAYWRIGHT%\%%~nxd\" >nul
+    xcopy /E /Y /I "%%d" "%DEV_PLAYWRIGHT%\%%~nxd\" >nul
   )
 )
 
-:: 5. 执行 Wails 桌面端编译
+:: 6. 执行 Wails 桌面端整合编译
 echo.
-echo ▶ [Step 3/3] 执行 Wails 桌面端整合打包 (Go + Vue 3)...
+echo ▶ [Step 4/4] 正在编译 Wails 桌面客户端程序...
 cd /d "%PROJECT_ROOT%sau_desktop"
-
-:: 编译 Windows 桌面端
-echo 正在构建 Windows 桌面端程序...
 wails build
 
 if %ERRORLEVEL% NEQ 0 (
@@ -123,10 +123,26 @@ if %ERRORLEVEL% NEQ 0 (
   exit /b %ERRORLEVEL%
 )
 
+:: 7. 将引擎与绿色浏览器内核同步注入至最终发布目录 build\bin
+echo.
+echo 📦 正在将运行引擎与绿色浏览器内核装配入发布目录 (sau_desktop\build\bin)...
+set "FINAL_BIN=%PROJECT_ROOT%sau_desktop\build\bin"
+
+if exist "%FINAL_BIN%\sau_engine" rd /s /q "%FINAL_BIN%\sau_engine"
+mkdir "%FINAL_BIN%\sau_engine"
+xcopy /E /Y /I "%PROJECT_ROOT%dist\sau_engine\*" "%FINAL_BIN%\sau_engine\" >nul
+
+if exist "%FINAL_BIN%\ms-playwright" rd /s /q "%FINAL_BIN%\ms-playwright"
+mkdir "%FINAL_BIN%\ms-playwright"
+if exist "%DEV_PLAYWRIGHT%" (
+  xcopy /E /Y /I "%DEV_PLAYWRIGHT%\*" "%FINAL_BIN%\ms-playwright\" >nul
+)
+
 echo.
 echo ======================================================================
 echo Windows 桌面端全自动构建大功告成！已完全内置绿色 Chromium 浏览器内核！
-echo 产物路径位于: %PROJECT_ROOT%sau_desktop\build\bin\
+echo 产物路径位于: %FINAL_BIN%\
+echo 包含: sau_desktop.exe, sau_engine (Python 引擎), ms-playwright (绿色浏览器)
 echo ======================================================================
-explorer "%PROJECT_ROOT%sau_desktop\build\bin"
+explorer "%FINAL_BIN%"
 pause
