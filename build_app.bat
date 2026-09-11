@@ -113,23 +113,20 @@ echo.
 echo ▶ [Step 3/3] 执行 Wails 桌面端整合打包 (Go + Vue 3)...
 cd /d "%PROJECT_ROOT%sau_desktop"
 
-:: 优先尝试打包为 NSIS 安装程序，若本机未安装 NSIS 则自动回退编译标准版
-echo 正在尝试构建 Windows 安装包 (wails build -nsis)...
-wails build -nsis
-if %ERRORLEVEL% NEQ 0 (
-  echo ⚠️ NSIS 安装环境未就绪或编译异常，自动回退到常规打包模式 (wails build)...
-  wails build
-)
+:: 编译 Windows 桌面端
+echo 正在构建 Windows 桌面端程序...
+wails build
 
 if %ERRORLEVEL% NEQ 0 (
-  echo ❌ Wails 桌面端打包失败!
+  echo [ERROR] Wails 桌面端打包失败!
   pause
   exit /b %ERRORLEVEL%
 )
 
 echo.
 echo ======================================================================
-echo 🎉 Windows 桌面端全自动构建大功告成！已完全内置绿色 Chromium 浏览器内核！
+echo Windows 桌面端全自动构建大功告成！已完全内置绿色 Chromium 浏览器内核！
 echo 产物路径位于: %PROJECT_ROOT%sau_desktop\build\bin\
 echo ======================================================================
+explorer "%PROJECT_ROOT%sau_desktop\build\bin"
 pause
