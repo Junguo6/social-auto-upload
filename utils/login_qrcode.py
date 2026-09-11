@@ -4,9 +4,20 @@ import base64
 from pathlib import Path
 import sys
 
-import cv2
-import numpy as np
-import segno
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
+try:
+    import segno
+except ImportError:
+    segno = None
 
 
 def build_login_qrcode_path(account_file: str, suffix: str = "login_qrcode") -> Path:
@@ -36,22 +47,31 @@ def remove_qrcode_file(qrcode_path: Path | None) -> bool:
 
 
 def decode_qrcode_from_path(qrcode_path: Path) -> str | None:
+    if cv2 is None:
+        return None
     # Windows 下 cv2.imread 对中文路径不稳定，优先走 numpy+imdecode
     image = None
-    try:
-        data = np.fromfile(str(qrcode_path), dtype=np.uint8)
-        if data.size > 0:
-            image = cv2.imdecode(data, cv2.IMREAD_COLOR)
-    except Exception:
-        image = None
+    if np is not None:
+        try:
+            data = np.fromfile(str(qrcode_path), dtype=np.uint8)
+            if data.size > 0:
+                image = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        except Exception:
+            image = None
     if image is None:
-        image = cv2.imread(str(qrcode_path))
+        try:
+            image = cv2.imread(str(qrcode_path))
+        except Exception:
+            image = None
     if image is None:
         return None
 
-    detector = cv2.QRCodeDetector()
-    qrcode_content, _, _ = detector.detectAndDecode(image)
-    return qrcode_content or None
+    try:
+        detector = cv2.QRCodeDetector()
+        qrcode_content, _, _ = detector.detectAndDecode(image)
+        return qrcode_content or None
+    except Exception:
+        return None
 
 
 def _print_ascii_qrcode(qrcode) -> None:
@@ -76,6 +96,9 @@ def print_terminal_qrcode(
 ) -> None:
     print()
     print(f"请使用{app_name}扫描下方二维码登录：")
+    if segno is None:
+        print(f"请打开二维码图片进行扫码: {qrcode_path}")
+        return
     qrcode = segno.make(qrcode_content, error="L", boost_error=False)
     try:
         if hasattr(sys.stdout, "reconfigure"):

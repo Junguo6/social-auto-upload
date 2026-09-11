@@ -122,8 +122,11 @@ func (am *AccountManager) loginInternal(platform, account string, headed bool, s
 		if len(lineBytes) > 0 {
 			line := strings.TrimRight(string(lineBytes), "\r\n")
 			lowerLine := strings.ToLower(line)
-			if strings.Contains(lowerLine, "error") || strings.Contains(line, "Traceback") || strings.Contains(line, "Exception") || strings.Contains(lowerLine, "failed") {
-				lastErrLine = line
+			if strings.Contains(lowerLine, "error") || strings.Contains(line, "traceback") || strings.Contains(line, "exception") || strings.Contains(lowerLine, "failed") {
+				// 避免被 PyInstaller 的通用致命错误行覆盖掉真正的 Python Traceback 根因
+				if !strings.HasPrefix(line, "[PYI-") || lastErrLine == "" {
+					lastErrLine = line
+				}
 			}
 
 			// 捕获并分发 CDP 实时投屏帧，不污染普通日志抽屉

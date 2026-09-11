@@ -2,7 +2,26 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
+import traceback
 from pathlib import Path
+
+def _global_unhandled_exception_handler(exc_type, exc_value, exc_tb):
+    if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    err_str = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    sys.stderr.write(f"\n[CRITICAL_UNHANDLED_EXCEPTION]\n{err_str}\n")
+    sys.stderr.flush()
+    try:
+        log_file = Path(tempfile.gettempdir()) / "sau_engine_boot.log"
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"\n[{sys.platform}] Command: {sys.argv}\n{err_str}\n")
+    except Exception:
+        pass
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _global_unhandled_exception_handler
 
 def _resolve_default_browsers_path() -> str:
     # 0. 优先尊重外部已显式指定的环境变量
@@ -56,63 +75,103 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from conf import BASE_DIR
-from uploader.baijiahao_uploader.main import (
-    BaiJiaHaoVideo,
-    baijiahao_setup,
-    cookie_auth as baijiahao_cookie_auth,
-)
-from uploader.alipay_uploader.main import (
-    AlipayVideo,
-    alipay_setup,
-    cookie_auth as alipay_cookie_auth,
-)
-from uploader.bilibili_uploader.runtime import run_biliup_command
-from uploader.douyin_uploader.main import (
-    DOUYIN_PUBLISH_STRATEGY_IMMEDIATE,
-    DOUYIN_PUBLISH_STRATEGY_SCHEDULED,
-    DouYinNote,
-    DouYinVideo,
-    cookie_auth as douyin_cookie_auth,
-    douyin_setup,
-)
-from uploader.ks_uploader.main import (
-    KUAISHOU_PUBLISH_STRATEGY_IMMEDIATE,
-    KUAISHOU_PUBLISH_STRATEGY_SCHEDULED,
-    KSNote,
-    KSVideo,
-    cookie_auth as kuaishou_cookie_auth,
-    ks_setup,
-)
-from uploader.tencent_uploader.main import (
-    TENCENT_PUBLISH_STRATEGY_IMMEDIATE,
-    TENCENT_PUBLISH_STRATEGY_SCHEDULED,
-    TencentVideo,
-    cookie_auth as tencent_cookie_auth,
-    tencent_setup,
-)
-from uploader.weibo_uploader.main import (
-    WeiBoVideo,
-    weibo_setup,
-    cookie_auth as weibo_cookie_auth,
-)
-from uploader.hupu_uploader.main import (
-    HuPuVideo,
-    hupu_setup,
-    cookie_auth as hupu_cookie_auth,
-)
-from uploader.xiaohongshu_uploader.main import (
-    XIAOHONGSHU_PUBLISH_STRATEGY_IMMEDIATE,
-    XIAOHONGSHU_PUBLISH_STRATEGY_SCHEDULED,
-    XiaoHongShuNote,
-    XiaoHongShuVideo,
-    cookie_auth as xiaohongshu_cookie_auth,
-    xiaohongshu_setup,
-)
-from uploader.youtube_uploader.main import (
-    YouTubeVideo,
-    cookie_auth as youtube_cookie_auth,
-    youtube_setup,
-)
+DOUYIN_PUBLISH_STRATEGY_IMMEDIATE = "immediate"
+DOUYIN_PUBLISH_STRATEGY_SCHEDULED = "scheduled"
+KUAISHOU_PUBLISH_STRATEGY_IMMEDIATE = "immediate"
+KUAISHOU_PUBLISH_STRATEGY_SCHEDULED = "scheduled"
+TENCENT_PUBLISH_STRATEGY_IMMEDIATE = "immediate"
+TENCENT_PUBLISH_STRATEGY_SCHEDULED = "scheduled"
+XIAOHONGSHU_PUBLISH_STRATEGY_IMMEDIATE = "immediate"
+XIAOHONGSHU_PUBLISH_STRATEGY_SCHEDULED = "scheduled"
+
+try:
+    from uploader.baijiahao_uploader.main import (
+        BaiJiaHaoVideo,
+        baijiahao_setup,
+        cookie_auth as baijiahao_cookie_auth,
+    )
+except Exception as _e:
+    baijiahao_setup = baijiahao_cookie_auth = BaiJiaHaoVideo = None
+
+try:
+    from uploader.alipay_uploader.main import (
+        AlipayVideo,
+        alipay_setup,
+        cookie_auth as alipay_cookie_auth,
+    )
+except Exception as _e:
+    alipay_setup = alipay_cookie_auth = AlipayVideo = None
+
+try:
+    from uploader.bilibili_uploader.runtime import run_biliup_command
+except Exception as _e:
+    run_biliup_command = None
+
+try:
+    from uploader.douyin_uploader.main import (
+        DouYinNote,
+        DouYinVideo,
+        cookie_auth as douyin_cookie_auth,
+        douyin_setup,
+    )
+except Exception as _e:
+    douyin_setup = douyin_cookie_auth = DouYinVideo = DouYinNote = None
+
+try:
+    from uploader.ks_uploader.main import (
+        KSNote,
+        KSVideo,
+        cookie_auth as kuaishou_cookie_auth,
+        ks_setup,
+    )
+except Exception as _e:
+    ks_setup = kuaishou_cookie_auth = KSVideo = KSNote = None
+
+try:
+    from uploader.tencent_uploader.main import (
+        TencentVideo,
+        cookie_auth as tencent_cookie_auth,
+        tencent_setup,
+    )
+except Exception as _e:
+    tencent_setup = tencent_cookie_auth = TencentVideo = None
+
+try:
+    from uploader.weibo_uploader.main import (
+        WeiBoVideo,
+        weibo_setup,
+        cookie_auth as weibo_cookie_auth,
+    )
+except Exception as _e:
+    weibo_setup = weibo_cookie_auth = WeiBoVideo = None
+
+try:
+    from uploader.hupu_uploader.main import (
+        HuPuVideo,
+        hupu_setup,
+        cookie_auth as hupu_cookie_auth,
+    )
+except Exception as _e:
+    hupu_setup = hupu_cookie_auth = HuPuVideo = None
+
+try:
+    from uploader.xiaohongshu_uploader.main import (
+        XiaoHongShuNote,
+        XiaoHongShuVideo,
+        cookie_auth as xiaohongshu_cookie_auth,
+        xiaohongshu_setup,
+    )
+except Exception as _e:
+    xiaohongshu_setup = xiaohongshu_cookie_auth = XiaoHongShuVideo = XiaoHongShuNote = None
+
+try:
+    from uploader.youtube_uploader.main import (
+        YouTubeVideo,
+        cookie_auth as youtube_cookie_auth,
+        youtube_setup,
+    )
+except Exception as _e:
+    youtube_setup = youtube_cookie_auth = YouTubeVideo = None
 
 SCHEDULE_FORMAT = "%Y-%m-%d %H:%M"
 
@@ -949,6 +1008,8 @@ def build_parser() -> argparse.ArgumentParser:
     for action_name in ("login", "check"):
         action_parser = bilibili_actions.add_parser(action_name, help=f"Bilibili {action_name}")
         action_parser.add_argument("--account", required=True, help="Bilibili user-defined account_name")
+        if action_name == "login":
+            add_runtime_flags(action_parser)
 
     bilibili_upload_video_parser = bilibili_actions.add_parser("upload-video", help="Upload one video to Bilibili")
     bilibili_upload_video_parser.add_argument("--account", required=True, help="Bilibili user-defined account_name")
@@ -959,6 +1020,7 @@ def build_parser() -> argparse.ArgumentParser:
     bilibili_upload_video_parser.add_argument("--tags", default="", help="Comma-separated tags, such as tag1,tag2")
     bilibili_upload_video_parser.add_argument("--thumbnail", type=existing_file_path, help="Optional Bilibili cover image path")
     bilibili_upload_video_parser.add_argument("--schedule", type=schedule_value, help=f"Schedule time in {schedule_help}")
+    add_runtime_flags(bilibili_upload_video_parser)
 
     tencent_parser = platform_parsers.add_parser("tencent", help="Tencent/WeChat Channels operations")
     tencent_actions = tencent_parser.add_subparsers(dest="action", required=True)
@@ -1110,7 +1172,10 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
     try:
         from patchright.async_api import async_playwright
     except ImportError:
-        from playwright.async_api import async_playwright
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            raise RuntimeError("未检测到 patchright 或 playwright 自动化浏览器库，请先安装对应依赖")
 
     try:
         async with async_playwright() as playwright:
@@ -1118,34 +1183,47 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
             if not headless:
                 # 🚀 方案 A：原生真机 Chrome / Edge 视窗 (直接弹出桌面独立窗口)
                 from conf import LOCAL_CHROME_PATH
-                launch_options = {
-                    "headless": False,
-                    "args": [
-                        "--disable-blink-features=AutomationControlled",
-                        "--no-first-run",
-                        "--no-default-browser-check",
-                        "--window-size=1280,820",
-                    ]
-                }
-                if LOCAL_CHROME_PATH and Path(LOCAL_CHROME_PATH).exists():
-                    launch_options["executable_path"] = LOCAL_CHROME_PATH
+                launch_args = [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--window-size=1280,820",
+                ]
 
-                try:
-                    browser = await playwright.chromium.launch(**launch_options)
-                except Exception as e1:
-                    sys.stderr.write(f"Launch with executable_path failed: {e1}, fallback...\n")
-                    if "executable_path" in launch_options:
-                        del launch_options["executable_path"]
-                    if sys.platform == "win32":
-                        try:
-                            browser = await playwright.chromium.launch(channel="msedge", **launch_options)
-                        except Exception:
-                            try:
-                                browser = await playwright.chromium.launch(channel="chrome", **launch_options)
-                            except Exception:
-                                browser = await playwright.chromium.launch(**launch_options)
-                    else:
-                        browser = await playwright.chromium.launch(**launch_options)
+                # 构建启动策略备选链：Windows 优先系统自带 Edge，其次 Chrome，再次内置 Chromium
+                strategies = []
+                if sys.platform == "win32":
+                    strategies.append(("系统原生 Microsoft Edge", {"channel": "msedge", "headless": False, "args": launch_args}))
+                    strategies.append(("系统原生 Google Chrome", {"channel": "chrome", "headless": False, "args": launch_args}))
+                    strategies.append(("内置绿色 Chromium 内核", {"headless": False, "args": launch_args}))
+                elif sys.platform == "darwin":
+                    strategies.append(("系统 Google Chrome", {"channel": "chrome", "headless": False, "args": launch_args}))
+                    strategies.append(("系统 Microsoft Edge", {"channel": "msedge", "headless": False, "args": launch_args}))
+                    strategies.append(("内置绿色 Chromium 内核", {"headless": False, "args": launch_args}))
+                else:
+                    strategies.append(("内置绿色 Chromium 内核", {"headless": False, "args": launch_args}))
+
+                if LOCAL_CHROME_PATH and Path(LOCAL_CHROME_PATH).exists():
+                    strategies.insert(0, (f"指定路径浏览器 ({LOCAL_CHROME_PATH})", {"executable_path": LOCAL_CHROME_PATH, "headless": False, "args": launch_args}))
+
+                launch_errors = []
+                for name, opts in strategies:
+                    try:
+                        sys.stdout.write(f"[BROWSER_INIT] 正在尝试拉起: {name}...\n")
+                        sys.stdout.flush()
+                        browser = await playwright.chromium.launch(**opts)
+                        if browser:
+                            sys.stdout.write(f"[BROWSER_INIT] ✅ 成功拉起: {name}\n")
+                            sys.stdout.flush()
+                            break
+                    except Exception as e:
+                        err_msg = f"{name} 启动失败: {e}"
+                        launch_errors.append(err_msg)
+                        sys.stderr.write(f"{err_msg}\n")
+                        sys.stderr.flush()
+
+                if not browser:
+                    raise RuntimeError("所有浏览器启动尝试均失败:\n" + "\n".join(launch_errors))
 
                 context = await browser.new_context(viewport={"width": 1280, "height": 820})
                 if account_file.exists():
@@ -1759,14 +1837,31 @@ async def dispatch(args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(list(argv) if argv is not None else None)
     try:
+        parser = build_parser()
+        args = parser.parse_args(list(argv) if argv is not None else None)
         return asyncio.run(dispatch(args))
+    except SystemExit as se:
+        return se.code if isinstance(se.code, int) else (0 if se.code is None else 1)
     except Exception as exc:
-        print(str(exc), file=sys.stderr)
+        import traceback
+        err_msg = f"[SAU_CLI_ERROR] {exc}\n{traceback.format_exc()}"
+        sys.stderr.write(err_msg + "\n")
+        sys.stderr.flush()
+        return 1
+    except BaseException as be:
+        import traceback
+        err_msg = f"[SAU_CLI_CRITICAL] {be}\n{traceback.format_exc()}"
+        sys.stderr.write(err_msg + "\n")
+        sys.stderr.flush()
         return 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        code = main()
+        sys.exit(code)
+    except SystemExit as se:
+        sys.exit(se.code)
+    except BaseException:
+        sys.exit(1)

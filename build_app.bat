@@ -72,6 +72,11 @@ echo ▶ [Step 1/3] 打包 Python 发布引擎 (sau_engine.exe)...
   --collect-all "patchright" ^
   --collect-all "playwright" ^
   --collect-all "loguru" ^
+  --collect-all "qrcode" ^
+  --collect-all "segno" ^
+  --hidden-import "asyncio" ^
+  --hidden-import "tempfile" ^
+  --hidden-import "traceback" ^
   sau_cli.py
 
 if %ERRORLEVEL% NEQ 0 (

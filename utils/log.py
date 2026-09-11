@@ -39,8 +39,12 @@ def create_logger(log_name: str, file_path: str):
     def filter_record(record):
         return record["extra"].get("business_name") == log_name
 
-    Path(BASE_DIR / file_path).parent.mkdir(exist_ok=True)
-    logger.add(Path(BASE_DIR / file_path), filter=filter_record, level="INFO", rotation="10 MB", retention="10 days", backtrace=True, diagnose=True)
+    try:
+        log_file = Path(BASE_DIR) / file_path
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        logger.add(log_file, filter=filter_record, level="INFO", rotation="10 MB", retention="10 days", backtrace=True, diagnose=True)
+    except Exception as e:
+        sys.stderr.write(f"[LOG_INIT_WARN] Failed to create log file for {log_name}: {e}\n")
     return logger.bind(business_name=log_name)
 
 

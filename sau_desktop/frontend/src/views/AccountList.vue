@@ -719,7 +719,8 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
     const errStr = err?.message || String(err)
     if (!errStr.includes('手动中止') && !errStr.includes('signal') && !errStr.includes('killed')) {
       tab.sessionStatusText = `会话已结束: ${errStr}`
-      ElMessage.error({ message: `拉起浏览器异常: ${errStr}`, duration: 8000 })
+      const cleanMsg = errStr.startsWith('拉起') ? errStr : `拉起浏览器异常: ${errStr}`
+      ElMessage.error({ message: cleanMsg, duration: 8000 })
     }
   } finally {
     tab.isStartingSession = false
