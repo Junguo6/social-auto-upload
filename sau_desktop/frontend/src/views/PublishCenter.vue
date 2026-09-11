@@ -165,16 +165,20 @@ const masterForm = reactive<MasterForm>({
   action: 'upload-video',
   filePath: '',
   images: [],
-  title: '短剧第一季 - 第{集数}集 | {视频名}',
-  desc: '家人们追更啦~ 每天更新一集，记得关注不迷路 #短剧 #追更',
-  tags: '短剧, 爆款, 热播短剧',
+  title: '{视频名}',
+  desc: '',
+  tags: '',
   thumbnail: '',
   schedule: ''
 })
 
 // 批量排期与变量规则配置
 const ruleConfig = reactive<BatchRuleConfig>({
-  titleTemplate: '短剧第一季 - 第{集数}集 | {视频名}',
+  titleTemplate: '{视频名}',
+  episodeMode: 'auto',
+  startEpisode: 1,
+  episodeStep: 1,
+  padZero: false,
   scheduleType: 'immediate',
   startScheduleTime: '',
   intervalMinutes: 30
@@ -234,7 +238,7 @@ const totalActivatedTaskCount = computed(() => {
 // 顶部模板操作
 const handleTemplateCommand = (cmd: string) => {
   if (cmd === '__save__') {
-    ElMessageBox.prompt('请输入该预设模板名称 (如：短剧连载模板)', '保存为矩阵发布模板', {
+    ElMessageBox.prompt('请输入该预设模板名称 (如：通用矩阵发布模板)', '保存为矩阵发布模板', {
       confirmButtonText: '确定保存',
       cancelButtonText: '取消',
       inputPattern: /\S+/,
@@ -355,21 +359,26 @@ const handleStartPublish = async () => {
     return
   }
 
-  const batchId = createCrossMatrixPublishBatch({
-    mediaList: activeMediaList.value,
-    selectedAccounts: activeAccounts.value,
-    matrixMap,
-    masterForm,
-    ruleConfig,
-    concurrency: concurrency.value,
-    isHeadless: isHeadless.value
-  })
+  try {
+    const batchId = createCrossMatrixPublishBatch({
+      mediaList: activeMediaList.value,
+      selectedAccounts: activeAccounts.value,
+      matrixMap,
+      masterForm,
+      ruleConfig,
+      concurrency: concurrency.value,
+      isHeadless: isHeadless.value
+    })
 
-  if (batchId) {
-    // 延迟引导跳转到任务管理中心
-    setTimeout(() => {
-      router.push('/tasks')
-    }, 800)
+    if (batchId) {
+      // 延迟引导跳转到任务管理中心
+      setTimeout(() => {
+        router.push('/tasks')
+      }, 600)
+    }
+  } catch (err: any) {
+    console.error('发布任务提交失败:', err)
+    ElMessage.error(`任务提交失败: ${err?.message || '未知异常'}`)
   }
 }
 

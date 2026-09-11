@@ -75,7 +75,7 @@
                 <div class="video-file-name" :title="media.fileName">
                   <el-icon><Film /></el-icon>
                   <span>{{ media.fileName }}</span>
-                  <span class="ep-tag" v-if="media.parsedEpisode">第 {{ media.parsedEpisode }} 集</span>
+                  <span class="ep-tag">第 {{ getMediaEpisodeText(media, (currentPage - 1) * pageSize + pIdx) }} 集</span>
                 </div>
                 <div class="computed-title" :title="resolveTitleTemplate(media, (currentPage - 1) * pageSize + pIdx)">
                   <strong>最终标题:</strong> {{ resolveTitleTemplate(media, (currentPage - 1) * pageSize + pIdx) }}
@@ -175,7 +175,7 @@
                   <span class="media-idx">#{{ (currentPage - 1) * pageSize + pIdx + 1 }}</span>
                   <div class="media-text-wrap">
                     <span class="media-title" :title="media.fileName">{{ media.fileName }}</span>
-                    <span class="media-sub" v-if="media.parsedEpisode">第 {{ media.parsedEpisode }} 集</span>
+                    <span class="media-sub">第 {{ getMediaEpisodeText(media, (currentPage - 1) * pageSize + pIdx) }} 集</span>
                   </div>
                 </div>
               </td>
@@ -231,6 +231,7 @@
                 <div class="th-content">
                   <span class="media-idx">#{{ mIdx + 1 }}</span>
                   <span class="media-th-name" :title="media.fileName">{{ media.fileName }}</span>
+                  <span class="ep-tag-mini">第 {{ getMediaEpisodeText(media, mIdx) }} 集</span>
                 </div>
               </th>
             </tr>
@@ -328,6 +329,12 @@ import { ref, computed } from 'vue'
 import { getPlatformConfig } from '../../config/platforms'
 import CellConfigDrawer, { type CellDataWrap } from './CellConfigDrawer.vue'
 import type { MediaItem, MatrixCellConfig, MasterForm, BatchRuleConfig } from '../../types/matrix'
+import { resolveMediaTitle, resolveEpisodeNumber } from '../../utils/matrixHelper'
+
+// 动态解析视频集数显示文本 (受步骤3规则与序号驱动)
+const getMediaEpisodeText = (media: MediaItem, mediaIndex: number): string => {
+  return resolveEpisodeNumber(media, mediaIndex, props.ruleConfig)
+}
 
 const props = defineProps<{
   mediaList: MediaItem[]
@@ -422,15 +429,7 @@ const getCell = (mediaId: string, acc: { platform: string; account: string }): M
 
 // 解析通用标题模板
 const resolveTitleTemplate = (media: MediaItem, mediaIndex: number): string => {
-  const tpl = props.masterForm.title || media.fileName
-  const ep = media.parsedEpisode || (mediaIndex + 1)
-  const baseName = media.fileName.replace(/\.[^/.]+$/, "")
-  const todayStr = new Date().toISOString().split('T')[0]
-
-  return tpl
-    .replace(/\{集数\}/g, String(ep))
-    .replace(/\{视频名\}/g, baseName)
-    .replace(/\{日期\}/g, todayStr)
+  return resolveMediaTitle(props.masterForm.title, media, mediaIndex, props.ruleConfig)
 }
 
 // 解析单元格最终标题
@@ -706,6 +705,16 @@ const getPlatformColor = (pid: string) => getPlatformConfig(pid)?.color || '#636
   background: var(--primary-gradient);
   padding: 1px 6px;
   border-radius: 4px;
+}
+
+.ep-tag-mini {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.12);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
 }
 
 .computed-title {

@@ -32,12 +32,65 @@
         <el-input
           ref="titleInputRef"
           v-model="masterForm.title"
-          placeholder="输入主标题，如：短剧第一季 - 第{集数}集 | {视频名}"
+          placeholder="输入主标题，可使用变量如：{视频名} 或 第{集数}集"
           maxlength="80"
           show-word-limit
           clearable
           class="stylish-input"
         />
+
+        <!-- 集数变量规则配置条 (当标题包含 {集数} 时智能展开) -->
+        <transition name="el-zoom-in-top">
+          <div v-if="masterForm.title && masterForm.title.includes('{集数}')" class="episode-rule-banner">
+            <div class="banner-label-row">
+              <div class="banner-title">
+                <el-icon><Film /></el-icon>
+                <span>【集数】变量生成规则设置</span>
+              </div>
+              <span class="banner-tip">智能解析短剧/分集序号，或强制按添加顺序连续编号</span>
+            </div>
+            
+            <div class="banner-controls">
+              <div class="ctrl-group">
+                <span class="ctrl-label">编号模式:</span>
+                <el-radio-group v-model="ruleConfig.episodeMode" size="small">
+                  <el-radio-button value="auto">优先识别文件名</el-radio-button>
+                  <el-radio-button value="sequence">强制按序号递增</el-radio-button>
+                </el-radio-group>
+              </div>
+
+              <div class="ctrl-group">
+                <span class="ctrl-label">起始集数:</span>
+                <el-input-number
+                  v-model="ruleConfig.startEpisode"
+                  :min="1"
+                  :max="9999"
+                  size="small"
+                  controls-position="right"
+                  class="num-input-xs"
+                />
+              </div>
+
+              <div class="ctrl-group">
+                <span class="ctrl-label">步长:</span>
+                <el-input-number
+                  v-model="ruleConfig.episodeStep"
+                  :min="1"
+                  :max="10"
+                  size="small"
+                  controls-position="right"
+                  class="num-input-xs"
+                />
+              </div>
+
+              <div class="ctrl-group">
+                <el-checkbox v-model="ruleConfig.padZero" size="small" class="zero-checkbox">
+                  两位数补零 (如 01, 02)
+                </el-checkbox>
+              </div>
+            </div>
+          </div>
+        </transition>
 
         <!-- 标题批量生成实时预览 -->
         <div v-if="previewTitles.length > 0 && hasDynamicVars" class="batch-title-preview">
@@ -86,7 +139,7 @@
           </div>
           <el-input
             v-model="masterForm.tags"
-            placeholder="如：短剧, 爆款, AI黑科技"
+            placeholder="如：科技, 影视, 爆款, 干货"
             clearable
             class="stylish-input"
           />
@@ -162,6 +215,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { MasterForm, BatchRuleConfig, MediaItem } from '../../types/matrix'
+import { resolveMediaTitle } from '../../utils/matrixHelper'
 
 const props = defineProps<{
   masterForm: MasterForm
@@ -186,14 +240,17 @@ const hasDynamicVars = computed(() => {
 const previewTitles = computed(() => {
   const tpl = props.masterForm.title
   if (!tpl) return []
-  const todayStr = new Date().toISOString().split('T')[0]
-  return props.mediaList.slice(0, 3).map((item, idx) => {
-    const ep = item.parsedEpisode || (idx + 1)
-    const baseName = item.fileName.replace(/\.[^/.]+$/, "")
-    return tpl
-      .replace(/\{集数\}/g, String(ep))
-      .replace(/\{视频名\}/g, baseName)
-      .replace(/\{日期\}/g, todayStr)
+  // 若当前已添加待发视频，以实际视频预演前 3 条；若未添加，以标准示例展示
+  const list = props.mediaList.length > 0
+    ? props.mediaList.slice(0, 3)
+    : [
+        { fileName: '示例短剧_EP01.mp4', parsedEpisode: 1 },
+        { fileName: '示例短剧_EP02.mp4', parsedEpisode: 2 },
+        { fileName: '示例短剧_EP03.mp4', parsedEpisode: 3 }
+      ]
+
+  return list.map((item, idx) => {
+    return resolveMediaTitle(tpl, item as any, idx, props.ruleConfig)
   })
 })
 
@@ -455,5 +512,67 @@ const appendTag = (t: string) => {
 
 .custom-schedule-box {
   margin-top: 2px;
+}
+
+/* 集数变量规则配置面板 */
+.episode-rule-banner {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: var(--bg-detail);
+  border: 1px dashed var(--primary-color);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeIn 0.25s ease-in-out;
+}
+
+.banner-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.banner-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.banner-tip {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.banner-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ctrl-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ctrl-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.num-input-xs {
+  width: 90px;
+}
+
+.zero-checkbox {
+  margin-left: 4px;
+  font-size: 12px;
 }
 </style>

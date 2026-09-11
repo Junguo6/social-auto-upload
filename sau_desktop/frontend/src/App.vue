@@ -5,10 +5,10 @@
       <!-- 品牌区域 -->
       <div class="brand">
         <div class="logo-box">
-          <span class="logo-text">SAU</span>
+          <span class="logo-text">小映</span>
         </div>
         <div class="brand-info" v-if="!isSidebarCollapsed">
-          <div class="brand-title">Social Auto</div>
+          <div class="brand-title">小映分发助手</div>
           <div class="brand-desc">矩阵发布桌面端</div>
         </div>
       </div>

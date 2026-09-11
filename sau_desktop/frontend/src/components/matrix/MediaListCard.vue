@@ -36,6 +36,11 @@
       <div class="quick-batch-ops">
         <el-button size="small" link type="primary" @click="selectAll">全选</el-button>
         <el-button size="small" link @click="deselectAll">取消全选</el-button>
+        <el-tooltip content="按列表顺序将所有视频重新编号为第 1, 2, 3... 集" placement="top">
+          <el-button size="small" link type="warning" @click="reorderEpisodes">
+            <el-icon><Sort /></el-icon> 重排集数
+          </el-button>
+        </el-tooltip>
       </div>
     </div>
 
@@ -44,18 +49,21 @@
       <div
         v-for="(item, index) in filteredMediaList"
         :key="item.id"
-        class="video-row"
+        class="video-card-item"
         :class="{ selected: selectedMediaIds.includes(item.id) }"
         @click="toggleSelect(item.id)"
       >
-        <!-- 勾选复选框 -->
-        <div class="check-box" :class="{ checked: selectedMediaIds.includes(item.id) }">
-          <el-icon v-if="selectedMediaIds.includes(item.id)"><Check /></el-icon>
+        <!-- 复选框 -->
+        <div class="video-checkbox" @click.stop>
+          <el-checkbox
+            :model-value="selectedMediaIds.includes(item.id)"
+            @change="() => toggleSelect(item.id)"
+          />
         </div>
 
-        <!-- 视频缩略胶囊 -->
+        <!-- 缩略图占位 -->
         <div class="video-thumb">
-          <el-icon class="play-icon"><VideoPlay /></el-icon>
+          <el-icon class="thumb-icon"><Film /></el-icon>
           <span class="format-badge">{{ item.format || 'MP4' }}</span>
         </div>
 
@@ -66,7 +74,27 @@
             <span class="name-text">{{ item.fileName }}</span>
           </div>
           <div class="video-meta">
-            <span class="meta-item" v-if="item.parsedEpisode">识别到: 第 {{ item.parsedEpisode }} 集</span>
+            <!-- 可直接微调集数的微标 -->
+            <el-popover placement="top" :width="180" trigger="click">
+              <template #reference>
+                <span class="meta-item clickable-ep-badge" @click.stop title="点击微调该视频集数">
+                  <el-icon><EditPen /></el-icon>
+                  <span>第 {{ item.parsedEpisode ?? (index + 1) }} 集</span>
+                </span>
+              </template>
+              <div class="ep-edit-popover" @click.stop>
+                <div class="popover-tip">设定该视频指定集数:</div>
+                <el-input-number
+                  v-model="item.parsedEpisode"
+                  :min="1"
+                  :max="9999"
+                  size="small"
+                  controls-position="right"
+                  @change="handleEpisodeUpdated"
+                />
+              </div>
+            </el-popover>
+
             <span class="meta-item" v-if="item.fileSize">{{ item.fileSize }}</span>
             <span class="meta-path" :title="item.filePath">{{ item.filePath }}</span>
           </div>
@@ -134,15 +162,21 @@ const filteredMediaList = computed(() => {
   return props.mediaList.filter(m => m.fileName.toLowerCase().includes(q))
 })
 
-// 自动从文件名中探测集数 (如 "第01集", "E02", "ep3", "12_")
-const parseEpisodeFromFileName = (name: string): number | undefined => {
-  const match = name.match(/第?\s*(\d{1,4})\s*[集话期篇]/i) ||
-                name.match(/(?:ep|e|p)\s*(\d{1,4})/i) ||
-                name.match(/^(\d{1,4})[_\-\s]/)
-  if (match && match[1]) {
-    return parseInt(match[1], 10)
-  }
-  return undefined
+import { parseEpisodeFromFileName } from '../../utils/matrixHelper'
+
+// 按当前顺序批量重排集数 (1, 2, 3...)
+const reorderEpisodes = () => {
+  const updated = props.mediaList.map((m, idx) => ({
+    ...m,
+    parsedEpisode: idx + 1
+  }))
+  emit('update:mediaList', updated)
+  ElMessage.success(`已将全部 ${updated.length} 个视频重新按序编号为第 1~${updated.length} 集`)
+}
+
+// 单项集数手动调整
+const handleEpisodeUpdated = () => {
+  emit('update:mediaList', [...props.mediaList])
 }
 
 // 批量选择本地视频
@@ -505,5 +539,35 @@ const handleClearAll = () => {
   padding: 24px;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.clickable-ep-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--primary-color);
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 600;
+}
+
+.clickable-ep-badge:hover {
+  background: var(--primary-color);
+  color: #fff;
+}
+
+.ep-edit-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.popover-tip {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 </style>

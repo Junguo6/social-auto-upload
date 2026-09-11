@@ -101,7 +101,7 @@
           <div class="setting-item">
             <div class="setting-meta">
               <span class="title">软件版本信息</span>
-              <span class="desc">Social Auto Upload Matrix Client - Wails 原生桌面端</span>
+              <span class="desc">小映分发助手</span>
             </div>
             <div class="setting-control">
               <el-tag size="default" type="success" effect="dark">v1.2.0 Pro Edition</el-tag>

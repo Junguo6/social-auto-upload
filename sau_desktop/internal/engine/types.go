@@ -187,7 +187,7 @@ type AccountStatus struct {
 type LoginResult struct {
 	Success   bool   `json:"success"`
 	Platform  string `json:"platform"`
-	Account   string `json:"account"`   // 磁盘安全存储标识（如 sphGLRxSCzBVA5O 或 user_001）
+	Account   string `json:"account"`   // 磁盘安全存储标识（如 account_01 或 user_001）
 	Nickname  string `json:"nickname"`  // 真实展示昵称（完整保留 Emoji 和特殊字符）
 	FinderUid string `json:"finderUid"` // 平台唯一 UID
 	Msg       string `json:"msg"`

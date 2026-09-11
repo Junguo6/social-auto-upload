@@ -7,10 +7,10 @@
           <el-icon><Upload /></el-icon>
         </div>
         <div class="metric-info">
-          <span class="value">{{ publishStore.taskHistory.length + 128 }}</span>
+          <span class="value">{{ totalPublishedCount }}</span>
           <span class="label">累计全网发布作品</span>
         </div>
-        <div class="metric-badge up">+12.4%</div>
+        <div class="metric-badge up">实时统计</div>
       </div>
 
       <div class="metric-card glass-card">
@@ -18,10 +18,10 @@
           <el-icon><CircleCheck /></el-icon>
         </div>
         <div class="metric-info">
-          <span class="value">99.5%</span>
+          <span class="value">{{ successRate }}</span>
           <span class="label">自动化发布成功率</span>
         </div>
-        <div class="metric-badge stable">稳定</div>
+        <div class="metric-badge stable">稳定高效</div>
       </div>
 
       <div class="metric-card glass-card">
@@ -32,7 +32,7 @@
           <span class="value">{{ accountStore.accounts.length }}</span>
           <span class="label">已纳管矩阵账号</span>
         </div>
-        <div class="metric-badge up">多账号隔离</div>
+        <div class="metric-badge up">沙箱隔离</div>
       </div>
 
       <div class="metric-card glass-card">
@@ -88,35 +88,39 @@
         </div>
       </el-card>
 
-      <!-- 系统技术架构与性能面板 (40%) -->
+      <!-- 系统运行与企业级安全保障面板 (40%) -->
       <el-card class="glass-card section-card arch-card">
         <template #header>
           <div class="section-title">
-            <el-icon><Cpu /></el-icon>
-            <span>桌面端底层架构就绪情况</span>
+            <el-icon><Lock /></el-icon>
+            <span>矩阵调度引擎与安全保障</span>
           </div>
         </template>
 
         <div class="arch-list">
           <div class="arch-item">
-            <div class="arch-key">桌面端宿主</div>
-            <div class="arch-val">Wails v2.15 (Go 1.26 + Vue 3)</div>
+            <div class="arch-key">多账号安全隔离</div>
+            <div class="arch-val highlight">独立沙箱环境 · 物理隔离防串号</div>
           </div>
           <div class="arch-item">
-            <div class="arch-key">发布执行引擎</div>
-            <div class="arch-val">Sidecar 侧边进程 (PyInstaller)</div>
+            <div class="arch-key">平台防风控策略</div>
+            <div class="arch-val highlight">智能递增排期 · 防频控限流保护</div>
           </div>
           <div class="arch-item">
-            <div class="arch-key">浏览器内核</div>
-            <div class="arch-val">Patchright (Chromium 145.0)</div>
+            <div class="arch-key">账号凭证保管</div>
+            <div class="arch-val">本地物理密文存储 · 零云端泄露</div>
           </div>
           <div class="arch-item">
-            <div class="arch-key">软件登录门槛</div>
-            <div class="arch-val highlight">零软件登录（开箱即用）</div>
+            <div class="arch-key">并发调度能力</div>
+            <div class="arch-val">多通道独立流水线 (支持 1~5 线程)</div>
           </div>
           <div class="arch-item">
-            <div class="arch-key">任务生命周期</div>
-            <div class="arch-val highlight">独立上下文 (防误杀)</div>
+            <div class="arch-key">发布执行模式</div>
+            <div class="arch-val">后台静默自动发布 / 可视化排障</div>
+          </div>
+          <div class="arch-item">
+            <div class="arch-key">异常容错恢复</div>
+            <div class="arch-val highlight">断点续跑 · 失败智能重试</div>
           </div>
         </div>
       </el-card>
@@ -125,12 +129,32 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { PLATFORMS } from '../config/platforms'
 import { usePublishStore } from '../stores/publishStore'
 import { useAccountStore } from '../stores/accountStore'
+import { useTaskStore } from '../stores/taskStore'
 
 const publishStore = usePublishStore()
 const accountStore = useAccountStore()
+const taskStore = useTaskStore()
+
+// 累计成功发布总数 (从任务调度中心与历史中实时统计)
+const totalPublishedCount = computed(() => {
+  const fromHistory = publishStore.taskHistory.filter(t => t.status === 'success').length
+  const fromTasks = taskStore.tasks.filter(t => t.status === 'success').length
+  return Math.max(fromHistory, fromTasks)
+})
+
+// 发布成功率
+const successRate = computed(() => {
+  const success = totalPublishedCount.value
+  const fromHistory = publishStore.taskHistory.length
+  const fromTasks = taskStore.tasks.filter(t => t.status === 'success' || t.status === 'failed').length
+  const total = Math.max(fromHistory, fromTasks)
+  if (total === 0) return '100%'
+  return ((success / total) * 100).toFixed(1) + '%'
+})
 </script>
 
 <style scoped>

@@ -4,9 +4,9 @@ import { CheckAccountStatus, LoginAccount } from '../../wailsjs/go/main/App'
 
 export interface AccountItem {
   platform: string
-  account: string       // 底层安全文件标识 (如 sphGLRxSCzBVA5O 或 user_001)
+  account: string       // 底层安全文件标识 (如 account_01 或 user_001)
   nickname?: string     // 真实展示昵称（完整保留 Emoji 和特殊符号）
-  finderUid?: string    // 平台唯一 UID (如 sphGLRxSCzBVA5O)
+  finderUid?: string    // 平台唯一 UID
   group: string         // 分组标签，例如 "默认分组", "美食矩阵", "科技出海"
   isValid?: boolean
   checked?: boolean
@@ -17,22 +17,11 @@ export interface AccountItem {
 export const useAccountStore = defineStore('account', () => {
   // 分组列表
   const groups = ref<string[]>([
-    '默认分组',
-    '美食矩阵组',
-    '数码科技组',
-    '生活日常组'
+    '默认分组'
   ])
 
-  // 默认初始账号数据 (优先展示 nickname，若无则展示 account)
-  const defaultAccounts: AccountItem[] = [
-    { platform: 'douyin', account: 'test_account', nickname: '抖音科技号 🚀', group: '默认分组', checked: false },
-    { platform: 'douyin', account: 'douyin_food_01', nickname: '吃货小分队 🍜', group: '美食矩阵组', checked: false },
-    { platform: 'xiaohongshu', account: 'xhs_lifestyle_01', nickname: '日常好物研习社 ✨', group: '生活日常组', checked: false },
-    { platform: 'xiaohongshu', account: 'xhs_tech_01', nickname: '极客实验室 ⚡️', group: '数码科技组', checked: false },
-    { platform: 'kuaishou', account: 'ks_user_01', nickname: '快手老铁分享 🎬', group: '美食矩阵组', checked: false },
-    { platform: 'bilibili', account: 'bili_tech_main', nickname: '干货极客UP 📺', group: '数码科技组', checked: false },
-    { platform: 'tencent', account: 'sphGLRxSCzBVA5O', nickname: '迟遇山野知秋 🌿', finderUid: 'sphGLRxSCzBVA5O', group: '生活日常组', checked: false }
-  ]
+  // 默认初始账号数据 (初始为空)
+  const defaultAccounts: AccountItem[] = []
 
   // 从本地加载或使用默认值
   const savedAccs = localStorage.getItem('sau_accounts')
@@ -40,9 +29,8 @@ export const useAccountStore = defineStore('account', () => {
   if (savedAccs) {
     try {
       parsedAccs = JSON.parse(savedAccs)
-      // 迁移历史 tencent_1233 项
       parsedAccs = parsedAccs.map(acc => {
-        if (acc.platform === 'tencent' && (acc.account === '1233' || acc.account === 'auto') && acc.finderUid) {
+        if (acc.platform === 'tencent' && acc.account === 'auto' && acc.finderUid) {
           acc.account = acc.finderUid
         }
         return acc

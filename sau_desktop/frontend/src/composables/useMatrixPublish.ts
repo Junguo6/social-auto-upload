@@ -2,7 +2,8 @@ import { ElMessage, ElNotification } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { useTaskStore } from '../stores/taskStore'
 import { engine } from '../../wailsjs/go/models'
-import type { MasterForm, PlatformOverrideSetting, SelectedTargetAccount } from '../types/matrix'
+import type { MasterForm, PlatformOverrideSetting, SelectedTargetAccount, BatchRuleConfig, MediaItem } from '../types/matrix'
+import { resolveMediaTitle } from '../utils/matrixHelper'
 
 export function useMatrixPublish() {
   const router = useRouter()
@@ -191,11 +192,7 @@ export function useMatrixPublish() {
         if (cell?.customTitle?.trim()) {
           finalTitle = cell.customTitle.trim()
         } else {
-          const tpl = masterForm.title.trim() || media.fileName
-          finalTitle = tpl
-            .replace(/\{集数\}/g, String(ep))
-            .replace(/\{视频名\}/g, baseName)
-            .replace(/\{日期\}/g, todayStr)
+          finalTitle = resolveMediaTitle(masterForm.title, media, mIdx, ruleConfig)
         }
 
         // 2. 计算描述与标签
@@ -301,6 +298,7 @@ export function useMatrixPublish() {
   }
 
   return {
-    createPublishBatch
+    createPublishBatch,
+    createCrossMatrixPublishBatch
   }
 }

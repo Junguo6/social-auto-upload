@@ -47,8 +47,8 @@ echo "▶ [Step 1/3] 打包 Python 发布引擎 (sau_engine)..."
 # 4. 同步引擎产物与内置 Chromium 内核至 Wails bin 目录
 echo ""
 echo "▶ [Step 2/3] 同步引擎产物与内置 Chromium 浏览器内核..."
+rm -rf "$PROJECT_ROOT/sau_desktop/bin/sau_engine"
 mkdir -p "$PROJECT_ROOT/sau_desktop/bin/sau_engine"
-rm -rf "$PROJECT_ROOT/sau_desktop/bin/sau_engine/*"
 cp -r "$PROJECT_ROOT/dist/sau_engine/"* "$PROJECT_ROOT/sau_desktop/bin/sau_engine/"
 
 # 探测并内嵌 Playwright Chromium 内核 (实现真正的本地离线免安装、开箱即用)
@@ -65,8 +65,8 @@ if [ ! -d "$SRC_PLAYWRIGHT" ] || ! ls "$SRC_PLAYWRIGHT"/chromium-* >/dev/null 2>
 fi
 
 DEST_PLAYWRIGHT="$PROJECT_ROOT/sau_desktop/bin/ms-playwright"
+rm -rf "$DEST_PLAYWRIGHT"
 mkdir -p "$DEST_PLAYWRIGHT"
-rm -rf "$DEST_PLAYWRIGHT"/*
 echo "📦 正在复制 Chromium 内核到应用内置资源目录: $DEST_PLAYWRIGHT..."
 for d in "$SRC_PLAYWRIGHT"/chromium-* "$SRC_PLAYWRIGHT"/ffmpeg-*; do
   if [ -d "$d" ]; then
@@ -88,10 +88,18 @@ if [ -d "$APP_RESOURCES" ]; then
   cp -R "$DEST_PLAYWRIGHT" "$APP_RESOURCES/"
 fi
 
+# 6. 为用户打包成开箱即用的 zip 归档包 (保留 macOS 执行权限，防止传输损坏)
+echo ""
+echo "▶ [Step 4/4] 正在生成便于发给客户测试的整包压缩归档..."
+cd "$PROJECT_ROOT/sau_desktop/build/bin"
+rm -f "sau_desktop_mac.zip"
+zip -r -q -y "sau_desktop_mac.zip" "sau_desktop.app"
+
 echo ""
 echo "======================================================================"
 echo "🎉 全自动构建大功告成！已完全内置绿色 Chromium 浏览器内核 (开箱即用免安装)！"
-echo "产物路径: $PROJECT_ROOT/sau_desktop/build/bin/sau_desktop.app"
-echo "您可以在 Finder 中打开或双击运行："
+echo "应用包路径: $PROJECT_ROOT/sau_desktop/build/bin/sau_desktop.app"
+echo "测试整包 ZIP: $PROJECT_ROOT/sau_desktop/build/bin/sau_desktop_mac.zip"
+echo "您可以在 Finder 中打开："
 echo "open $PROJECT_ROOT/sau_desktop/build/bin"
 echo "======================================================================"
