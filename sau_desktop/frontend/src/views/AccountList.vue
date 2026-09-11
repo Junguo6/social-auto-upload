@@ -711,10 +711,15 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
       ElMessage.success(`账号 [${res.nickname || res.account}] 凭证已同步存盘`)
     } else {
       tab.sessionStatusText = `会话已结束: ${res?.msg || '操作完成'}`
+      if (res?.msg && res.msg !== '操作完成') {
+        ElMessage.error({ message: `拉起登录失败: ${res.msg}`, duration: 8000 })
+      }
     }
   } catch (err: any) {
-    if (!String(err).includes('手动中止') && !String(err).includes('signal') && !String(err).includes('killed')) {
-      tab.sessionStatusText = `会话已结束: ${err?.message || err}`
+    const errStr = err?.message || String(err)
+    if (!errStr.includes('手动中止') && !errStr.includes('signal') && !errStr.includes('killed')) {
+      tab.sessionStatusText = `会话已结束: ${errStr}`
+      ElMessage.error({ message: `拉起浏览器异常: ${errStr}`, duration: 8000 })
     }
   } finally {
     tab.isStartingSession = false
@@ -743,10 +748,15 @@ const startScreencastForTab = async (tab: BrowserTab) => {
       tab.sessionStatusText = `🎉 会话已结束，账号 [${res.nickname || res.account}] 凭证已存盘`
     } else {
       tab.sessionStatusText = `会话已结束: ${res?.msg || '操作完成'}`
+      if (res?.msg && res.msg !== '操作完成') {
+        ElMessage.error({ message: `拉起投屏登录失败: ${res.msg}`, duration: 8000 })
+      }
     }
   } catch (err: any) {
-    if (!String(err).includes('手动中止') && !String(err).includes('signal') && !String(err).includes('killed')) {
-      tab.sessionStatusText = `会话已结束: ${err?.message || err}`
+    const errStr = err?.message || String(err)
+    if (!errStr.includes('手动中止') && !errStr.includes('signal') && !errStr.includes('killed')) {
+      tab.sessionStatusText = `会话已结束: ${errStr}`
+      ElMessage.error({ message: `拉起投屏异常: ${errStr}`, duration: 8000 })
     }
   } finally {
     tab.isStartingSession = false

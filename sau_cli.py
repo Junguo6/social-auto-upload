@@ -1112,72 +1112,65 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
     except ImportError:
         from playwright.async_api import async_playwright
 
-    async with async_playwright() as playwright:
-        browser = None
-        if not headless:
-            # 🚀 方案 A：原生真机 Chrome / Edge App 沉浸式视窗
-            import tempfile
-            user_data_dir = Path(tempfile.gettempdir()) / "sau_browser_data" / f"{platform}_{account_name}"
-            user_data_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        async with async_playwright() as playwright:
+            browser = None
+            if not headless:
+                # 🚀 方案 A：原生真机 Chrome / Edge 视窗 (直接弹出桌面独立窗口)
+                from conf import LOCAL_CHROME_PATH
+                launch_options = {
+                    "headless": False,
+                    "args": [
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                        "--window-size=1280,820",
+                    ]
+                }
+                if LOCAL_CHROME_PATH and Path(LOCAL_CHROME_PATH).exists():
+                    launch_options["executable_path"] = LOCAL_CHROME_PATH
 
-            from conf import LOCAL_CHROME_PATH
-            launch_kwargs = {
-                "user_data_dir": str(user_data_dir),
-                "headless": False,
-                "args": [
-                    f"--app={creator_url}",
-                    "--window-size=1280,820",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-                "ignore_default_args": ["--enable-automation"],
-            }
-            if LOCAL_CHROME_PATH and Path(LOCAL_CHROME_PATH).exists():
-                launch_kwargs["executable_path"] = LOCAL_CHROME_PATH
-
-            try:
-                context = await playwright.chromium.launch_persistent_context(**launch_kwargs)
-            except Exception as launch_err:
-                sys.stderr.write(f"Launch with app mode failed: {launch_err}, trying standard browser launch...\n")
-                launch_kwargs["args"] = [
-                    "--window-size=1280,820",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--disable-blink-features=AutomationControlled",
-                ]
                 try:
-                    context = await playwright.chromium.launch_persistent_context(**launch_kwargs)
-                except Exception as fallback_err:
-                    if "executable_path" in launch_kwargs:
-                        del launch_kwargs["executable_path"]
-                        context = await playwright.chromium.launch_persistent_context(**launch_kwargs)
+                    browser = await playwright.chromium.launch(**launch_options)
+                except Exception as e1:
+                    sys.stderr.write(f"Launch with executable_path failed: {e1}, fallback...\n")
+                    if "executable_path" in launch_options:
+                        del launch_options["executable_path"]
+                    if sys.platform == "win32":
+                        try:
+                            browser = await playwright.chromium.launch(channel="msedge", **launch_options)
+                        except Exception:
+                            try:
+                                browser = await playwright.chromium.launch(channel="chrome", **launch_options)
+                            except Exception:
+                                browser = await playwright.chromium.launch(**launch_options)
                     else:
-                        raise fallback_err
-            # 预注入已存盘的 cookies
-            if account_file.exists():
+                        browser = await playwright.chromium.launch(**launch_options)
+
+                context = await browser.new_context(viewport={"width": 1280, "height": 820})
+                if account_file.exists():
+                    try:
+                        with open(account_file, "r", encoding="utf-8") as f:
+                            state_data = json.load(f)
+                        cookies = state_data.get("cookies", [])
+                        if cookies:
+                            await context.add_cookies(cookies)
+                    except Exception:
+                        pass
+
                 try:
-                    with open(account_file, "r", encoding="utf-8") as f:
-                        state_data = json.load(f)
-                    cookies = state_data.get("cookies", [])
-                    if cookies:
-                        await context.add_cookies(cookies)
+                    from uploader.douyin_uploader.main import set_init_script
+                    context = await set_init_script(context)
                 except Exception:
                     pass
 
-            try:
-                from uploader.douyin_uploader.main import set_init_script
-                context = await set_init_script(context)
-            except Exception:
-                pass
-
-            page = context.pages[0] if context.pages else await context.new_page()
-            sys.stdout.write(f"[APP_INFO] Native Chrome App window launched for {platform}: {creator_url}\n")
-            sys.stdout.flush()
-            try:
-                await page.goto(creator_url, wait_until="domcontentloaded")
-            except Exception as e:
-                sys.stderr.write(f"Warning navigating to {creator_url}: {e}\n")
+                page = await context.new_page()
+                sys.stdout.write(f"[APP_INFO] Native browser window launched for {platform}: {creator_url}\n")
+                sys.stdout.flush()
+                try:
+                    await page.goto(creator_url, wait_until="domcontentloaded")
+                except Exception as e:
+                    sys.stderr.write(f"Warning navigating to {creator_url}: {e}\n")
         else:
             browser = await playwright.chromium.launch(
                 headless=True,
@@ -1331,6 +1324,14 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                     await browser.close()
                 except Exception:
                     pass
+
+    except Exception as e:
+        import traceback
+        err_msg = f"拉起浏览器会话异常: {e}"
+        sys.stderr.write(f"{err_msg}\n{traceback.format_exc()}\n")
+        sys.stdout.write(f"[ERROR] {err_msg}\n")
+        sys.stdout.flush()
+        return 1
 
     return 0
 
