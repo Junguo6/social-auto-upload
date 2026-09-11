@@ -214,6 +214,7 @@ func (r *RuntimeManager) BuildCommand(ctx context.Context, args ...string) *exec
 	}
 
 	cmd.Env = envs
+	setupSysProcAttr(cmd)
 	return cmd
 }
 

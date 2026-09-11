@@ -1115,21 +1115,45 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
     async with async_playwright() as playwright:
         browser = None
         if not headless:
-            # 🚀 方案 A：原生真机 Chrome App 沉浸式视窗
-            user_data_dir = BASE_DIR / "browser_data" / f"{platform}_{account_name}"
+            # 🚀 方案 A：原生真机 Chrome / Edge App 沉浸式视窗
+            import tempfile
+            user_data_dir = Path(tempfile.gettempdir()) / "sau_browser_data" / f"{platform}_{account_name}"
             user_data_dir.mkdir(parents=True, exist_ok=True)
 
-            context = await playwright.chromium.launch_persistent_context(
-                user_data_dir=str(user_data_dir),
-                headless=False,
-                args=[
+            from conf import LOCAL_CHROME_PATH
+            launch_kwargs = {
+                "user_data_dir": str(user_data_dir),
+                "headless": False,
+                "args": [
                     f"--app={creator_url}",
                     "--window-size=1280,820",
                     "--no-first-run",
                     "--no-default-browser-check",
                     "--disable-blink-features=AutomationControlled",
+                ],
+                "ignore_default_args": ["--enable-automation"],
+            }
+            if LOCAL_CHROME_PATH and Path(LOCAL_CHROME_PATH).exists():
+                launch_kwargs["executable_path"] = LOCAL_CHROME_PATH
+
+            try:
+                context = await playwright.chromium.launch_persistent_context(**launch_kwargs)
+            except Exception as launch_err:
+                sys.stderr.write(f"Launch with app mode failed: {launch_err}, trying standard browser launch...\n")
+                launch_kwargs["args"] = [
+                    "--window-size=1280,820",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-blink-features=AutomationControlled",
                 ]
-            )
+                try:
+                    context = await playwright.chromium.launch_persistent_context(**launch_kwargs)
+                except Exception as fallback_err:
+                    if "executable_path" in launch_kwargs:
+                        del launch_kwargs["executable_path"]
+                        context = await playwright.chromium.launch_persistent_context(**launch_kwargs)
+                    else:
+                        raise fallback_err
             # 预注入已存盘的 cookies
             if account_file.exists():
                 try:

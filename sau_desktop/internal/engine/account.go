@@ -115,11 +115,16 @@ func (am *AccountManager) loginInternal(platform, account string, headed bool, s
 		Message: fmt.Sprintf("▶ 开始登录流程 (内嵌实时投屏: %v): sau %s", screencast, strings.Join(args, " ")),
 	})
 
+	var lastErrLine string
 	reader := bufio.NewReaderSize(stdout, 1024*1024)
 	for {
 		lineBytes, err := reader.ReadBytes('\n')
 		if len(lineBytes) > 0 {
 			line := strings.TrimRight(string(lineBytes), "\r\n")
+			lowerLine := strings.ToLower(line)
+			if strings.Contains(lowerLine, "error") || strings.Contains(line, "Traceback") || strings.Contains(line, "Exception") || strings.Contains(lowerLine, "failed") {
+				lastErrLine = line
+			}
 
 			// 捕获并分发 CDP 实时投屏帧，不污染普通日志抽屉
 			if strings.HasPrefix(line, "[CDP_FRAME] ") {
@@ -179,10 +184,14 @@ func (am *AccountManager) loginInternal(platform, account string, headed bool, s
 	}
 
 	waitErr := cmd.Wait()
-	if waitErr != nil {
+	if waitErr != nil && !res.Success {
 		res.Success = false
-		res.Msg = waitErr.Error()
-		return res, waitErr
+		if lastErrLine != "" {
+			res.Msg = fmt.Sprintf("拉起浏览器异常: %s", lastErrLine)
+		} else {
+			res.Msg = fmt.Sprintf("浏览器进程异常退出: %v", waitErr)
+		}
+		return res, fmt.Errorf("%s", res.Msg)
 	}
 
 	targetAcc := account
