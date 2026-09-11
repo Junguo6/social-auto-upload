@@ -32,6 +32,11 @@ if not exist "%PYTHON_EXE%" (
 if not exist "%PYINSTALLER_BIN%" (
   echo 📦 正在安装 PyInstaller 与项目核心依赖...
   "%PYTHON_EXE%" -m pip install -e ".[web]" xhs pyinstaller
+  if %ERRORLEVEL% NEQ 0 (
+    echo ❌ Python 依赖安装失败，请检查上方错误提示！
+    pause
+    exit /b 1
+  )
 )
 
 :: 3. 执行 Python 引擎二进制编译
