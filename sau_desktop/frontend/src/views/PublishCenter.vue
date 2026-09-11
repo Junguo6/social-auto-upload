@@ -482,6 +482,10 @@ onMounted(() => {
   gap: 16px;
 }
 
+.two-col-grid > * {
+  min-width: 0;
+}
+
 @media (max-width: 1080px) {
   .two-col-grid {
     grid-template-columns: 1fr;

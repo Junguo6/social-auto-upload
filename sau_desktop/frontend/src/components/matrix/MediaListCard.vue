@@ -352,7 +352,7 @@ const handleClearAll = () => {
   padding-right: 4px;
 }
 
-.video-row {
+.video-card-item {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -362,41 +362,34 @@ const handleClearAll = () => {
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 0;
 }
 
-.video-row:hover {
+.video-card-item:hover {
   border-color: var(--primary-color);
   background: var(--bg-detail);
 }
 
-.video-row.selected {
+.video-card-item.selected {
   border-color: var(--primary-color);
   background: rgba(99, 102, 241, 0.08);
 }
 
-.check-box {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  border: 1.5px solid var(--border-highlight);
-  background: var(--bg-card);
+.video-checkbox {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  color: #fff;
   flex-shrink: 0;
-  transition: all 0.2s ease;
 }
 
-.check-box.checked {
-  background: var(--primary-color);
-  border-color: var(--primary-color);
+.video-checkbox :deep(.el-checkbox) {
+  margin-right: 0;
+  height: auto;
 }
 
 .video-thumb {
   width: 50px;
-  height: 34px;
+  height: 36px;
   border-radius: 6px;
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.15));
   border: 1px solid var(--border-subtle);
@@ -407,10 +400,10 @@ const handleClearAll = () => {
   flex-shrink: 0;
 }
 
-.play-icon {
-  font-size: 16px;
+.thumb-icon {
+  font-size: 18px;
   color: var(--primary-color);
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .format-badge {
@@ -430,7 +423,7 @@ const handleClearAll = () => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .video-name {
