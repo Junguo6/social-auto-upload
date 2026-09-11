@@ -39,6 +39,25 @@ if not exist "%PYINSTALLER_BIN%" (
   )
 )
 
+if not exist "%PROJECT_ROOT%conf.py" (
+  echo ⚙️ 检测到缺失 conf.py，正在生成默认配置...
+  (
+    echo import os
+    echo import sys
+    echo from pathlib import Path
+    echo def _get_base_dir^(^):
+    echo     if getattr^(sys, "frozen", False^):
+    echo         return Path^(sys.executable^).parent.resolve^(^)
+    echo     return Path^(__file__^).parent.resolve^(^)
+    echo BASE_DIR = _get_base_dir^(^)
+    echo XHS_SERVER = "http://127.0.0.1:11901"
+    echo LOCAL_CHROME_PATH = ""
+    echo LOCAL_CHROME_HEADLESS = True
+    echo DEBUG_MODE = True
+    echo YT_PROXY = None
+  ) > "%PROJECT_ROOT%conf.py"
+)
+
 :: 3. 执行 Python 引擎二进制编译
 echo.
 echo ▶ [Step 1/3] 打包 Python 发布引擎 (sau_engine.exe)...
