@@ -80,12 +80,21 @@ def _build_login_result(
     account_file: str,
     qrcode: dict | None = None,
     current_url: str = "",
+    nickname: str = "",
+    finder_uid: str = "",
+    account_name: str = "",
 ) -> dict:
+    stem_name = Path(account_file).stem
+    if stem_name.startswith("xiaohongshu_"):
+        stem_name = stem_name[len("xiaohongshu_"):]
     return {
         "success": success,
         "status": status,
         "message": message,
         "account_file": str(account_file),
+        "account_name": str(account_name or stem_name),
+        "nickname": nickname,
+        "finder_uid": finder_uid,
         "qrcode": qrcode,
         "current_url": current_url,
     }
@@ -269,18 +278,58 @@ async def xiaohongshu_cookie_gen(
             for _ in range(max_checks):
                 if await _is_xhs_login_completed(page):
                     await asyncio.sleep(2)
+                    # 尝试从 localStorage 和 Cookie 探测真实昵称与 UID
+                    nickname = ""
+                    finder_uid = ""
+                    try:
+                        from utils.account_meta import extract_account_meta_from_page, inject_account_meta_and_rename
+                        cookies = await context.cookies()
+                        nickname, finder_uid = await extract_account_meta_from_page("xiaohongshu", page, cookies)
+                    except Exception as ext_err:
+                        xiaohongshu_logger.warning(_msg("⚠️", f"小红书资料探测异常: {ext_err}"))
+
                     await context.storage_state(path=account_file)
-                    if await cookie_auth(account_file):
-                        xiaohongshu_logger.success(_msg("🥳", "小红书扫码登录成功，小人开心收工"))
-                        result = _build_login_result(True, "success", "小红书扫码登录成功", account_file, qrcode_info, page.url)
+
+                    final_account_name = Path(account_file).stem.replace("xiaohongshu_", "")
+                    final_account_file = account_file
+                    try:
+                        from utils.account_meta import inject_account_meta_and_rename
+                        final_account_name, final_account_file, meta = inject_account_meta_and_rename(
+                            platform="xiaohongshu",
+                            account_file=account_file,
+                            nickname=nickname,
+                            finder_uid=finder_uid,
+                            current_account_name=final_account_name,
+                        )
+                        nickname = meta.get("nickname", nickname)
+                        finder_uid = meta.get("finder_uid", finder_uid)
+                    except Exception as meta_err:
+                        xiaohongshu_logger.warning(_msg("⚠️", f"元数据注入异常: {meta_err}"))
+
+                    if await cookie_auth(final_account_file):
+                        xiaohongshu_logger.success(_msg("🥳", f"小红书扫码登录成功！识别到账号: {nickname or final_account_name} (ID: {finder_uid})"))
+                        result = _build_login_result(
+                            True,
+                            "success",
+                            f"小红书扫码登录成功 (昵称: {nickname or final_account_name})",
+                            final_account_file,
+                            qrcode_info,
+                            page.url,
+                            nickname=nickname,
+                            finder_uid=finder_uid,
+                            account_name=final_account_name,
+                        )
                     else:
                         result = _build_login_result(
                             False,
                             "cookie_invalid",
                             "小红书扫码流程结束，但 cookie 校验失败",
-                            account_file,
+                            final_account_file,
                             qrcode_info,
                             page.url,
+                            nickname=nickname,
+                            finder_uid=finder_uid,
+                            account_name=final_account_name,
                         )
                     return result
 

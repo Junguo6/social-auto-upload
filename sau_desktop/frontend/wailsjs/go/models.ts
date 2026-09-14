@@ -159,6 +159,9 @@ export namespace engine {
 	    account: string;
 	    isValid: boolean;
 	    msg: string;
+	    avatar?: string;
+	    nickname?: string;
+	    finderUid?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AccountStatus(source);
@@ -170,6 +173,9 @@ export namespace engine {
 	        this.account = source["account"];
 	        this.isValid = source["isValid"];
 	        this.msg = source["msg"];
+	        this.avatar = source["avatar"];
+	        this.nickname = source["nickname"];
+	        this.finderUid = source["finderUid"];
 	    }
 	}
 	export class TargetAccount {
@@ -290,6 +296,7 @@ export namespace engine {
 	    account: string;
 	    nickname: string;
 	    finderUid: string;
+	    avatar?: string;
 	    msg: string;
 	
 	    static createFrom(source: any = {}) {
@@ -303,6 +310,7 @@ export namespace engine {
 	        this.account = source["account"];
 	        this.nickname = source["nickname"];
 	        this.finderUid = source["finderUid"];
+	        this.avatar = source["avatar"];
 	        this.msg = source["msg"];
 	    }
 	}

@@ -221,12 +221,24 @@ func (a *App) CheckAccountStatus(platform, account string) engine.AccountStatus 
 		return engine.AccountStatus{Platform: platform, Account: account, IsValid: false, Msg: "引擎初始化失败"}
 	}
 	isValid, msg := a.executor.CheckAccount(platform, account)
+	avatar, nickname, finderUid := a.executor.GetAccountSavedMeta(platform, account)
 	return engine.AccountStatus{
-		Platform: platform,
-		Account:  account,
-		IsValid:  isValid,
-		Msg:      msg,
+		Platform:  platform,
+		Account:   account,
+		IsValid:   isValid,
+		Msg:       msg,
+		Avatar:    avatar,
+		Nickname:  nickname,
+		FinderUid: finderUid,
 	}
+}
+
+// DeleteAccountCredential 彻底删除本地磁盘上的指定账号凭证文件
+func (a *App) DeleteAccountCredential(platform, account string) error {
+	if a.executor == nil {
+		return fmt.Errorf("引擎未正常加载")
+	}
+	return a.executor.DeleteAccountCredential(platform, account)
 }
 
 // LoginAccount 拉起账号授权登录并返回账号信息

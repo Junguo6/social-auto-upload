@@ -413,43 +413,55 @@ def parse_schedule(raw_schedule: str | None) -> datetime | int:
 
 def _validate_cookie_file(account_file_path: str) -> bool:
     """轻量级 cookie 文件验证（不启动浏览器）。
-    检查：文件存在 + JSON 合法 + 至少含 cookies 条目。
-    用于 Playwright 浏览器不可用或被反爬拦截时的可靠降级方案（如 Windows 打包环境）。
+    严格针对指定账号的凭证文件进行检查：文件存在 + 真实有效 + JSON 合法 + 至少含有效 cookies 条目。
+    绝对不跨账号猜测或扫描同平台的其他文件，杜绝串号。
     """
     import json as _json
     try:
         fp = Path(account_file_path)
-        if not fp.exists():
-            # 容错：如果指定文件名不存在，尝试在同级 cookies 目录匹配该平台的最新凭证
-            cookies_dir = fp.parent
-            if cookies_dir.exists():
-                platform_prefix = fp.stem.split("_")[0] + "_"
-                matches = list(cookies_dir.glob(f"{platform_prefix}*.json"))
-                if matches:
-                    fp = sorted(matches, key=lambda p: p.stat().st_mtime, reverse=True)[0]
-
-        if not fp.exists() or fp.stat().st_size < 10:
+        # 严禁跨账号查找或对 auto 临时占位文件进行虚假验证
+        if not fp.exists() or fp.stem.endswith("_auto") or fp.stat().st_size < 10:
             return False
+
         with open(fp, "r", encoding="utf-8") as f:
             data = _json.load(f)
-        # Playwright storage state 必须含 cookies 列表
+
         cookies = data.get("cookies", [])
         if not isinstance(cookies, list) or len(cookies) == 0:
             return False
+
+        # 如果 cookies 包含过期时间，检查是否所有带有明确 expires 的 cookie 都已经过期
+        now_ts = datetime.now().timestamp()
+        has_expires_field = False
+        all_expired = True
+        for c in cookies:
+            if isinstance(c, dict) and "expires" in c:
+                exp = c["expires"]
+                if isinstance(exp, (int, float)) and exp > 0:
+                    has_expires_field = True
+                    if exp > now_ts:
+                        all_expired = False
+                        break
+        if has_expires_field and all_expired:
+            return False
+
         return True
     except Exception:
         return False
 
 
 async def _safe_check(browser_check_coro, account_file_path: str) -> bool:
-    """安全 check 包装器：优先用浏览器验证；若浏览器验证未通过或异常（如 Windows 无头反爬拦截/驱动缺失），自动降级为本地凭证文件校验。"""
+    """安全 check 包装器：优先用浏览器实际探活验证。
+    若浏览器实际探活明确返回 False（凭证已过期/被退出），坚决以实际探活为准（返回 False），绝不降级；
+    仅当浏览器探活抛出极端未捕获异常（如无头环境缺失浏览器驱动）时，才作为兜底进行本地凭证快照检查。
+    """
     try:
-        if await browser_check_coro:
-            return True
+        is_valid = await browser_check_coro
+        # 浏览器明确给出了探活结果，直接采纳，绝不进行假阳性降级
+        return bool(is_valid)
     except Exception:
-        pass
-    # 降级：检查本地已存盘的凭证有效性
-    return _validate_cookie_file(account_file_path)
+        # 仅在浏览器驱动或网络异常时，安全降级为本地凭证文件校验
+        return _validate_cookie_file(account_file_path)
 
 
 async def login_douyin_account(account_name: str, headless: bool = True) -> dict:
@@ -504,10 +516,32 @@ async def login_bilibili_account(account_name: str) -> dict:
 
     result = run_biliup_command(["-u", str(account_file), "login"], interactive=True)
     success = result.returncode == 0
+    nickname = ""
+    finder_uid = ""
+    final_account_name = account_name
+    final_account_file = str(account_file)
+
+    if success and account_file.exists():
+        try:
+            from utils.account_meta import inject_account_meta_and_rename
+            final_account_name, final_account_file, meta = inject_account_meta_and_rename(
+                platform="bilibili",
+                account_file=account_file,
+                current_account_name=account_name,
+            )
+            nickname = meta.get("nickname", "")
+            finder_uid = meta.get("finder_uid", "")
+        except Exception:
+            pass
+
     return {
         "success": success,
         "message": (result.stderr or result.stdout or "").strip() or "Bilibili login completed" if success else (result.stderr or result.stdout or "").strip() or "Bilibili login failed",
-        "account_file": str(account_file),
+        "account_file": final_account_file,
+        "account_name": final_account_name,
+        "nickname": nickname,
+        "finder_uid": finder_uid,
+        "platform": "bilibili",
     }
 
 
@@ -1204,15 +1238,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-CREATOR_PLATFORM_URLS = {
-    "douyin": "https://creator.douyin.com/",
-    "xiaohongshu": "https://creator.xiaohongshu.com/",
-    "kuaishou": "https://cp.kuaishou.com/",
-    "tencent": "https://channels.weixin.qq.com/platform",
-    "bilibili": "https://member.bilibili.com/",
-    "weibo": "https://weibo.com/",
-    "baijiahao": "https://baijiahao.baidu.com/",
-}
+from uploader.base_adapter import get_platform_adapter
 
 
 async def run_interactive_browser_session(platform: str, account_name: str, headless: bool = True) -> int:
@@ -1222,7 +1248,8 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
     直到用户在桌面端手动关闭或主动退出窗口。
     """
     account_file = resolve_account_file(platform, account_name)
-    creator_url = CREATOR_PLATFORM_URLS.get(platform, "https://creator.douyin.com/")
+    adapter = get_platform_adapter(platform)
+    creator_url = adapter.creator_url
 
     try:
         from patchright.async_api import async_playwright
@@ -1285,7 +1312,15 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                 "viewport": viewport_config
             }
 
-            if account_file.exists():
+            # 新增账号接入 (account_name == "auto")：必须保证全新纯净的独立扫码会话，绝不加载任何历史 storage_state，并强制清理 auto 临时文件
+            if account_name == "auto":
+                if account_file.exists():
+                    try:
+                        account_file.unlink()
+                    except Exception:
+                        pass
+                context = await browser.new_context(**context_kwargs)
+            elif account_file.exists():
                 try:
                     context = await browser.new_context(storage_state=str(account_file), **context_kwargs)
                 except Exception:
@@ -1326,92 +1361,68 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                         break
 
                     if not login_notified:
-                        current_url = page.url
-                        is_logged_in = False
-                        extracted_nickname = ""
-                        extracted_uid = ""
-
-                        if platform == "tencent":
-                            # 腾讯视频号：页面未登录时往往也是 channels.weixin.qq.com/platform 路径，但会内嵌扫码 iframe 或弹出登录框
-                            has_qr_frame = any("open.weixin.qq.com/connect/qrconnect" in fr.url for fr in page.frames)
-                            has_login_url = "login.html" in current_url
-                            if not has_qr_frame and not has_login_url and "channels.weixin.qq.com" in current_url:
-                                # 必须能查找到可见的创作者昵称元素，才确认为已成功登录态
-                                try:
-                                    for sel in ["h2.finder-nickname", "div.finder-nickname", "div.side-bar-footer .account-info span.name"]:
-                                        el = page.locator(sel).first
-                                        if await el.count() and await el.is_visible():
-                                            t = (await el.inner_text()).strip()
-                                            if t and len(t) < 40:
-                                                extracted_nickname = t
-                                                is_logged_in = True
-                                                break
-                                except Exception:
-                                    pass
-                        elif platform == "douyin":
-                            if "creator.douyin.com" in current_url and "login" not in current_url:
-                                try:
-                                    for sel in ["div.avatar-wrap + span", "div.user-info-name", "div.name-wrap span"]:
-                                        el = page.locator(sel).first
-                                        if await el.count() and await el.is_visible():
-                                            t = (await el.inner_text()).strip()
-                                            if t:
-                                                extracted_nickname = t
-                                                is_logged_in = True
-                                                break
-                                except Exception:
-                                    pass
-                        elif platform == "xiaohongshu":
-                            if "creator.xiaohongshu.com" in current_url and "login" not in current_url:
-                                try:
-                                    for sel in ["div.user-info span.name", "div.name"]:
-                                        el = page.locator(sel).first
-                                        if await el.count() and await el.is_visible():
-                                            t = (await el.inner_text()).strip()
-                                            if t:
-                                                extracted_nickname = t
-                                                is_logged_in = True
-                                                break
-                                except Exception:
-                                    pass
-                        elif platform == "kuaishou":
-                            if "cp.kuaishou.com" in current_url and "login" not in current_url:
-                                try:
-                                    for sel in ["div.user-name", "span.user-name"]:
-                                        el = page.locator(sel).first
-                                        if await el.count() and await el.is_visible():
-                                            t = (await el.inner_text()).strip()
-                                            if t:
-                                                extracted_nickname = t
-                                                is_logged_in = True
-                                                break
-                                except Exception:
-                                    pass
-                        else:
-                            # 其它平台：URL 不含 login 且有用户信息元素
-                            if "login" not in current_url.lower():
-                                is_logged_in = True
-
+                        is_logged_in = await adapter.is_logged_in(page, context)
                         if is_logged_in:
+                            extracted_nickname = ""
+                            extracted_uid = ""
+                            extracted_avatar = ""
                             try:
-                                uid_el = page.locator("span.finder-uniq-id, #finder-uid-copy").first
-                                if await uid_el.count():
-                                    extracted_uid = (await uid_el.inner_text()).strip()
+                                cur_cookies = await context.cookies()
+                                p_res = await adapter.extract_profile(page, context, cur_cookies)
+                                if len(p_res) >= 3:
+                                    extracted_nickname, extracted_uid, extracted_avatar = p_res[0], p_res[1], p_res[2]
+                                elif len(p_res) == 2:
+                                    extracted_nickname, extracted_uid = p_res[0], p_res[1]
                             except Exception:
                                 pass
+
+                            # 若首次判定登录时页面仍在跳转导致昵称尚未挂载，进行极速二次轮询重试
+                            if not extracted_nickname and not page.is_closed():
+                                for _ in range(3):
+                                    await asyncio.sleep(0.8)
+                                    if page.is_closed():
+                                        break
+                                    try:
+                                        cur_cookies = await context.cookies()
+                                        p_res = await adapter.extract_profile(page, context, cur_cookies)
+                                        if len(p_res) >= 1 and p_res[0]:
+                                            extracted_nickname = p_res[0]
+                                        if len(p_res) >= 2 and p_res[1] and not extracted_uid:
+                                            extracted_uid = p_res[1]
+                                        if len(p_res) >= 3 and p_res[2] and not extracted_avatar:
+                                            extracted_avatar = p_res[2]
+                                        if extracted_nickname:
+                                            break
+                                    except Exception:
+                                        pass
 
                             try:
                                 await context.storage_state(path=str(account_file))
                             except Exception:
                                 pass
 
-                            meta_dict = {
-                                "success": True,
-                                "nickname": extracted_nickname or account_name,
-                                "finder_uid": extracted_uid,
-                                "account_name": account_name,
-                                "platform": platform
-                            }
+                            try:
+                                from utils.account_meta import inject_account_meta_and_rename
+                                final_acc, final_path, meta_dict = inject_account_meta_and_rename(
+                                    platform=platform,
+                                    account_file=account_file,
+                                    nickname=extracted_nickname,
+                                    finder_uid=extracted_uid,
+                                    avatar=extracted_avatar,
+                                    current_account_name=account_name,
+                                )
+                                account_name = final_acc
+                                account_file = Path(final_path)
+                            except Exception:
+                                meta_dict = {
+                                    "success": True,
+                                    "nickname": extracted_nickname or account_name,
+                                    "finder_uid": extracted_uid,
+                                    "avatar": extracted_avatar,
+                                    "account_name": account_name,
+                                    "platform": platform
+                                }
+
                             sys.stdout.write(f"{platform.capitalize()} login flow completed: {json.dumps(meta_dict, ensure_ascii=False)}\n")
                             sys.stdout.flush()
                             login_notified = True
@@ -1421,13 +1432,84 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                     if int(asyncio.get_event_loop().time()) % 30 == 0:
                         try:
                             await context.storage_state(path=str(account_file))
+                            if login_notified and "meta_dict" in locals():
+                                from utils.account_meta import inject_account_meta_and_rename
+                                inject_account_meta_and_rename(
+                                    platform=platform,
+                                    account_file=account_file,
+                                    nickname=meta_dict.get("nickname", ""),
+                                    finder_uid=meta_dict.get("finder_uid", ""),
+                                    avatar=meta_dict.get("avatar", ""),
+                                    current_account_name=account_name,
+                                )
                         except Exception:
                             pass
             except (asyncio.CancelledError, KeyboardInterrupt):
                 pass
             finally:
                 try:
-                    await context.storage_state(path=str(account_file))
+                    if not login_notified:
+                        # 窗口关闭瞬间紧急检查：检测用户是否已在手机上扫码确认授权
+                        try:
+                            emergency_logged = await adapter.is_logged_in(None, context)
+                            if emergency_logged:
+                                cur_cookies = await context.cookies()
+                                p_res = await adapter.extract_profile(None, context, cur_cookies)
+                                e_nickname = p_res[0] if len(p_res) >= 1 else ""
+                                e_uid = p_res[1] if len(p_res) >= 2 else ""
+                                e_avatar = p_res[2] if len(p_res) >= 3 else ""
+
+                                await context.storage_state(path=str(account_file))
+                                from utils.account_meta import inject_account_meta_and_rename
+                                final_acc, final_path, meta_dict = inject_account_meta_and_rename(
+                                    platform=platform,
+                                    account_file=account_file,
+                                    nickname=e_nickname,
+                                    finder_uid=e_uid,
+                                    avatar=e_avatar,
+                                    current_account_name=account_name,
+                                )
+                                account_name = final_acc
+                                account_file = Path(final_path)
+                                sys.stdout.write(f"{platform.capitalize()} login flow completed: {json.dumps(meta_dict, ensure_ascii=False)}\n")
+                                sys.stdout.flush()
+                                login_notified = True
+                        except Exception as ex:
+                            sys.stderr.write(f"Emergency login recovery failed: {ex}\n")
+
+                    if login_notified:
+                        await context.storage_state(path=str(account_file))
+                        if "meta_dict" in locals():
+                            from utils.account_meta import inject_account_meta_and_rename
+                            _, final_p, _ = inject_account_meta_and_rename(
+                                platform=platform,
+                                account_file=account_file,
+                                nickname=meta_dict.get("nickname", ""),
+                                finder_uid=meta_dict.get("finder_uid", ""),
+                                avatar=meta_dict.get("avatar", ""),
+                                current_account_name=account_name,
+                            )
+                            auto_p = account_file.parent / f"{platform}_auto.json"
+                            if auto_p.exists() and str(auto_p) != str(final_p):
+                                try:
+                                    auto_p.unlink()
+                                except Exception:
+                                    pass
+                    else:
+                        # 未完成登录：彻底清理 auto 临时文件，绝不残留幽灵文件
+                        auto_p = account_file.parent / f"{platform}_auto.json"
+                        if auto_p.exists():
+                            try:
+                                auto_p.unlink()
+                            except Exception:
+                                pass
+                        if account_name == "auto" and account_file.exists():
+                            try:
+                                account_file.unlink()
+                            except Exception:
+                                pass
+                        sys.stdout.write(f"[APP_INFO] {platform.capitalize()} browser session closed without login.\n")
+                        sys.stdout.flush()
                 except Exception:
                     pass
                 try:
@@ -1471,7 +1553,15 @@ async def dispatch(args: argparse.Namespace) -> int:
             result = await login_douyin_account(args.account, headless=args.headless)
             if not result["success"]:
                 raise RuntimeError(result["message"])
-            print(f"Douyin login flow completed: {result['account_file']}")
+            meta_dict = {
+                "success": True,
+                "nickname": result.get("nickname") or result.get("account_name") or args.account,
+                "finder_uid": result.get("finder_uid") or "",
+                "account_name": result.get("account_name") or args.account,
+                "platform": "douyin"
+            }
+            sys.stdout.write(f"Douyin login flow completed: {json.dumps(meta_dict, ensure_ascii=False)}\n")
+            sys.stdout.flush()
             return 0
 
         if args.action == "check":
@@ -1498,7 +1588,7 @@ async def dispatch(args: argparse.Namespace) -> int:
                 publish_strategy=publish_strategy,
                 debug=args.debug,
                 headless=args.headless,
-                collection_name=args.collection,
+                collection_name=getattr(args, "collection", None),
             )
             await upload_video(request)
             print(f"Douyin video upload submitted: {request.video_file}")
@@ -1507,8 +1597,9 @@ async def dispatch(args: argparse.Namespace) -> int:
         if args.action == "upload-note":
             # 如果指定了 --notef，读取文件内容作为 note
             note_content = args.note
-            if args.notef:
-                note_file = Path(args.notef)
+            notef_path = getattr(args, "notef", None)
+            if notef_path:
+                note_file = Path(notef_path)
                 if not note_file.exists():
                     print(f"错误：文件不存在: {note_file}", file=sys.stderr)
                     return 1
@@ -1524,7 +1615,7 @@ async def dispatch(args: argparse.Namespace) -> int:
                 publish_strategy=publish_strategy,
                 debug=args.debug,
                 headless=args.headless,
-                bgm=args.bgm or "",
+                bgm=getattr(args, "bgm", "") or "",
             )
             await upload_note(request)
             print(f"Douyin note upload submitted: {len(request.image_files)} images")
@@ -1537,7 +1628,15 @@ async def dispatch(args: argparse.Namespace) -> int:
             result = await login_kuaishou_account(args.account, headless=args.headless)
             if not result["success"]:
                 raise RuntimeError(result["message"])
-            print(f"Kuaishou login flow completed: {result['account_file']}")
+            meta_dict = {
+                "success": True,
+                "nickname": result.get("nickname") or result.get("account_name") or args.account,
+                "finder_uid": result.get("finder_uid") or "",
+                "account_name": result.get("account_name") or args.account,
+                "platform": "kuaishou"
+            }
+            sys.stdout.write(f"Kuaishou login flow completed: {json.dumps(meta_dict, ensure_ascii=False)}\n")
+            sys.stdout.flush()
             return 0
 
         if args.action == "check":
@@ -1588,7 +1687,15 @@ async def dispatch(args: argparse.Namespace) -> int:
             result = await login_xiaohongshu_account(args.account, headless=args.headless)
             if not result["success"]:
                 raise RuntimeError(result["message"])
-            print(f"Xiaohongshu login flow completed: {result['account_file']}")
+            meta_dict = {
+                "success": True,
+                "nickname": result.get("nickname") or result.get("account_name") or args.account,
+                "finder_uid": result.get("finder_uid") or "",
+                "account_name": result.get("account_name") or args.account,
+                "platform": "xiaohongshu"
+            }
+            sys.stdout.write(f"Xiaohongshu login flow completed: {json.dumps(meta_dict, ensure_ascii=False)}\n")
+            sys.stdout.flush()
             return 0
 
         if args.action == "check":
@@ -1648,7 +1755,15 @@ async def dispatch(args: argparse.Namespace) -> int:
             result = await login_bilibili_account(args.account)
             if not result["success"]:
                 raise RuntimeError(result["message"])
-            print(f"Bilibili login flow completed: {result['account_file']}")
+            meta_dict = {
+                "success": True,
+                "nickname": result.get("nickname") or result.get("account_name") or args.account,
+                "finder_uid": result.get("finder_uid") or "",
+                "account_name": result.get("account_name") or args.account,
+                "platform": "bilibili"
+            }
+            sys.stdout.write(f"Bilibili login flow completed: {json.dumps(meta_dict, ensure_ascii=False)}\n")
+            sys.stdout.flush()
             return 0
 
         if args.action == "check":
@@ -1678,8 +1793,15 @@ async def dispatch(args: argparse.Namespace) -> int:
             result = await login_tencent_account(args.account, headless=args.headless)
             if not result["success"]:
                 raise RuntimeError(result["message"])
-            import json
-            print(f"Tencent/WeChat Channels login flow completed: {json.dumps(result, ensure_ascii=False)}")
+            meta_dict = {
+                "success": True,
+                "nickname": result.get("nickname") or result.get("account_name") or args.account,
+                "finder_uid": result.get("finder_uid") or "",
+                "account_name": result.get("account_name") or args.account,
+                "platform": "tencent"
+            }
+            sys.stdout.write(f"Tencent login flow completed: {json.dumps(meta_dict, ensure_ascii=False)}\n")
+            sys.stdout.flush()
             return 0
 
 
@@ -1707,7 +1829,7 @@ async def dispatch(args: argparse.Namespace) -> int:
                 publish_strategy=publish_strategy,
                 debug=args.debug,
                 headless=args.headless,
-                collection_name=args.collection,
+                collection_name=getattr(args, "collection", None),
             )
             await upload_tencent_video(request)
             print(f"Tencent/WeChat Channels video upload submitted: {request.video_file}")

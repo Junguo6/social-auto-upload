@@ -127,11 +127,14 @@ type ScreencastFrame struct {
 
 // EngineEvent 引擎日志与状态事件
 type EngineEvent struct {
-	Type     string `json:"type"` // "log" | "task_start" | "task_success" | "task_error"
-	TaskId   string `json:"taskId,omitempty"`
-	Platform string `json:"platform,omitempty"`
-	Account  string `json:"account,omitempty"`
-	Message  string `json:"message"`
+	Type      string `json:"type"` // "log" | "task_start" | "task_success" | "task_error"
+	TaskId    string `json:"taskId,omitempty"`
+	Platform  string `json:"platform,omitempty"`
+	Account   string `json:"account,omitempty"`
+	Nickname  string `json:"nickname,omitempty"`
+	FinderUid string `json:"finderUid,omitempty"`
+	Avatar    string `json:"avatar,omitempty"`
+	Message   string `json:"message"`
 }
 
 // VideoFileInfo 扫描到的视频文件元数据
@@ -177,10 +180,13 @@ type DirectoryPublishResult struct {
 
 // AccountStatus 账号状态
 type AccountStatus struct {
-	Platform string `json:"platform"`
-	Account  string `json:"account"`
-	IsValid  bool   `json:"isValid"`
-	Msg      string `json:"msg"`
+	Platform  string `json:"platform"`
+	Account   string `json:"account"`
+	IsValid   bool   `json:"isValid"`
+	Msg       string `json:"msg"`
+	Avatar    string `json:"avatar,omitempty"`
+	Nickname  string `json:"nickname,omitempty"`
+	FinderUid string `json:"finderUid,omitempty"`
 }
 
 // LoginResult 账号授权登录返回结果
@@ -190,6 +196,7 @@ type LoginResult struct {
 	Account   string `json:"account"`   // 磁盘安全存储标识（如 account_01 或 user_001）
 	Nickname  string `json:"nickname"`  // 真实展示昵称（完整保留 Emoji 和特殊字符）
 	FinderUid string `json:"finderUid"` // 平台唯一 UID
+	Avatar    string `json:"avatar,omitempty"`
 	Msg       string `json:"msg"`
 }
 

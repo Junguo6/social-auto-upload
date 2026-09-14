@@ -118,12 +118,21 @@ def _build_login_result(
     account_file: str,
     qrcode: dict | None = None,
     current_url: str = "",
+    nickname: str = "",
+    finder_uid: str = "",
+    account_name: str = "",
 ) -> dict:
+    stem_name = Path(account_file).stem
+    if stem_name.startswith("kuaishou_"):
+        stem_name = stem_name[len("kuaishou_"):]
     return {
         "success": success,
         "status": status,
         "message": message,
         "account_file": str(account_file),
+        "account_name": str(account_name or stem_name),
+        "nickname": nickname,
+        "finder_uid": finder_uid,
         "qrcode": qrcode,
         "current_url": current_url,
     }
@@ -235,6 +244,24 @@ async def cookie_auth(account_file):
                 upload_btn = page.locator("button[class^='_upload-btn']")
                 await upload_btn.wait_for(state="visible", timeout=10000)
                 kuaishou_logger.success(_msg("🥳", "cookie 有效"))
+
+                # 顺便同步/校准真实昵称与头像至凭证文件
+                try:
+                    from uploader.ks_uploader.adapter import KuaishouPlatformAdapter
+                    from utils.account_meta import inject_account_meta_and_rename
+                    adapter = KuaishouPlatformAdapter()
+                    nick, uid, av = await adapter.extract_profile(page, context)
+                    if nick or av or uid:
+                        inject_account_meta_and_rename(
+                            platform="kuaishou",
+                            account_file=account_file,
+                            nickname=nick,
+                            finder_uid=uid,
+                            avatar=av,
+                        )
+                except Exception:
+                    pass
+
                 return True
             except Exception:
                 # 兜底：旧版检测（"机构服务"元素出现在未登录介绍页）
@@ -302,19 +329,60 @@ async def get_ks_cookie(
 
             for _ in range(max_checks):
                 if page.url.startswith(KUAISHOU_UPLOAD_URL) or await _is_ks_login_page_gone(page):
+                    await asyncio.sleep(2)
+                    # 尝试从 DOM 和 Cookie 探测真实昵称与 UID
+                    nickname = ""
+                    finder_uid = ""
+                    try:
+                        from utils.account_meta import extract_account_meta_from_page, inject_account_meta_and_rename
+                        cookies = await context.cookies()
+                        nickname, finder_uid = await extract_account_meta_from_page("kuaishou", page, cookies)
+                    except Exception as ext_err:
+                        kuaishou_logger.warning(_msg("⚠️", f"快手资料探测异常: {ext_err}"))
+
                     await context.storage_state(path=account_file)
-                    if await cookie_auth(account_file):
-                        kuaishou_logger.success(_msg("🥳", "快手扫码登录成功，小人开心收工"))
-                        result = _build_login_result(True, "success", "快手扫码登录成功", account_file, qrcode_info, page.url)
+
+                    final_account_name = Path(account_file).stem.replace("kuaishou_", "")
+                    final_account_file = account_file
+                    try:
+                        from utils.account_meta import inject_account_meta_and_rename
+                        final_account_name, final_account_file, meta = inject_account_meta_and_rename(
+                            platform="kuaishou",
+                            account_file=account_file,
+                            nickname=nickname,
+                            finder_uid=finder_uid,
+                            current_account_name=final_account_name,
+                        )
+                        nickname = meta.get("nickname", nickname)
+                        finder_uid = meta.get("finder_uid", finder_uid)
+                    except Exception as meta_err:
+                        kuaishou_logger.warning(_msg("⚠️", f"元数据注入异常: {meta_err}"))
+
+                    if await cookie_auth(final_account_file):
+                        kuaishou_logger.success(_msg("🥳", f"快手扫码登录成功！识别到账号: {nickname or final_account_name} (ID: {finder_uid})"))
+                        result = _build_login_result(
+                            True,
+                            "success",
+                            f"快手扫码登录成功 (昵称: {nickname or final_account_name})",
+                            final_account_file,
+                            qrcode_info,
+                            page.url,
+                            nickname=nickname,
+                            finder_uid=finder_uid,
+                            account_name=final_account_name,
+                        )
                     else:
                         kuaishou_logger.error(_msg("😢", "快手扫码完成了，但 cookie 校验失败"))
                         result = _build_login_result(
                             False,
                             "cookie_invalid",
                             "快手扫码流程结束，但 cookie 校验失败",
-                            account_file,
+                            final_account_file,
                             qrcode_info,
                             page.url,
+                            nickname=nickname,
+                            finder_uid=finder_uid,
+                            account_name=final_account_name,
                         )
                     return result
 

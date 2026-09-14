@@ -64,13 +64,45 @@
 
       <!-- 2. 账号联系人滚动列表 -->
       <div class="sidebar-contact-list custom-scrollbar">
-        <!-- 空状态 -->
-        <div v-if="filteredAccounts.length === 0" class="contact-empty-state">
+        <!-- 空状态：仅在没有任何账号且无正在接入任务时显示 -->
+        <div v-if="filteredAccounts.length === 0 && pendingAccountLogins.length === 0" class="contact-empty-state">
           <el-icon class="empty-icon"><UserFilled /></el-icon>
           <p class="empty-title">未找到匹配的矩阵账号</p>
           <el-button size="small" type="primary" link @click="openNewTab">
             接入新账号
           </el-button>
+        </div>
+
+        <!-- 正在接入中的新账号临时卡片 (提供强烈的等待与操作反馈，伴随旋转 Loading 动效) -->
+        <div 
+          v-for="pending in pendingAccountLogins" 
+          :key="pending.id"
+          class="contact-card-item is-pending-login"
+        >
+          <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(pending.platform).gradient }">
+            <el-icon class="avatar-pending-spinner is-loading"><Loading /></el-icon>
+            <span class="avatar-plat-icon">
+              <el-icon><component :is="getPlatformStyle(pending.platform).icon" /></el-icon>
+            </span>
+            <span class="avatar-status-dot is-syncing" title="已拉起浏览器视窗，等待扫码授权"></span>
+          </div>
+
+          <div class="contact-meta-content">
+            <div class="contact-first-row">
+              <span class="contact-name-text pending-title">{{ pending.alias ? `正在接入 [${pending.alias}]...` : '正在接入新账号...' }}</span>
+              <span class="contact-platform-tag" :style="{ color: getPlatformStyle(pending.platform).brandColor }">
+                {{ getPlatformStyle(pending.platform).name }}
+              </span>
+            </div>
+
+            <div class="contact-second-row">
+              <span class="contact-group-name">#{{ pending.alias ? pending.alias : '接入中' }}</span>
+              <span class="contact-status-label status-syncing">
+                <el-icon class="is-loading" style="margin-right: 2px;"><Loading /></el-icon>
+                <span>{{ pending.statusText }}</span>
+              </span>
+            </div>
+          </div>
         </div>
 
         <!-- 账号联系人单元 (微信项风格，深度适配浅色/暗黑主题) -->
@@ -81,9 +113,17 @@
           :class="{ 'is-active': activeTabId === `${acc.platform}:${acc.account}` }"
           @click="openAccountTab(acc)"
         >
-          <!-- 头像模块：平台渐变背景 + 字母大写 Monogram + 右下平台微标 + 左上健康状态灯 -->
+          <!-- 头像模块：优先展示平台真实头像，加载失败或无头像时优雅降级为字母 Monogram -->
           <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(acc.platform).gradient }">
-            <span class="avatar-char">{{ getAccountAvatarText(acc) }}</span>
+            <img 
+              v-if="acc.avatar && !acc.avatarLoadFailed" 
+              :src="acc.avatar" 
+              class="contact-real-avatar" 
+              referrerpolicy="no-referrer"
+              @error="acc.avatarLoadFailed = true" 
+              :alt="acc.nickname || acc.account"
+            />
+            <span v-else class="avatar-char">{{ getAccountAvatarText(acc) }}</span>
             <!-- 右下角平台微标 -->
             <span class="avatar-plat-icon">
               <el-icon><component :is="getPlatformStyle(acc.platform).icon" /></el-icon>
@@ -109,9 +149,10 @@
               <span class="contact-group-name">#{{ acc.group || '默认组' }}</span>
               <span 
                 class="contact-status-label" 
-                :class="{ 'status-err': acc.checked && !acc.isValid, 'status-ok': acc.checked && acc.isValid }"
+                :class="{ 'status-err': acc.checked && !acc.isValid, 'status-ok': acc.checked && acc.isValid, 'status-syncing': acc.isSyncing || acc.loading }"
               >
-                {{ acc.checked ? (acc.isValid ? '凭证有效' : '需重新扫码') : '待检测' }}
+                <el-icon v-if="acc.isSyncing || acc.loading" class="is-loading" style="margin-right: 2px;"><Loading /></el-icon>
+                <span>{{ (acc.isSyncing || acc.loading) ? '同步中...' : (acc.checked ? (acc.isValid ? '凭证有效' : '需重新扫码') : '待检测') }}</span>
               </span>
             </div>
           </div>
@@ -203,12 +244,13 @@
             </span>
             <el-tag 
               size="small" 
-              :type="currentActiveTab.accountItem?.isValid ? 'success' : 'danger'" 
+              :type="isTabSyncing(currentActiveTab) ? 'warning' : (currentActiveTab.accountItem?.isValid ? 'success' : 'danger')" 
               effect="dark" 
               round
               class="omnibox-status-tag"
             >
-              {{ currentActiveTab.accountItem?.isValid ? '✅ 凭证正常' : '⚠️ 需重新扫码' }}
+              <el-icon v-if="isTabSyncing(currentActiveTab)" class="is-loading" style="margin-right: 4px;"><Loading /></el-icon>
+              <span>{{ isTabSyncing(currentActiveTab) ? '正在同步登录态...' : (currentActiveTab.accountItem?.isValid ? '✅ 凭证正常' : '⚠️ 需重新扫码') }}</span>
             </el-tag>
           </div>
         </div>
@@ -297,7 +339,15 @@
                 </div>
 
                 <div class="appmode-avatar-box" :style="{ background: getPlatformStyle(tab.platform).gradient }">
-                  <span class="avatar-char">{{ getAccountAvatarText(tab.accountItem, tab.account || getPlatformConfig(tab.platform).name) }}</span>
+                  <img 
+                    v-if="tab.accountItem?.avatar && !tab.accountItem?.avatarLoadFailed" 
+                    :src="tab.accountItem.avatar" 
+                    class="appmode-real-avatar" 
+                    referrerpolicy="no-referrer"
+                    @error="tab.accountItem ? tab.accountItem.avatarLoadFailed = true : null" 
+                    :alt="tab.accountItem?.nickname || tab.accountItem?.account || tab.title"
+                  />
+                  <span v-else class="avatar-char">{{ getAccountAvatarText(tab.accountItem, tab.account || getPlatformConfig(tab.platform).name) }}</span>
                   <span class="avatar-badge">
                     <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
                   </span>
@@ -359,7 +409,15 @@
           <div v-else-if="tab.type === 'account' && tab.accountItem" class="browser-standby-hub">
             <div class="standby-card-content">
               <div class="standby-brand-avatar" :style="{ background: getPlatformStyle(tab.platform).gradient }">
-                <span class="avatar-huge-char">{{ getAccountAvatarText(tab.accountItem) }}</span>
+                <img 
+                  v-if="tab.accountItem.avatar && !tab.accountItem.avatarLoadFailed" 
+                  :src="tab.accountItem.avatar" 
+                  class="standby-real-avatar" 
+                  referrerpolicy="no-referrer"
+                  @error="tab.accountItem.avatarLoadFailed = true" 
+                  :alt="tab.accountItem.nickname || tab.accountItem.account"
+                />
+                <span v-else class="avatar-huge-char">{{ getAccountAvatarText(tab.accountItem) }}</span>
                 <span class="brand-sub-badge">
                   <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
                 </span>
@@ -367,8 +425,9 @@
 
               <h2 class="standby-account-title">{{ tab.accountItem.nickname || tab.accountItem.account }}</h2>
               <div class="standby-meta-pills">
-                <el-tag size="default" :type="tab.accountItem.isValid ? 'success' : 'danger'" effect="dark" round>
-                  {{ tab.accountItem.isValid ? '✅ 凭证正常 · 随时可执行矩阵任务' : '⚠️ 登录凭证已失效 · 请扫码更新' }}
+                <el-tag size="default" :type="isTabSyncing(tab) ? 'warning' : (tab.accountItem.isValid ? 'success' : 'danger')" effect="dark" round>
+                  <el-icon v-if="isTabSyncing(tab)" class="is-loading" style="margin-right: 4px;"><Loading /></el-icon>
+                  <span>{{ isTabSyncing(tab) ? '正在同步/校验最新凭证...' : (tab.accountItem.isValid ? '✅ 凭证正常 · 随时可执行矩阵任务' : '⚠️ 登录凭证已失效 · 请扫码更新') }}</span>
                 </el-tag>
                 <el-tag size="default" type="info" round v-if="tab.accountItem.finderUid">
                   UID: {{ tab.accountItem.finderUid }}
@@ -575,6 +634,16 @@ const newTabAccountAlias = ref('')
 const showGroupDialog = ref(false)
 const newGroupName = ref('')
 
+// 正在接入中的新账号临时状态（提供即时可见的等待与操作反馈）
+interface PendingAccountLogin {
+  id: string
+  platform: string
+  alias?: string
+  statusText: string
+  startTime: number
+}
+const pendingAccountLogins = ref<PendingAccountLogin[]>([])
+
 const platformList = computed(() => PLATFORMS)
 const availablePlatforms = computed(() => PLATFORMS)
 
@@ -715,18 +784,46 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
   tab.sessionMode = 'app'
   tab.isSessionActive = true
   tab.isStartingSession = true
+  if (tab.accountItem) {
+    tab.accountItem.isSyncing = true
+  } else {
+    // 初次新增账号：立即在左侧联系人列表展示接入中状态卡片，提供明确的等待反馈
+    pendingAccountLogins.value = pendingAccountLogins.value.filter(p => p.platform !== platform)
+    pendingAccountLogins.value.push({
+      id: `pending_${platform}_${Date.now()}`,
+      platform,
+      alias: account === 'auto' ? '' : account,
+      statusText: '视窗已拉起，等待扫码授权...',
+      startTime: Date.now()
+    })
+  }
   tab.sessionStatusText = '正在拉起原生 Chrome App 沉浸式视窗 (4K 视网膜画质 · 0 延迟)...'
 
   try {
     const res = await LoginAccountWithAppWindow(platform, account)
-    if (res && res.success) {
+    if (res && res.success && res.account && res.account !== 'auto') {
       tab.sessionStatusText = `🎉 会话已结束，账号 [${res.nickname || res.account}] 凭证已存盘`
       ElMessage.success(`账号 [${res.nickname || res.account}] 凭证已同步存盘`)
-      accountStore.saveLoggedInAccount(platform, res.account || account, res.nickname, res.finderUid, true)
+      const savedAcc = accountStore.saveLoggedInAccount(platform, res.account, res.nickname, res.finderUid, true, res.avatar)
+      pendingAccountLogins.value = pendingAccountLogins.value.filter(p => p.platform !== platform)
+      if (savedAcc) {
+        tab.accountItem = savedAcc
+        tab.account = savedAcc.account
+        tab.type = 'account'
+        tab.id = `${savedAcc.platform}:${savedAcc.account}`
+        tab.title = `${getPlatformConfig(savedAcc.platform).name} - ${savedAcc.nickname || savedAcc.account}`
+      }
     } else {
-      tab.sessionStatusText = `会话已结束: ${res?.msg || '操作完成'}`
-      if (res?.msg && res.msg !== '操作完成') {
-        ElMessage.error({ message: `拉起登录失败: ${res.msg}`, duration: 8000 })
+      const finishMsg = res?.msg || '操作完成'
+      tab.sessionStatusText = `会话已结束: ${finishMsg}`
+      if (account === 'auto') {
+        // 新建账号接入未完成扫码：保持在新标签页状态，绝不跨账号套用已有或已删除账号
+        ElMessage.info('未完成扫码登录，您可以随时点击重新拉起视窗')
+      } else {
+        if (tab.accountItem) {
+          tab.accountItem.checked = true
+        }
+        ElMessage.info(`会话已结束: ${finishMsg}`)
       }
     }
   } catch (err: any) {
@@ -734,20 +831,24 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
     if (!errStr.includes('手动中止') && !errStr.includes('signal') && !errStr.includes('killed')) {
       tab.sessionStatusText = `会话已结束: ${errStr}`
       const cleanMsg = errStr.startsWith('拉起') ? errStr : `拉起浏览器异常: ${errStr}`
-      ElMessage.error({ message: cleanMsg, duration: 8000 })
+      ElMessage.error({ message: cleanMsg, duration: 6000 })
     }
   } finally {
+    pendingAccountLogins.value = pendingAccountLogins.value.filter(p => p.platform !== platform)
     tab.isStartingSession = false
     tab.isSessionActive = false
+    if (tab.accountItem) {
+      tab.accountItem.isSyncing = false
+      tab.accountItem.loading = false
+    }
     await accountStore.fetchAccounts()
-    const targetAcc = accountStore.accounts.find(a => a.platform === platform && (a.account === account || a.account === tab.account))
-    if (targetAcc) {
-      tab.accountItem = targetAcc
-      tab.type = 'account'
-      tab.id = `${targetAcc.platform}:${targetAcc.account}`
-      tab.title = `${getPlatformConfig(targetAcc.platform).name} - ${targetAcc.nickname || targetAcc.account}`
-      if (!targetAcc.isValid) {
-        await accountStore.checkAccount(targetAcc)
+    if (tab.account && tab.account !== 'auto') {
+      const targetAcc = accountStore.accounts.find(a => a.platform === platform && a.account === tab.account)
+      if (targetAcc) {
+        tab.accountItem = targetAcc
+        tab.type = 'account'
+        tab.id = `${targetAcc.platform}:${targetAcc.account}`
+        tab.title = `${getPlatformConfig(targetAcc.platform).name} - ${targetAcc.nickname || targetAcc.account}`
       }
     }
   }
@@ -837,10 +938,30 @@ const handleGoHome = () => {
   }
 }
 
-// 账号凭证检测
+// 严格判断标签页是否真正处于同步或加载中（防残留脏状态）
+const isTabSyncing = (tab?: BrowserTab | null) => {
+  if (!tab) return false
+  if (tab.accountItem?.loading || tab.accountItem?.isSyncing) return true
+  // 仅当会话处于活跃状态且正在建立连接时才判定为 syncing
+  if (tab.isSessionActive && tab.isStartingSession) return true
+  return false
+}
+
+// 账号凭证检测 (具备全链路同步兜底与脏状态纠偏)
 const checkStatus = async (acc: AccountItem) => {
+  if (currentActiveTab.value) {
+    currentActiveTab.value.isStartingSession = false
+  }
   try {
     await accountStore.checkAccount(acc)
+    // 强制同步当前激活标签页的账号数据项，防止组件层副本脱节
+    if (currentActiveTab.value && currentActiveTab.value.type === 'account') {
+      const latest = accountStore.accounts.find(a => a.platform === acc.platform && a.account === acc.account)
+      if (latest) {
+        currentActiveTab.value.accountItem = latest
+      }
+      currentActiveTab.value.isStartingSession = false
+    }
     const displayName = acc.nickname || acc.account || '当前账号'
     if (acc.isValid) {
       ElMessage.success(`[${displayName}] 凭证状态正常`)
@@ -849,6 +970,16 @@ const checkStatus = async (acc: AccountItem) => {
     }
   } catch (err: any) {
     ElMessage.error(`检测失败: ${err.message || err}`)
+  } finally {
+    acc.loading = false
+    acc.isSyncing = false
+    if (currentActiveTab.value) {
+      currentActiveTab.value.isStartingSession = false
+      if (currentActiveTab.value.accountItem) {
+        currentActiveTab.value.accountItem.loading = false
+        currentActiveTab.value.accountItem.isSyncing = false
+      }
+    }
   }
 }
 
@@ -864,9 +995,9 @@ const confirmDelete = (platform: string, account: string) => {
       cancelButtonText: '取消',
       type: 'warning'
     }
-  ).then(() => {
-    accountStore.removeAccount(platform, account)
-    ElMessage.success('账号已成功解绑')
+  ).then(async () => {
+    await accountStore.removeAccount(platform, account)
+    ElMessage.success('账号已成功解绑并清理本地凭证')
     closeTab(`${platform}:${account}`)
   }).catch(() => {})
 }
@@ -892,23 +1023,50 @@ onMounted(() => {
     openNewTab()
   }
 
-  // 监听后端即时上报的登录/凭证就绪事件（无头浏览器依然常驻运行，不关闭！）
+  // 监听后端即时上报的登录/凭证就绪事件（扫码成功瞬间毫秒级写入，无需等待关闭浏览器）
   try {
     unlistenLoginSuccess = EventsOn('sau-login-success', (evt: any) => {
       const platform = evt?.platform
-      const account = evt?.account || 'auto'
+      // 提取真实账号唯一标识：优先使用 account，其次 finderUid
+      const realAccount = (evt?.account && evt.account !== 'auto') ? evt.account : (evt?.finderUid || '')
+      if (!platform || !realAccount) return
+
+      // 1. 立即持久化并写入账号列表 (第一时间展示在列表中，0 毫秒延迟，携带真实头像)
+      const updated = accountStore.saveLoggedInAccount(
+        platform, 
+        realAccount, 
+        evt?.nickname, 
+        evt?.finderUid, 
+        true, 
+        evt?.avatar
+      )
+
+      // 2. 移除对应的 pending 接入中卡片
+      pendingAccountLogins.value = pendingAccountLogins.value.filter(p => p.platform !== platform)
+
+      // 3. 关联并转正对应的标签页
       const taskId = evt?.taskId
-      const targetTab = openTabs.value.find(t => (taskId && t.taskId === taskId) || (t.platform === platform && (t.account === account || t.account === 'auto')))
+      const targetTab = openTabs.value.find(t => 
+        (taskId && t.taskId === taskId) || 
+        (t.platform === platform && (t.account === realAccount || t.account === 'auto'))
+      )
       if (targetTab) {
-        targetTab.sessionStatusText = `🟢 检测到登录成功 · 账号 [${evt?.nickname || account}] 凭证已就绪`
+        targetTab.sessionStatusText = `🟢 扫码成功 · 账号 [${evt?.nickname || realAccount}] 凭证已就绪`
         targetTab.isStartingSession = false
         targetTab.isSessionActive = true
-        targetTab.account = account
-        const updated = accountStore.saveLoggedInAccount(platform, account, evt?.nickname, evt?.finderUid, true)
-        targetTab.accountItem = updated
-        targetTab.title = `${getPlatformConfig(platform).name} - ${evt?.nickname || account}`
-        ElMessage.success(`🎉 账号 [${evt?.nickname || account}] 登录成功且凭证已就绪！`)
+        targetTab.account = realAccount
+        targetTab.type = 'account'
+        targetTab.id = `${platform}:${realAccount}`
+        if (updated) {
+          targetTab.accountItem = updated
+        }
+        targetTab.title = `${getPlatformConfig(platform).name} - ${evt?.nickname || realAccount}`
       }
+
+      ElMessage.success({
+        message: `🎉 账号 [${evt?.nickname || realAccount}] 扫码成功，已实时同步至矩阵账号列表！`,
+        duration: 4000
+      })
     })
   } catch (err) {
     console.error('EventsOn sau-login-success failed:', err)
@@ -1085,6 +1243,27 @@ watch(() => accountStore.accounts, (newAccounts) => {
   box-shadow: 0 0 8px var(--primary-color);
 }
 
+.contact-card-item.is-pending-login {
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px dashed rgba(99, 102, 241, 0.4);
+  animation: pendingPulse 2s ease-in-out infinite;
+}
+
+@keyframes pendingPulse {
+  0%, 100% { opacity: 0.92; }
+  50% { opacity: 1; border-color: rgba(99, 102, 241, 0.8); }
+}
+
+.avatar-pending-spinner {
+  font-size: 20px;
+  color: #ffffff;
+}
+
+.pending-title {
+  color: var(--primary-color, #6366f1) !important;
+  font-weight: 600;
+}
+
 /* 头像微模块 */
 .contact-avatar-wrapper {
   position: relative;
@@ -1096,6 +1275,16 @@ watch(() => accountStore.accounts, (newAccounts) => {
   align-items: center;
   justify-content: center;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.contact-real-avatar,
+.appmode-real-avatar,
+.standby-real-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
 }
 
 .avatar-char {
@@ -1204,6 +1393,13 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .contact-status-label.status-err {
   color: #ef4444;
   font-weight: 600;
+}
+
+.contact-status-label.status-syncing {
+  color: #f59e0b;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
 }
 
 /* 👉 右侧：完整拟真浏览器窗口 (Browser Window Pane) */

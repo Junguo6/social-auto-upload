@@ -98,12 +98,28 @@ async def _emit_qrcode_callback(qrcode_callback, payload: dict):
         await callback_result
 
 
-def _build_login_result(success: bool, status: str, message: str, account_file: str, qrcode: dict | None = None, current_url: str = "") -> dict:
+def _build_login_result(
+    success: bool,
+    status: str,
+    message: str,
+    account_file: str,
+    qrcode: dict | None = None,
+    current_url: str = "",
+    nickname: str = "",
+    finder_uid: str = "",
+    account_name: str = "",
+) -> dict:
+    stem_name = Path(account_file).stem
+    if stem_name.startswith("douyin_"):
+        stem_name = stem_name[len("douyin_"):]
     return {
         "success": success,
         "status": status,
         "message": message,
         "account_file": str(account_file),
+        "account_name": str(account_name or stem_name),
+        "nickname": nickname,
+        "finder_uid": finder_uid,
         "qrcode": qrcode,
         "current_url": current_url,
     }
@@ -298,23 +314,65 @@ async def douyin_cookie_gen(
             )
             if result["success"]:
                 await asyncio.sleep(2)
+                # 尝试从页面与 Cookie 中提取真实昵称与 UID
+                nickname = ""
+                finder_uid = ""
+                try:
+                    from utils.account_meta import extract_account_meta_from_page, inject_account_meta_and_rename
+                    cookies = await context.cookies()
+                    nickname, finder_uid = await extract_account_meta_from_page("douyin", page, cookies)
+                except Exception as ext_err:
+                    douyin_logger.warning(_msg("⚠️", f"资料探测异常: {ext_err}"))
+
+                # 先保存 storage state 到原文件
                 await context.storage_state(path=account_file)
-                # 登录已通过"发布视频"确认成功、storage_state 刚从已登录浏览器抓下来，
-                # 不再用 flaky 的浏览器重检（那正是导致成功被误判为失败的老 bug）。
-                # 只轻量确认文件里有 sessionid。
+
+                # 注入 __account_meta__ 元数据并在 auto 时安全重命名
+                final_account_name = Path(account_file).stem.replace("douyin_", "")
+                final_account_file = account_file
+                try:
+                    from utils.account_meta import inject_account_meta_and_rename
+                    final_account_name, final_account_file, meta = inject_account_meta_and_rename(
+                        platform="douyin",
+                        account_file=account_file,
+                        nickname=nickname,
+                        finder_uid=finder_uid,
+                        current_account_name=final_account_name,
+                    )
+                    nickname = meta.get("nickname", nickname)
+                    finder_uid = meta.get("finder_uid", finder_uid)
+                except Exception as meta_err:
+                    douyin_logger.warning(_msg("⚠️", f"元数据注入异常: {meta_err}"))
+
                 try:
                     import json as _json
-                    _d = _json.load(open(account_file))
+                    _d = _json.load(open(final_account_file, "r", encoding="utf-8"))
                     _has_sess = any(c.get("name") == "sessionid" and c.get("value") for c in _d.get("cookies", []))
                     if not _has_sess:
                         result = _build_login_result(
                             False,
                             "cookie_invalid",
                             "抖音扫码流程结束，但 cookie 中无 sessionid",
-                            account_file,
+                            final_account_file,
                             qrcode_info,
                             page.url,
+                            nickname=nickname,
+                            finder_uid=finder_uid,
+                            account_name=final_account_name,
                         )
+                    else:
+                        result = _build_login_result(
+                            True,
+                            "success",
+                            f"抖音扫码登录成功 (昵称: {nickname or final_account_name})",
+                            final_account_file,
+                            qrcode_info,
+                            page.url,
+                            nickname=nickname,
+                            finder_uid=finder_uid,
+                            account_name=final_account_name,
+                        )
+                        douyin_logger.success(_msg("🎉", f"登录成功！识别到抖音账号: {nickname or final_account_name} (ID: {finder_uid})"))
                 except Exception as _e:
                     douyin_logger.warning(_msg("⚠️", f"cookie 文件校验异常（忽略，按成功处理）: {_e}"))
         except Exception as exc:

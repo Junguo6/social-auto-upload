@@ -80,6 +80,21 @@ func (e *Executor) CheckAccount(platform, account string) (bool, string) {
 	return e.account.CheckAccount(platform, account)
 }
 
+// DeleteAccountCredential 安全彻底删除本地磁盘上的指定平台账号凭证及关联缓存文件
+func (e *Executor) DeleteAccountCredential(platform, account string) error {
+	return e.account.DeleteAccountCredential(platform, account)
+}
+
+// GetAccountSavedAvatar 从磁盘凭证文件快速读取已缓存的头像 URL
+func (e *Executor) GetAccountSavedAvatar(platform, account string) string {
+	return e.account.GetAccountSavedAvatar(platform, account)
+}
+
+// GetAccountSavedMeta 从磁盘凭证文件快速读取已缓存的头像 URL、真实昵称与 UID
+func (e *Executor) GetAccountSavedMeta(platform, account string) (string, string, string) {
+	return e.account.GetAccountSavedMeta(platform, account)
+}
+
 // LoginAccount 拉起界面/终端登录并自动解析账号昵称与 UID
 func (e *Executor) LoginAccount(platform, account string, headed bool, onEvent func(evt EngineEvent)) (LoginResult, error) {
 	return e.account.LoginAccount(platform, account, headed, onEvent)

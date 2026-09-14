@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -19,6 +21,9 @@ func NewAccountManager(runtime *RuntimeManager, tracker *ProcessTracker) *Accoun
 
 // CheckAccount 检查账号登录凭证有效性 (杜绝假阳性)
 func (am *AccountManager) CheckAccount(platform, account string) (bool, string) {
+	if account == "" || account == "auto" {
+		return false, "无效账号标识"
+	}
 	cmd := am.runtime.BuildCommand(nil, platform, "check", "--account", account)
 	output, err := cmd.CombinedOutput()
 	outStr := strings.TrimSpace(string(output))
@@ -34,6 +39,91 @@ func (am *AccountManager) CheckAccount(platform, account string) (bool, string) 
 		}
 	}
 	return false, outStr
+}
+
+// DeleteAccountCredential 安全彻底删除本地磁盘上的指定平台账号凭证及关联缓存文件 (防幽灵文件残留)
+func (am *AccountManager) DeleteAccountCredential(platform, account string) error {
+	if platform == "" || account == "" || account == "auto" {
+		return nil
+	}
+
+	// 候选 cookies 存储目录链
+	candidateDirs := []string{
+		filepath.Join(am.runtime.WorkDir, "cookies"),
+		filepath.Join(filepath.Dir(am.runtime.EngineBin), "cookies"),
+		filepath.Join(am.runtime.WorkDir, "bin", "sau_engine", "_internal", "cookies"),
+	}
+
+	targetJsonName := fmt.Sprintf("%s_%s.json", platform, account)
+	filePrefix := fmt.Sprintf("%s_%s", platform, account)
+
+	for _, dir := range candidateDirs {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			continue
+		}
+
+		// 1. 删除具体的凭证 JSON 文件，并同步清理该平台的 auto.json 临时残留文件
+		jsonPath := filepath.Join(dir, targetJsonName)
+		_ = os.Remove(jsonPath)
+		autoPath := filepath.Join(dir, fmt.Sprintf("%s_auto.json", platform))
+		_ = os.Remove(autoPath)
+
+		// 2. 清理关联的登录二维码或验证码图片
+		entries, err := os.ReadDir(dir)
+		if err == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() && strings.HasPrefix(entry.Name(), filePrefix) {
+					_ = os.Remove(filepath.Join(dir, entry.Name()))
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// GetAccountSavedMeta 从磁盘凭证文件快速读取已缓存的头像 URL、真实昵称与 UID
+func (am *AccountManager) GetAccountSavedMeta(platform, account string) (avatar string, nickname string, finderUid string) {
+	if platform == "" || account == "" || account == "auto" {
+		return "", "", ""
+	}
+	candidateDirs := []string{
+		filepath.Join(am.runtime.WorkDir, "cookies"),
+		filepath.Join(filepath.Dir(am.runtime.EngineBin), "cookies"),
+		filepath.Join(am.runtime.WorkDir, "bin", "sau_engine", "_internal", "cookies"),
+	}
+	targetJsonName := fmt.Sprintf("%s_%s.json", platform, account)
+	for _, dir := range candidateDirs {
+		jsonPath := filepath.Join(dir, targetJsonName)
+		data, err := os.ReadFile(jsonPath)
+		if err != nil {
+			continue
+		}
+		var state map[string]interface{}
+		if err := json.Unmarshal(data, &state); err == nil {
+			if meta, ok := state["__account_meta__"].(map[string]interface{}); ok {
+				if av, ok := meta["avatar"].(string); ok {
+					avatar = av
+				}
+				if nick, ok := meta["nickname"].(string); ok {
+					nickname = nick
+				}
+				if uid, ok := meta["finder_uid"].(string); ok {
+					finderUid = uid
+				}
+				if avatar != "" || nickname != "" {
+					return
+				}
+			}
+		}
+	}
+	return
+}
+
+// GetAccountSavedAvatar 从磁盘凭证文件快速读取已缓存的头像 URL
+func (am *AccountManager) GetAccountSavedAvatar(platform, account string) string {
+	avatar, _, _ := am.GetAccountSavedMeta(platform, account)
+	return avatar
 }
 
 // LoginAccount 拉起界面/终端登录并自动解析账号昵称与 UID
@@ -168,15 +258,23 @@ func (am *AccountManager) loginInternal(platform, account string, headed bool, s
 						}
 						if acc, ok := meta["account_name"].(string); ok && acc != "" {
 							res.Account = acc
+						} else if res.Account == "auto" && res.FinderUid != "" {
+							res.Account = res.FinderUid
+						}
+						if av, ok := meta["avatar"].(string); ok && av != "" {
+							res.Avatar = av
 						}
 					}
 				}
 				onEvent(EngineEvent{
-					Type:     "login_success",
-					TaskId:   loginTaskId,
-					Platform: platform,
-					Account:  account,
-					Message:  line,
+					Type:      "login_success",
+					TaskId:    loginTaskId,
+					Platform:  platform,
+					Account:   res.Account,
+					Nickname:  res.Nickname,
+					FinderUid: res.FinderUid,
+					Avatar:    res.Avatar,
+					Message:   line,
 				})
 			}
 		}
@@ -197,30 +295,17 @@ func (am *AccountManager) loginInternal(platform, account string, headed bool, s
 		return res, fmt.Errorf("%s", res.Msg)
 	}
 
-	targetAcc := account
-	if res.Account != "" && res.Account != "auto" {
-		targetAcc = res.Account
-	}
-
-	// 辅助验证：若浏览器会话已明确报告登录成功，则信任该结果，check 仅作为锦上添花；
-	// 若会话本身未能确认登录状态，才以 check 结果作为最终仲裁。
+	// 毫秒级极速仲裁（杜绝关闭视窗后的二次全量阻塞 check 与假阳性）
 	if res.Success {
-		// 浏览器会话已确认成功（检测到 "login flow completed"），信任该结果
+		// 浏览器会长连接已明确完成登录并抽取了 UID/昵称与 storage_state
 		res.Msg = "登录成功且凭证已存盘"
-		// 异步尝试 check，但不覆盖成功状态
-		isValid, _ := am.CheckAccount(platform, targetAcc)
-		if isValid {
-			res.Msg = "登录成功且凭证有效"
-		}
-		// 即使 check 失败也不翻转 Success：凭证文件已存盘，后续上传时会再次验证
 	} else {
-		// 会话未能明确确认登录，以 check 命令结果作为最终判定
-		isValid, checkMsg := am.CheckAccount(platform, targetAcc)
-		if isValid {
-			res.Success = true
-			res.Msg = "登录成功且凭证有效"
+		// 会话中未检测到登录授权即被关闭
+		res.Success = false
+		if account == "auto" {
+			res.Msg = "未完成扫码登录，会话已结束"
 		} else {
-			res.Msg = fmt.Sprintf("凭证未就绪或未检测到有效登录 (%s)", checkMsg)
+			res.Msg = "会话已结束，凭证未更新"
 		}
 	}
 
