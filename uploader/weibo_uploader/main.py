@@ -52,6 +52,63 @@ def _build_login_result(success: bool, status: str, message: str, account_file: 
     }
 
 
+async def _human_delay(min_sec: float = 0.8, max_sec: float = 2.2) -> float:
+    """产生带有正态扰动的真实人类随机停留延迟，打破脚本固定间隔规律。"""
+    import random
+    delay = random.uniform(min_sec, max_sec)
+    await asyncio.sleep(delay)
+    return delay
+
+
+async def _native_click(page: Page, locator) -> bool:
+    """对元素做"真实人类级"点击：
+    1. 动态生成按钮区域内的随机偏心坐标 (避免固定落在 0.00 中心点)
+    2. 物理鼠标移动
+    3. 带有微幅随机时间差的物理点击与底层 Event 链
+    """
+    import random
+    try:
+        await locator.scroll_into_view_if_needed(timeout=5000)
+    except Exception:
+        pass
+    try:
+        box = await locator.bounding_box()
+    except Exception:
+        box = None
+    if not box:
+        try:
+            await locator.click(timeout=8000)
+            return True
+        except Exception:
+            return False
+
+    offset_x = (random.random() - 0.5) * (box["width"] * 0.5)
+    offset_y = (random.random() - 0.5) * (box["height"] * 0.5)
+    x = box["x"] + box["width"] / 2 + offset_x
+    y = box["y"] + box["height"] / 2 + offset_y
+
+    try:
+        await page.mouse.move(x, y)
+        await asyncio.sleep(random.uniform(0.1, 0.3))
+        await page.mouse.click(x, y)
+        await asyncio.sleep(random.uniform(0.15, 0.35))
+        await page.evaluate(
+            """({x, y}) => {
+                const el = document.elementFromPoint(x, y);
+                if (!el) return;
+                const opts = {bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:1};
+                for (const t of ['pointerover','pointerenter','pointerdown','mousedown','pointerup','mouseup','click']) {
+                    const C = t.startsWith('pointer') ? PointerEvent : MouseEvent;
+                    try { el.dispatchEvent(new C(t, opts)); } catch(e){ try{ el.dispatchEvent(new MouseEvent(t,opts)); }catch(_){} }
+                }
+            }""",
+            {"x": x, "y": y},
+        )
+        return True
+    except Exception:
+        return False
+
+
 async def _emit_qrcode_callback(qrcode_callback, payload: dict):
     if not qrcode_callback:
         return
