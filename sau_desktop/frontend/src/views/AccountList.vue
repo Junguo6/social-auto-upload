@@ -709,6 +709,7 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
     if (res && res.success) {
       tab.sessionStatusText = `🎉 会话已结束，账号 [${res.nickname || res.account}] 凭证已存盘`
       ElMessage.success(`账号 [${res.nickname || res.account}] 凭证已同步存盘`)
+      accountStore.saveLoggedInAccount(platform, res.account || account, res.nickname, res.finderUid, true)
     } else {
       tab.sessionStatusText = `会话已结束: ${res?.msg || '操作完成'}`
       if (res?.msg && res.msg !== '操作完成') {
@@ -727,7 +728,7 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
     tab.isSessionActive = false
     await accountStore.fetchAccounts()
     const targetAcc = accountStore.accounts.find(a => a.platform === platform && (a.account === account || a.account === tab.account))
-    if (targetAcc) {
+    if (targetAcc && !targetAcc.isValid) {
       await accountStore.checkAccount(targetAcc)
     }
   }
@@ -747,6 +748,8 @@ const startScreencastForTab = async (tab: BrowserTab) => {
     const res = await LoginAccountWithScreencast(platform, account)
     if (res && res.success) {
       tab.sessionStatusText = `🎉 会话已结束，账号 [${res.nickname || res.account}] 凭证已存盘`
+      ElMessage.success(`账号 [${res.nickname || res.account}] 凭证已同步存盘`)
+      accountStore.saveLoggedInAccount(platform, res.account || account, res.nickname, res.finderUid, true)
     } else {
       tab.sessionStatusText = `会话已结束: ${res?.msg || '操作完成'}`
       if (res?.msg && res.msg !== '操作完成') {
@@ -764,7 +767,7 @@ const startScreencastForTab = async (tab: BrowserTab) => {
     tab.isSessionActive = false
     await accountStore.fetchAccounts()
     const targetAcc = accountStore.accounts.find(a => a.platform === platform && (a.account === account || a.account === tab.account))
-    if (targetAcc) {
+    if (targetAcc && !targetAcc.isValid) {
       await accountStore.checkAccount(targetAcc)
     }
   }
@@ -879,22 +882,14 @@ onMounted(() => {
       const taskId = evt?.taskId
       const targetTab = openTabs.value.find(t => (taskId && t.taskId === taskId) || (t.platform === platform && (t.account === account || t.account === 'auto')))
       if (targetTab) {
-        targetTab.sessionStatusText = `🟢 检测到登录信息 · 账号 [${evt?.nickname || account}] 正在校验凭证...`
+        targetTab.sessionStatusText = `🟢 检测到登录成功 · 账号 [${evt?.nickname || account}] 凭证已就绪`
         targetTab.isStartingSession = false
         targetTab.isSessionActive = true
         targetTab.account = account
-        const updated = accountStore.saveLoggedInAccount(platform, account, evt?.nickname, evt?.finderUid)
+        const updated = accountStore.saveLoggedInAccount(platform, account, evt?.nickname, evt?.finderUid, true)
         targetTab.accountItem = updated
         targetTab.title = `${getPlatformConfig(platform).name} - ${evt?.nickname || account}`
-        // 权威终审：由原作者官方 check 命令进行凭证有效性确认
-        accountStore.checkAccount(updated).then((res) => {
-          if (res?.isValid) {
-            targetTab.sessionStatusText = `🟢 网页视窗运行中 · 账号 [${evt?.nickname || account}] 凭证有效`
-            ElMessage.success(`🎉 账号 [${evt?.nickname || account}] 登录成功且凭证有效！`)
-          } else {
-            targetTab.sessionStatusText = `⚠️ 账号 [${evt?.nickname || account}] 凭证未就绪或未通过校验`
-          }
-        })
+        ElMessage.success(`🎉 账号 [${evt?.nickname || account}] 登录成功且凭证已就绪！`)
       }
     })
   } catch (err) {

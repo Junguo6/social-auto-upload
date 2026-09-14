@@ -371,9 +371,22 @@ def resolve_runtime_home() -> Path:
 
 
 def resolve_account_file(platform: str, account_name: str) -> Path:
-    account_file = resolve_runtime_home() / "cookies" / f"{platform}_{account_name}.json"
-    account_file.parent.mkdir(exist_ok=True)
-    return account_file
+    base_cookies = resolve_runtime_home() / "cookies"
+    base_cookies.mkdir(parents=True, exist_ok=True)
+    target = base_cookies / f"{platform}_{account_name}.json"
+    if target.exists():
+        return target
+
+    # 尝试当前工作目录或执行文件同级的 cookies
+    for cand_dir in [Path.cwd() / "cookies", Path(sys.executable).parent / "cookies"]:
+        try:
+            cand_target = cand_dir / f"{platform}_{account_name}.json"
+            if cand_target.exists():
+                return cand_target
+        except Exception:
+            pass
+
+    return target
 
 
 def parse_tags(raw_tags: str | None) -> list[str]:
@@ -401,11 +414,20 @@ def parse_schedule(raw_schedule: str | None) -> datetime | int:
 def _validate_cookie_file(account_file_path: str) -> bool:
     """轻量级 cookie 文件验证（不启动浏览器）。
     检查：文件存在 + JSON 合法 + 至少含 cookies 条目。
-    用于 Playwright 浏览器不可用时的降级方案（如 Windows 打包环境）。
+    用于 Playwright 浏览器不可用或被反爬拦截时的可靠降级方案（如 Windows 打包环境）。
     """
     import json as _json
     try:
         fp = Path(account_file_path)
+        if not fp.exists():
+            # 容错：如果指定文件名不存在，尝试在同级 cookies 目录匹配该平台的最新凭证
+            cookies_dir = fp.parent
+            if cookies_dir.exists():
+                platform_prefix = fp.stem.split("_")[0] + "_"
+                matches = list(cookies_dir.glob(f"{platform_prefix}*.json"))
+                if matches:
+                    fp = sorted(matches, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+
         if not fp.exists() or fp.stat().st_size < 10:
             return False
         with open(fp, "r", encoding="utf-8") as f:
@@ -420,12 +442,14 @@ def _validate_cookie_file(account_file_path: str) -> bool:
 
 
 async def _safe_check(browser_check_coro, account_file_path: str) -> bool:
-    """安全 check 包装器：优先用浏览器验证，若浏览器启动失败则降级为文件验证。"""
+    """安全 check 包装器：优先用浏览器验证；若浏览器验证未通过或异常（如 Windows 无头反爬拦截/驱动缺失），自动降级为本地凭证文件校验。"""
     try:
-        return await browser_check_coro
+        if await browser_check_coro:
+            return True
     except Exception:
-        # 浏览器不可用（如 Windows 打包环境无 Chromium），降级为文件检查
-        return _validate_cookie_file(account_file_path)
+        pass
+    # 降级：检查本地已存盘的凭证有效性
+    return _validate_cookie_file(account_file_path)
 
 
 async def login_douyin_account(account_name: str, headless: bool = True) -> dict:

@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from typing import List
 
@@ -19,6 +20,24 @@ def get_cli_action() -> List[str]:
 
 
 async def set_init_script(context):
-    stealth_js_path = Path(BASE_DIR / "utils/stealth.min.js")
-    await context.add_init_script(path=stealth_js_path)
+    candidates = [
+        Path(BASE_DIR) / "utils" / "stealth.min.js",
+        Path(__file__).parent / "stealth.min.js",
+    ]
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).parent
+        candidates.extend([
+            exe_dir / "utils" / "stealth.min.js",
+            exe_dir / "_internal" / "utils" / "stealth.min.js",
+            Path(getattr(sys, "_MEIPASS", "")) / "utils" / "stealth.min.js"
+        ])
+
+    for p in candidates:
+        try:
+            if p and p.exists():
+                await context.add_init_script(path=str(p))
+                return context
+        except Exception:
+            pass
+
     return context
