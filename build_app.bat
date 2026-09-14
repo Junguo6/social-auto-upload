@@ -110,7 +110,7 @@ if exist "%DEV_PLAYWRIGHT%" rd /s /q "%DEV_PLAYWRIGHT%"
 mkdir "%DEV_PLAYWRIGHT%"
 if exist "%SRC_PLAYWRIGHT%" (
   echo 正在同步 Chromium 内核至应用资源库...
-  for /d %%d in ("%SRC_PLAYWRIGHT%\chromium-*" "%SRC_PLAYWRIGHT%\ffmpeg-*") do (
+  for /d %%d in ("%SRC_PLAYWRIGHT%\chromium-*" "%SRC_PLAYWRIGHT%\chromium_headless_shell-*" "%SRC_PLAYWRIGHT%\ffmpeg-*") do (
     echo   -^> 内嵌: %%~nxd
     xcopy /E /Y /I "%%d" "%DEV_PLAYWRIGHT%\%%~nxd\" >nul
   )

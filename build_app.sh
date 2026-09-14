@@ -68,7 +68,7 @@ DEST_PLAYWRIGHT="$PROJECT_ROOT/sau_desktop/bin/ms-playwright"
 rm -rf "$DEST_PLAYWRIGHT"
 mkdir -p "$DEST_PLAYWRIGHT"
 echo "📦 正在复制 Chromium 内核到应用内置资源目录: $DEST_PLAYWRIGHT..."
-for d in "$SRC_PLAYWRIGHT"/chromium-* "$SRC_PLAYWRIGHT"/ffmpeg-*; do
+for d in "$SRC_PLAYWRIGHT"/chromium-* "$SRC_PLAYWRIGHT"/chromium_headless_shell-* "$SRC_PLAYWRIGHT"/ffmpeg-*; do
   if [ -d "$d" ]; then
     echo "  -> 内嵌: $(basename "$d")"
     cp -R "$d" "$DEST_PLAYWRIGHT/"

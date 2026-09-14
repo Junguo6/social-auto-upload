@@ -1235,53 +1235,61 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
     try:
         async with async_playwright() as playwright:
             browser = None
+            from conf import LOCAL_CHROME_PATH
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ]
             if not headless:
-                # 🚀 方案 A：原生真机 Chrome / Edge 视窗 (直接弹出桌面独立窗口)
-                from conf import LOCAL_CHROME_PATH
-                launch_args = [
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--window-size=1280,820",
-                ]
+                launch_args.append("--window-size=1280,820")
 
-                # 构建启动策略备选链：Windows 优先系统自带 Edge，其次 Chrome，再次内置 Chromium
-                strategies = []
-                if sys.platform == "win32":
-                    strategies.append(("系统原生 Microsoft Edge", {"channel": "msedge", "headless": False, "args": launch_args}))
-                    strategies.append(("系统原生 Google Chrome", {"channel": "chrome", "headless": False, "args": launch_args}))
-                    strategies.append(("内置绿色 Chromium 内核", {"headless": False, "args": launch_args}))
-                elif sys.platform == "darwin":
-                    strategies.append(("系统 Google Chrome", {"channel": "chrome", "headless": False, "args": launch_args}))
-                    strategies.append(("系统 Microsoft Edge", {"channel": "msedge", "headless": False, "args": launch_args}))
-                    strategies.append(("内置绿色 Chromium 内核", {"headless": False, "args": launch_args}))
-                else:
-                    strategies.append(("内置绿色 Chromium 内核", {"headless": False, "args": launch_args}))
+            # 统一策略备选链：无论是原生真机窗口还是内嵌投屏视窗，均优先使用原生 Chrome/Edge 浏览器
+            # 彻底避免 headless 模式硬找缺失的 chromium_headless_shell.exe 崩溃
+            strategies = []
+            if LOCAL_CHROME_PATH and Path(LOCAL_CHROME_PATH).exists():
+                strategies.append((f"指定路径浏览器 ({LOCAL_CHROME_PATH})", {"executable_path": LOCAL_CHROME_PATH, "headless": headless, "args": launch_args}))
 
-                if LOCAL_CHROME_PATH and Path(LOCAL_CHROME_PATH).exists():
-                    strategies.insert(0, (f"指定路径浏览器 ({LOCAL_CHROME_PATH})", {"executable_path": LOCAL_CHROME_PATH, "headless": False, "args": launch_args}))
+            if sys.platform == "win32":
+                strategies.append(("系统原生 Microsoft Edge", {"channel": "msedge", "headless": headless, "args": launch_args}))
+                strategies.append(("系统原生 Google Chrome", {"channel": "chrome", "headless": headless, "args": launch_args}))
+            elif sys.platform == "darwin":
+                strategies.append(("系统 Google Chrome", {"channel": "chrome", "headless": headless, "args": launch_args}))
+                strategies.append(("系统 Microsoft Edge", {"channel": "msedge", "headless": headless, "args": launch_args}))
 
-                launch_errors = []
-                for name, opts in strategies:
-                    try:
-                        sys.stdout.write(f"[BROWSER_INIT] 正在尝试拉起: {name}...\n")
+            # 内置绿色 Chromium 兜底
+            strategies.append(("内置绿色 Chromium 内核", {"headless": headless, "args": launch_args}))
+
+            launch_errors = []
+            for name, opts in strategies:
+                try:
+                    sys.stdout.write(f"[BROWSER_INIT] 正在尝试拉起: {name} (headless={headless})...\n")
+                    sys.stdout.flush()
+                    browser = await playwright.chromium.launch(**opts)
+                    if browser:
+                        sys.stdout.write(f"[BROWSER_INIT] ✅ 成功拉起: {name}\n")
                         sys.stdout.flush()
-                        browser = await playwright.chromium.launch(**opts)
-                        if browser:
-                            sys.stdout.write(f"[BROWSER_INIT] ✅ 成功拉起: {name}\n")
-                            sys.stdout.flush()
-                            break
-                    except Exception as e:
-                        err_msg = f"{name} 启动失败: {e}"
-                        launch_errors.append(err_msg)
-                        sys.stderr.write(f"{err_msg}\n")
-                        sys.stderr.flush()
+                        break
+                except Exception as e:
+                    err_msg = f"{name} 启动失败: {e}"
+                    launch_errors.append(err_msg)
+                    sys.stderr.write(f"{err_msg}\n")
+                    sys.stderr.flush()
 
-                if not browser:
-                    raise RuntimeError("所有浏览器启动尝试均失败:\n" + "\n".join(launch_errors))
+            if not browser:
+                raise RuntimeError("所有浏览器启动尝试均失败:\n" + "\n".join(launch_errors))
 
-                context = await browser.new_context(viewport={"width": 1280, "height": 820})
-                if account_file.exists():
+            viewport_config = {"width": 1280, "height": 820} if not headless else {"width": 1440, "height": 900}
+            context_kwargs = {
+                "viewport": viewport_config
+            }
+
+            if account_file.exists():
+                try:
+                    context = await browser.new_context(storage_state=str(account_file), **context_kwargs)
+                except Exception:
+                    context = await browser.new_context(**context_kwargs)
                     try:
                         with open(account_file, "r", encoding="utf-8") as f:
                             state_data = json.load(f)
@@ -1290,49 +1298,23 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                             await context.add_cookies(cookies)
                     except Exception:
                         pass
-
-                try:
-                    from uploader.douyin_uploader.main import set_init_script
-                    context = await set_init_script(context)
-                except Exception:
-                    pass
-
-                page = await context.new_page()
-                sys.stdout.write(f"[APP_INFO] Native browser window launched for {platform}: {creator_url}\n")
-                sys.stdout.flush()
-                try:
-                    await page.goto(creator_url, wait_until="domcontentloaded")
-                except Exception as e:
-                    sys.stderr.write(f"Warning navigating to {creator_url}: {e}\n")
             else:
-                browser = await playwright.chromium.launch(
-                    headless=True,
-                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
-                )
-                context_kwargs = {
-                    "viewport": {"width": 1440, "height": 900}
-                }
-                if account_file.exists():
-                    try:
-                        context = await browser.new_context(storage_state=str(account_file), **context_kwargs)
-                    except Exception:
-                        context = await browser.new_context(**context_kwargs)
-                else:
-                    context = await browser.new_context(**context_kwargs)
+                context = await browser.new_context(**context_kwargs)
 
-                try:
-                    from uploader.douyin_uploader.main import set_init_script
-                    context = await set_init_script(context)
-                except Exception:
-                    pass
+            try:
+                from uploader.douyin_uploader.main import set_init_script
+                context = await set_init_script(context)
+            except Exception:
+                pass
 
-                page = await context.new_page()
-                sys.stdout.write(f"[CDP_INFO] Opening creator studio URL for {platform}: {creator_url}\n")
-                sys.stdout.flush()
-                try:
-                    await page.goto(creator_url, wait_until="domcontentloaded")
-                except Exception as e:
-                    sys.stderr.write(f"Warning navigating to {creator_url}: {e}\n")
+            page = await context.new_page()
+            log_tag = "[APP_INFO] Native browser window launched" if not headless else "[CDP_INFO] Opening creator studio URL"
+            sys.stdout.write(f"{log_tag} for {platform}: {creator_url}\n")
+            sys.stdout.flush()
+            try:
+                await page.goto(creator_url, wait_until="domcontentloaded")
+            except Exception as e:
+                sys.stderr.write(f"Warning navigating to {creator_url}: {e}\n")
 
             login_notified = False
             try:
