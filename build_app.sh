@@ -51,7 +51,7 @@ rm -rf "$PROJECT_ROOT/sau_desktop/bin/sau_engine"
 mkdir -p "$PROJECT_ROOT/sau_desktop/bin/sau_engine"
 cp -r "$PROJECT_ROOT/dist/sau_engine/"* "$PROJECT_ROOT/sau_desktop/bin/sau_engine/"
 
-# 探测并内嵌 Playwright Chromium 内核 (实现真正的本地离线免安装、开箱即用)
+# 探测并智能内嵌 Chromium 内核 (实现真正的本地离线免安装、开箱即用，并剔除历史版本瘦身)
 SRC_PLAYWRIGHT=""
 if [ "$(uname)" = "Darwin" ]; then
   SRC_PLAYWRIGHT="$HOME/Library/Caches/ms-playwright"
@@ -65,15 +65,17 @@ if [ ! -d "$SRC_PLAYWRIGHT" ] || ! ls "$SRC_PLAYWRIGHT"/chromium-* >/dev/null 2>
 fi
 
 DEST_PLAYWRIGHT="$PROJECT_ROOT/sau_desktop/bin/ms-playwright"
-rm -rf "$DEST_PLAYWRIGHT"
-mkdir -p "$DEST_PLAYWRIGHT"
-echo "📦 正在复制 Chromium 内核到应用内置资源目录: $DEST_PLAYWRIGHT..."
-for d in "$SRC_PLAYWRIGHT"/chromium-* "$SRC_PLAYWRIGHT"/chromium_headless_shell-* "$SRC_PLAYWRIGHT"/ffmpeg-*; do
-  if [ -d "$d" ]; then
-    echo "  -> 内嵌: $(basename "$d")"
-    cp -R "$d" "$DEST_PLAYWRIGHT/"
-  fi
-done
+"$PYTHON_BIN" "$PROJECT_ROOT/utils/sync_browser_kernel.py" "$DEST_PLAYWRIGHT" "$SRC_PLAYWRIGHT"
+if [ $? -ne 0 ]; then
+  echo "⚠️ 智能瘦身同步未完全成功，尝试备用复制..."
+  rm -rf "$DEST_PLAYWRIGHT"
+  mkdir -p "$DEST_PLAYWRIGHT"
+  for d in "$SRC_PLAYWRIGHT"/chromium-* "$SRC_PLAYWRIGHT"/chromium_headless_shell-* "$SRC_PLAYWRIGHT"/ffmpeg-*; do
+    if [ -d "$d" ]; then
+      cp -R "$d" "$DEST_PLAYWRIGHT/"
+    fi
+  done
+fi
 
 # 5. 执行 Wails 桌面端编译
 echo ""

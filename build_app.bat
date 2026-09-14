@@ -92,27 +92,24 @@ if exist "%PROJECT_ROOT%sau_desktop\bin\sau_engine" rd /s /q "%PROJECT_ROOT%sau_
 mkdir "%PROJECT_ROOT%sau_desktop\bin\sau_engine"
 xcopy /E /Y /I "%PROJECT_ROOT%dist\sau_engine\*" "%PROJECT_ROOT%sau_desktop\bin\sau_engine\" >nul
 
-:: 5. 确保并内嵌 Chromium 浏览器内核 (开箱即用绿色版)
+:: 5. 确保并智能内嵌当前所需单一版本 Chromium 内核 (开箱即用绿色版，自动剔除历史多余版本瘦身)
 echo.
-echo ▶ [Step 3/4] 检查并内嵌自动化 Chromium 浏览器内核...
+echo ▶ [Step 3/4] 检查并智能内嵌 Chromium 浏览器内核 (精准瘦身模式)...
 "%PYTHON_EXE%" -m patchright install chromium
 if %ERRORLEVEL% NEQ 0 (
   "%PYTHON_EXE%" -m playwright install chromium
 )
 
-set "SRC_PLAYWRIGHT=%LOCALAPPDATA%\ms-playwright"
-if not exist "%SRC_PLAYWRIGHT%" (
-  set "SRC_PLAYWRIGHT=%USERPROFILE%\AppData\Local\ms-playwright"
-)
-
 set "DEV_PLAYWRIGHT=%PROJECT_ROOT%sau_desktop\bin\ms-playwright"
-if exist "%DEV_PLAYWRIGHT%" rd /s /q "%DEV_PLAYWRIGHT%"
-mkdir "%DEV_PLAYWRIGHT%"
-if exist "%SRC_PLAYWRIGHT%" (
-  echo 正在同步 Chromium 内核至应用资源库...
-  for /d %%d in ("%SRC_PLAYWRIGHT%\chromium-*" "%SRC_PLAYWRIGHT%\chromium_headless_shell-*" "%SRC_PLAYWRIGHT%\ffmpeg-*") do (
-    echo   -^> 内嵌: %%~nxd
-    xcopy /E /Y /I "%%d" "%DEV_PLAYWRIGHT%\%%~nxd\" >nul
+"%PYTHON_EXE%" "%PROJECT_ROOT%utils\sync_browser_kernel.py" "%DEV_PLAYWRIGHT%"
+if %ERRORLEVEL% NEQ 0 (
+  echo ⚠️ 内核自动瘦身同步失败，正在以备用模式尝试复制...
+  set "SRC_PLAYWRIGHT=%LOCALAPPDATA%\ms-playwright"
+  if not exist "%SRC_PLAYWRIGHT%" set "SRC_PLAYWRIGHT=%USERPROFILE%\AppData\Local\ms-playwright"
+  if exist "%SRC_PLAYWRIGHT%" (
+    for /d %%d in ("%SRC_PLAYWRIGHT%\chromium-*" "%SRC_PLAYWRIGHT%\chromium_headless_shell-*" "%SRC_PLAYWRIGHT%\ffmpeg-*") do (
+      xcopy /E /Y /I "%%d" "%DEV_PLAYWRIGHT%\%%~nxd\" >nul
+    )
   )
 )
 
