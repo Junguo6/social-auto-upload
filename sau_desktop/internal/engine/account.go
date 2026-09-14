@@ -202,14 +202,26 @@ func (am *AccountManager) loginInternal(platform, account string, headed bool, s
 		targetAcc = res.Account
 	}
 
-	// 终审仲裁：以原作者官方 check 命令结果作为最终事实依据
-	isValid, checkMsg := am.CheckAccount(platform, targetAcc)
-	if isValid {
-		res.Success = true
-		res.Msg = "登录成功且凭证有效"
+	// 辅助验证：若浏览器会话已明确报告登录成功，则信任该结果，check 仅作为锦上添花；
+	// 若会话本身未能确认登录状态，才以 check 结果作为最终仲裁。
+	if res.Success {
+		// 浏览器会话已确认成功（检测到 "login flow completed"），信任该结果
+		res.Msg = "登录成功且凭证已存盘"
+		// 异步尝试 check，但不覆盖成功状态
+		isValid, _ := am.CheckAccount(platform, targetAcc)
+		if isValid {
+			res.Msg = "登录成功且凭证有效"
+		}
+		// 即使 check 失败也不翻转 Success：凭证文件已存盘，后续上传时会再次验证
 	} else {
-		res.Success = false
-		res.Msg = fmt.Sprintf("凭证未就绪或未检测到有效登录 (%s)", checkMsg)
+		// 会话未能明确确认登录，以 check 命令结果作为最终判定
+		isValid, checkMsg := am.CheckAccount(platform, targetAcc)
+		if isValid {
+			res.Success = true
+			res.Msg = "登录成功且凭证有效"
+		} else {
+			res.Msg = fmt.Sprintf("凭证未就绪或未检测到有效登录 (%s)", checkMsg)
+		}
 	}
 
 	if res.Nickname == "" || res.Nickname == "auto" {

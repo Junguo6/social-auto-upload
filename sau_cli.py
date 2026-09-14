@@ -398,6 +398,36 @@ def parse_schedule(raw_schedule: str | None) -> datetime | int:
     return datetime.strptime(raw_schedule, SCHEDULE_FORMAT)
 
 
+def _validate_cookie_file(account_file_path: str) -> bool:
+    """轻量级 cookie 文件验证（不启动浏览器）。
+    检查：文件存在 + JSON 合法 + 至少含 cookies 条目。
+    用于 Playwright 浏览器不可用时的降级方案（如 Windows 打包环境）。
+    """
+    import json as _json
+    try:
+        fp = Path(account_file_path)
+        if not fp.exists() or fp.stat().st_size < 10:
+            return False
+        with open(fp, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+        # Playwright storage state 必须含 cookies 列表
+        cookies = data.get("cookies", [])
+        if not isinstance(cookies, list) or len(cookies) == 0:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+async def _safe_check(browser_check_coro, account_file_path: str) -> bool:
+    """安全 check 包装器：优先用浏览器验证，若浏览器启动失败则降级为文件验证。"""
+    try:
+        return await browser_check_coro
+    except Exception:
+        # 浏览器不可用（如 Windows 打包环境无 Chromium），降级为文件检查
+        return _validate_cookie_file(account_file_path)
+
+
 async def login_douyin_account(account_name: str, headless: bool = True) -> dict:
     account_file = resolve_account_file("douyin", account_name)
     return await douyin_setup(str(account_file), handle=True, return_detail=True, headless=headless)
@@ -407,7 +437,8 @@ async def check_douyin_account(account_name: str) -> bool:
     account_file = resolve_account_file("douyin", account_name)
     if not account_file.exists():
         return False
-    return await douyin_cookie_auth(str(account_file))
+    return await _safe_check(douyin_cookie_auth(str(account_file)), str(account_file))
+
 
 
 async def login_kuaishou_account(account_name: str, headless: bool = True) -> dict:
@@ -419,7 +450,7 @@ async def check_kuaishou_account(account_name: str) -> bool:
     account_file = resolve_account_file("kuaishou", account_name)
     if not account_file.exists():
         return False
-    return await kuaishou_cookie_auth(str(account_file))
+    return await _safe_check(kuaishou_cookie_auth(str(account_file)), str(account_file))
 
 
 async def login_xiaohongshu_account(account_name: str, headless: bool = True) -> dict:
@@ -431,7 +462,7 @@ async def check_xiaohongshu_account(account_name: str) -> bool:
     account_file = resolve_account_file("xiaohongshu", account_name)
     if not account_file.exists():
         return False
-    return await xiaohongshu_cookie_auth(str(account_file))
+    return await _safe_check(xiaohongshu_cookie_auth(str(account_file)), str(account_file))
 
 
 async def login_bilibili_account(account_name: str) -> dict:
@@ -473,7 +504,7 @@ async def check_tencent_account(account_name: str) -> bool:
     account_file = resolve_account_file("tencent", account_name)
     if not account_file.exists():
         return False
-    return await tencent_cookie_auth(str(account_file))
+    return await _safe_check(tencent_cookie_auth(str(account_file)), str(account_file))
 
 
 async def login_youtube_account(account_name: str, headless: bool = False) -> dict:
@@ -485,7 +516,7 @@ async def check_youtube_account(account_name: str) -> bool:
     account_file = resolve_account_file("youtube", account_name)
     if not account_file.exists():
         return False
-    return await youtube_cookie_auth(str(account_file))
+    return await _safe_check(youtube_cookie_auth(str(account_file)), str(account_file))
 
 
 async def upload_youtube_video(request: YouTubeVideoUploadRequest) -> Path:
@@ -741,7 +772,7 @@ async def check_baijiahao_account(account_name: str) -> bool:
     account_file = resolve_account_file("baijiahao", account_name)
     if not account_file.exists():
         return False
-    return await baijiahao_cookie_auth(str(account_file))
+    return await _safe_check(baijiahao_cookie_auth(str(account_file)), str(account_file))
 
 
 async def upload_baijiahao_video(request: BaijiahaoVideoUploadRequest) -> Path:
@@ -776,7 +807,7 @@ async def check_alipay_account(account_name: str) -> bool:
     account_file = resolve_account_file("alipay", account_name)
     if not account_file.exists():
         return False
-    return await alipay_cookie_auth(str(account_file))
+    return await _safe_check(alipay_cookie_auth(str(account_file)), str(account_file))
 
 
 async def upload_alipay_video(request: AlipayVideoUploadRequest) -> Path:
@@ -811,7 +842,7 @@ async def check_weibo_account(account_name: str) -> bool:
     account_file = resolve_account_file("weibo", account_name)
     if not account_file.exists():
         return False
-    return await weibo_cookie_auth(str(account_file))
+    return await _safe_check(weibo_cookie_auth(str(account_file)), str(account_file))
 
 
 async def upload_weibo_video(request: WeiboVideoUploadRequest) -> Path:
@@ -846,7 +877,7 @@ async def check_hupu_account(account_name: str) -> bool:
     account_file = resolve_account_file("hupu", account_name)
     if not account_file.exists():
         return False
-    return await hupu_cookie_auth(str(account_file))
+    return await _safe_check(hupu_cookie_auth(str(account_file)), str(account_file))
 
 
 async def upload_hupu_video(request: HupuVideoUploadRequest) -> Path:

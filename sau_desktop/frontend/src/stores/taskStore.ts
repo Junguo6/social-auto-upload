@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { ElMessage, ElNotification } from 'element-plus'
+import { ElMessage, ElNotification, ElMessageBox } from 'element-plus'
 import { PipelinePublishMedia, StopActivePublish, StopSingleTask, StopTaskById, ResumeAccount, GetAccountRiskStatus, GetRiskOverview } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import { engine } from '../../wailsjs/go/models'
 import { useSettingsStore } from './settingsStore'
+import { useAuthStore } from './authStore'
 import type { PublishTask, TaskBatch, TaskStatus, TaskLogItem, TaskLane, RiskState } from '../types/task'
 
 const STORAGE_KEY = 'sau_task_workflow_v8'
@@ -534,7 +535,15 @@ export const useTaskStore = defineStore('task', () => {
     const activeLanesWithTasks = lanes.value.filter(l => l.tasks.some(t => t.status === 'queued' || t.status === 'running'))
     if (activeLanesWithTasks.length === 0) return
 
+    // 前置鉴权检查：未激活直接拦截并引导
+    const authStore = useAuthStore()
+    if (!authStore.isAuthorized) {
+      authStore.ensurePublishAuth('任务并发调度')
+      return
+    }
+
     isExecuting.value = true
+    let hasExecutionError = false
 
     // 设置泳道运行状态 (每个通道只让第 1 个待发任务就绪)
     lanes.value.forEach(l => {
@@ -608,12 +617,35 @@ export const useTaskStore = defineStore('task', () => {
 
       refreshAllLanesStatus()
     } catch (err: any) {
+      hasExecutionError = true
+      const errMsg = err?.message || String(err)
+      console.error('泳道任务流水线执行异常:', errMsg)
+
+      const isAuthErr = errMsg.includes('激活') || errMsg.includes('授权') || errMsg.includes('到期') || errMsg.includes('卡密')
+
+      if (isAuthErr) {
+        ElMessageBox.alert(
+          `发布调度已被拦截：${errMsg}\n\n请在软件激活窗口输入卡密完成授权。`,
+          '需要激活软件授权',
+          {
+            confirmButtonText: '前往激活',
+            type: 'warning',
+            callback: () => {
+              authStore.openAuthModal()
+            }
+          }
+        )
+      } else {
+        ElMessage.error(`任务执行异常: ${errMsg}`)
+      }
+
+      // 将涉及到的未完成任务标记为失败并填充清晰错误原因，彻底避免任务一直卡在“排队中”
       lanes.value.forEach(l => {
         l.status = 'failed'
         l.tasks.forEach(t => {
-          if (t.status === 'running') {
+          if (t.status === 'running' || t.status === 'queued') {
             t.status = 'failed'
-            t.errorMsg = err.message || String(err)
+            t.errorMsg = errMsg
             t.completedAt = new Date().toLocaleTimeString()
             t.completedAtTimestamp = Date.now()
           }
@@ -624,12 +656,14 @@ export const useTaskStore = defineStore('task', () => {
       refreshAllLanesStatus()
       saveTasksToStorage()
 
-      // 自驱动队列保护：如果在执行过程中有新任务追加排队，300ms 后自动拉起下一轮调度执行！
-      const hasRemainingQueued = lanes.value.some(l => l.tasks.some(t => t.status === 'queued'))
-      if (hasRemainingQueued) {
-        setTimeout(() => {
-          triggerMultiLaneExecution()
-        }, 300)
+      // 自驱动队列保护：仅当本轮执行未发生致命异常时，如果有新任务追加排队才自动拉起下一轮！
+      if (!hasExecutionError) {
+        const hasRemainingQueued = lanes.value.some(l => l.tasks.some(t => t.status === 'queued'))
+        if (hasRemainingQueued) {
+          setTimeout(() => {
+            triggerMultiLaneExecution()
+          }, 300)
+        }
       }
     }
   }

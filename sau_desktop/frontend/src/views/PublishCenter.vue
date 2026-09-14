@@ -128,6 +128,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '../stores/accountStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useAuthStore } from '../stores/authStore'
 import { useMatrixPresets } from '../composables/useMatrixPresets'
 import { useMatrixPublish } from '../composables/useMatrixPublish'
 import type {
@@ -150,6 +151,7 @@ import SyncConfigModal from '../components/matrix/SyncConfigModal.vue'
 const router = useRouter()
 const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
+const authStore = useAuthStore()
 const { savedTemplates, saveAsTemplate, loadTemplate } = useMatrixPresets()
 const { createCrossMatrixPublishBatch } = useMatrixPublish()
 
@@ -356,6 +358,12 @@ const handleStartPublish = async () => {
   }
   if (activeAccounts.value.length === 0) {
     ElMessage.warning('请先在步骤 ② 勾选目标矩阵账号')
+    return
+  }
+
+  // 前置鉴权校验，未激活友好拦截
+  const authorized = await authStore.ensurePublishAuth('视频矩阵发布')
+  if (!authorized) {
     return
   }
 

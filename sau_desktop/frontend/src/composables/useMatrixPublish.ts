@@ -1,6 +1,7 @@
 import { ElMessage, ElNotification } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { useTaskStore } from '../stores/taskStore'
+import { useAuthStore } from '../stores/authStore'
 import { engine } from '../../wailsjs/go/models'
 import type { MasterForm, PlatformOverrideSetting, SelectedTargetAccount, BatchRuleConfig, MediaItem } from '../types/matrix'
 import { resolveMediaTitle } from '../utils/matrixHelper'
@@ -8,6 +9,7 @@ import { resolveMediaTitle } from '../utils/matrixHelper'
 export function useMatrixPublish() {
   const router = useRouter()
   const taskStore = useTaskStore()
+  const authStore = useAuthStore()
 
   /**
    * 创建并入队矩阵发布任务批次 (精准三级级联参数解析: 账号定制 -> 平台定制 -> 全局主模板)
@@ -20,6 +22,11 @@ export function useMatrixPublish() {
     concurrency: number
     isHeadless: boolean
   }) => {
+    if (!authStore.isAuthorized) {
+      authStore.ensurePublishAuth('矩阵批量发布')
+      return null
+    }
+
     const { selectedTargets, masterForm, platformOverrides, accountOverrides, concurrency, isHeadless } = params
 
     if (selectedTargets.length === 0) {
@@ -160,6 +167,11 @@ export function useMatrixPublish() {
     concurrency: number
     isHeadless: boolean
   }) => {
+    if (!authStore.isAuthorized) {
+      authStore.ensurePublishAuth('多视频矩阵发布')
+      return null
+    }
+
     const { mediaList, selectedAccounts, matrixMap, masterForm, ruleConfig, concurrency, isHeadless } = params
 
     if (mediaList.length === 0) {

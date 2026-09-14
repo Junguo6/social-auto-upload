@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import { GetAuthOverview, ApplyActiveCode, GetDeviceID } from '../../wailsjs/go/main/App'
 import { auth } from '../../wailsjs/go/models'
 
@@ -24,6 +25,40 @@ export const useAuthStore = defineStore('auth', () => {
 
   const loading = ref(false)
   const authModalVisible = ref(false)
+
+  // 授权状态判定 (激活且未到期)
+  const isAuthorized = computed(() => {
+    return (
+      overview.value.is_activated ||
+      overview.value.m100_activated ||
+      overview.value.m122_activated ||
+      (overview.value.days_remaining !== undefined && overview.value.days_remaining > 0)
+    )
+  })
+
+  // 检查发布授权，若未激活则友好弹窗引导
+  const ensurePublishAuth = async (actionDesc = '发布功能'): Promise<boolean> => {
+    if (isAuthorized.value) {
+      return true
+    }
+    try {
+      await ElMessageBox.confirm(
+        `${actionDesc}需要开通软件授权，当前设备尚未激活或授权已到期。\n\n是否立即前往激活？`,
+        '软件未激活',
+        {
+          confirmButtonText: '立即激活',
+          cancelButtonText: '暂不激活',
+          type: 'warning',
+          center: true,
+          roundButton: true
+        }
+      )
+      openAuthModal()
+    } catch {
+      // 用户取消
+    }
+    return false
+  }
 
   // 刷新云端鉴权状态
   const refreshAuth = async () => {
@@ -75,8 +110,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     overview,
+    isAuthorized,
     loading,
     authModalVisible,
+    ensurePublishAuth,
     refreshAuth,
     activate,
     openAuthModal,
