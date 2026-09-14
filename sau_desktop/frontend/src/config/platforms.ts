@@ -69,7 +69,10 @@ export const PLATFORMS: PlatformConfig[] = [
     supportsNote: false,
     icon: 'VideoPlay',
     placeholder: 'B站高清视频投稿 (需指定分区分类)'
-  },
+  }
+  // 暂时注释以下平台，仅保留：抖音、小红书、快手、微信视频号、哔哩哔哩
+  /*
+  ,
   {
     id: 'youtube',
     name: 'YouTube',
@@ -125,6 +128,7 @@ export const PLATFORMS: PlatformConfig[] = [
     icon: 'Trophy',
     placeholder: '虎扑社区视频发布'
   }
+  */
 ]
 
 // B站常用分区字典

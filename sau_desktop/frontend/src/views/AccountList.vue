@@ -232,7 +232,7 @@
               type="warning" 
               class="relogin-toolbar-btn"
               :loading="currentActiveTab.isStartingSession"
-              @click="startScreencastForTab(currentActiveTab)"
+              @click="startAppWindowForTab(currentActiveTab)"
             >
               <el-icon><RefreshRight /></el-icon>
               <span>{{ currentActiveTab.isSessionActive ? '重新载入' : '启动视窗' }}</span>
@@ -249,6 +249,7 @@
               <span>结束本次会话</span>
             </el-button>
 
+            <!-- 暂时注释：内嵌投屏模式反向交互切换按钮 (原生独立视窗直接支持原生输入与鼠标)
             <el-tooltip :content="isInteractive ? '已开启双向鼠标反向操作' : '已禁用鼠标反向操作'" placement="top">
               <el-button 
                 size="small" 
@@ -260,6 +261,7 @@
                 <span>{{ isInteractive ? '交互开' : '只读' }}</span>
               </el-button>
             </el-tooltip>
+            -->
 
             <el-button 
               size="small" 
@@ -281,10 +283,10 @@
           v-show="activeTabId === tab.id"
           class="tab-viewport-container"
         >
-          <!-- A. 处于会话中 -->
+          <!-- A. 处于会话中 (统一采用原生超清 Chrome App 视窗模式 · 0 延迟) -->
           <template v-if="tab.isSessionActive">
-            <!-- A1. 原生 Chrome App 沉浸式真机视窗模式 (4K Retina · 0 延迟) -->
-            <div v-if="tab.sessionMode === 'app'" class="browser-appmode-hub">
+            <!-- 原生 Chrome App 沉浸式真机视窗模式 (4K Retina · 0 延迟) -->
+            <div class="browser-appmode-hub">
               <div class="appmode-card">
                 <div class="appmode-header">
                   <div class="appmode-badge-live">
@@ -332,22 +334,25 @@
                   </el-button>
                 </div>
 
+                <!-- 暂时注释：内嵌投屏模式切换按钮
                 <div class="appmode-switch-mode">
                   <el-button link type="info" size="small" @click="switchToScreencastMode(tab)">
                     <el-icon><VideoPlay /></el-icon>
                     <span>需要在此界面直接呈现投屏？点击切换为「应用内投屏模式」</span>
                   </el-button>
                 </div>
+                -->
               </div>
             </div>
 
-            <!-- A2. 轻量无头 Canvas 投屏流模式 -->
+            <!-- 暂时注释：A2. 轻量无头 Canvas 投屏流模式
             <div v-else class="live-canvas-fill">
               <LiveBrowserCanvas 
                 :taskId="tab.taskId"
                 :title="`${tab.title} - 实时无头浏览器视窗`"
               />
             </div>
+            -->
           </template>
 
           <!-- B. 待机状态：账号创作者中心就绪面板 -->
@@ -374,10 +379,10 @@
               </div>
 
               <p class="standby-intro-desc" v-if="tab.accountItem.isValid">
-                本账号登录状态健康，点击下方按钮即可直接在当前右侧视窗内嵌打开创作者服务平台，享受高清视网膜字效与精准交互。
+                本账号登录状态健康，点击下方按钮即可直接在独立原生视窗打开创作者服务平台，享受原生极清字效与顺畅交互。
               </p>
               <p class="standby-intro-desc warning-text" v-else>
-                当前账号凭证已失效，点击下方按钮将在当前右侧视窗内嵌呈现扫码页面，手机微信/抖音扫码即可无缝完成绑定更新。
+                当前账号凭证已失效，点击下方按钮将拉起原生视窗呈现扫码页面，手机微信/抖音扫码即可无缝完成绑定更新。
               </p>
 
               <div class="standby-action-launch">
@@ -386,29 +391,31 @@
                   class="launch-stream-large-btn" 
                   size="large"
                   :loading="tab.isStartingSession"
-                  @click="startScreencastForTab(tab)"
+                  @click="startAppWindowForTab(tab)"
                 >
-                  <el-icon><VideoPlay /></el-icon>
-                  <span>{{ tab.accountItem.isValid ? '🚀 启动内嵌网页视窗' : '🚀 立即拉起内嵌扫码' }}</span>
+                  <el-icon><Monitor /></el-icon>
+                  <span>{{ tab.accountItem.isValid ? '🚀 启动原生浏览器视窗' : '🚀 立即拉起原生视窗扫码' }}</span>
                 </el-button>
 
+                <!-- 暂时注释内嵌投屏模式
                 <el-button 
                   type="info" 
                   plain 
                   size="default" 
                   class="launch-screencast-sub-btn"
                   :loading="tab.isStartingSession"
-                  @click="startAppWindowForTab(tab)"
+                  @click="startScreencastForTab(tab)"
                 >
-                  <el-icon><Monitor /></el-icon>
-                  <span>在独立纯净视窗中打开 (可选)</span>
+                  <el-icon><VideoPlay /></el-icon>
+                  <span>在应用内嵌投屏中打开 (可选)</span>
                 </el-button>
+                -->
               </div>
 
               <div class="standby-feature-tags">
-                <span>🖼️ 纯正应用内嵌体验</span>
-                <span>💎 85% 高保真抗锯齿</span>
-                <span>🖱️ 原子级精准点击与拖拽</span>
+                <span>🚀 原生 Chrome / Edge 视窗</span>
+                <span>💎 100% 原始视网膜画质</span>
+                <span>🖱️ 零延迟原生输入与交互</span>
                 <span>🔒 本地加密持久化</span>
               </div>
             </div>
@@ -421,7 +428,7 @@
                 <el-icon class="newtab-logo"><Compass /></el-icon>
               </div>
               <h2 class="newtab-heading">接入新自媒体平台账号</h2>
-              <p class="newtab-sub">选择您要接入的目标媒体平台，系统将自动拉起内嵌无头浏览器并在当前视窗实时呈现扫码页面：</p>
+              <p class="newtab-sub">选择您要接入的目标媒体平台，系统将自动拉起原生浏览器视窗并呈现扫码页面：</p>
 
               <!-- 平台选择卡片网格 -->
               <div class="newtab-platforms-grid">
@@ -460,8 +467,8 @@
                     :loading="tab.isStartingSession"
                     @click="startNewTabLoginForTab(tab)"
                   >
-                    <el-icon><VideoPlay /></el-icon>
-                    <span>立即拉起内嵌浏览器并扫码</span>
+                    <el-icon><Monitor /></el-icon>
+                    <span>🚀 立即拉起原生浏览器视窗并扫码</span>
                   </el-button>
                 </div>
               </div>
@@ -533,7 +540,7 @@ import { PLATFORMS, getPlatformConfig } from '../config/platforms'
 import { useAccountStore, AccountItem } from '../stores/accountStore'
 import { LoginAccountWithAppWindow, LoginAccountWithScreencast, StopTaskById } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
-import LiveBrowserCanvas from '../components/matrix/LiveBrowserCanvas.vue'
+// import LiveBrowserCanvas from '../components/matrix/LiveBrowserCanvas.vue'
 
 const accountStore = useAccountStore()
 
@@ -734,7 +741,8 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
   }
 }
 
-// 为指定标签页拉起无头投屏/扫码登录会话
+// 暂时注释内嵌投屏方法，统一使用原生独立视窗模式
+/*
 const startScreencastForTab = async (tab: BrowserTab) => {
   const platform = tab.platform
   const account = tab.account || 'auto'
@@ -773,11 +781,11 @@ const startScreencastForTab = async (tab: BrowserTab) => {
   }
 }
 
-// 在会话运行中动态切换为应用内投屏
 const switchToScreencastMode = async (tab: BrowserTab) => {
   await stopSessionForTab(tab)
   startScreencastForTab(tab)
 }
+*/
 
 // 在会话运行中动态切换为原生超清 App 视窗
 const switchToAppWindowMode = async (tab: BrowserTab) => {
@@ -805,11 +813,7 @@ const stopSessionForTab = async (tab: BrowserTab) => {
 
 const handleReloadPage = () => {
   if (currentActiveTab.value && currentActiveTab.value.type === 'account') {
-    if (currentActiveTab.value.sessionMode === 'screencast') {
-      startScreencastForTab(currentActiveTab.value)
-    } else {
-      startAppWindowForTab(currentActiveTab.value)
-    }
+    startAppWindowForTab(currentActiveTab.value)
   }
 }
 
