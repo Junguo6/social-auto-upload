@@ -297,7 +297,7 @@
                 </div>
 
                 <div class="appmode-avatar-box" :style="{ background: getPlatformStyle(tab.platform).gradient }">
-                  <span class="avatar-char">{{ getAccountAvatarText(tab.accountItem) }}</span>
+                  <span class="avatar-char">{{ getAccountAvatarText(tab.accountItem, tab.account || getPlatformConfig(tab.platform).name) }}</span>
                   <span class="avatar-badge">
                     <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
                   </span>
@@ -621,8 +621,14 @@ const getPlatformCreatorUrl = (platform: string) => {
   }
 }
 
-const getAccountAvatarText = (acc: AccountItem) => {
-  const name = acc.nickname || acc.account || 'U'
+const getAccountAvatarText = (acc?: AccountItem | null, fallbackName: string = '新') => {
+  if (!acc) {
+    if (fallbackName && fallbackName.trim()) {
+      return fallbackName.trim().slice(0, 1).toUpperCase()
+    }
+    return '新'
+  }
+  const name = acc.nickname || acc.account || fallbackName || 'U'
   return name.trim().slice(0, 1).toUpperCase()
 }
 
@@ -735,8 +741,14 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
     tab.isSessionActive = false
     await accountStore.fetchAccounts()
     const targetAcc = accountStore.accounts.find(a => a.platform === platform && (a.account === account || a.account === tab.account))
-    if (targetAcc && !targetAcc.isValid) {
-      await accountStore.checkAccount(targetAcc)
+    if (targetAcc) {
+      tab.accountItem = targetAcc
+      tab.type = 'account'
+      tab.id = `${targetAcc.platform}:${targetAcc.account}`
+      tab.title = `${getPlatformConfig(targetAcc.platform).name} - ${targetAcc.nickname || targetAcc.account}`
+      if (!targetAcc.isValid) {
+        await accountStore.checkAccount(targetAcc)
+      }
     }
   }
 }
@@ -797,6 +809,8 @@ const switchToAppWindowMode = async (tab: BrowserTab) => {
 const startNewTabLoginForTab = (tab: BrowserTab) => {
   tab.platform = newTabSelectedPlatform.value
   tab.account = newTabAccountAlias.value.trim() || 'auto'
+  tab.url = getPlatformCreatorUrl(tab.platform)
+  tab.title = `${getPlatformConfig(tab.platform).name} - ${tab.account === 'auto' ? '扫码接入' : tab.account}`
   startAppWindowForTab(tab)
 }
 
