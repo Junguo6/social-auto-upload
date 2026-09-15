@@ -69,25 +69,46 @@ export const useTaskStore = defineStore('task', () => {
     lanes.value.forEach(l => syncLaneStatus(l))
   }
 
-  // 从 localStorage 加载历史记录
+  // 从 localStorage 加载历史记录 (对齐 lanes.tasks 与 tasks.value 的引用，杜绝状态脱节)
   const loadTasksFromStorage = () => {
     try {
       const data = localStorage.getItem(STORAGE_KEY)
       if (data) {
         const parsed = JSON.parse(data)
+        const taskMap = new Map<string, PublishTask>()
+
         if (Array.isArray(parsed.tasks)) {
-          tasks.value = parsed.tasks.map((t: any, idx: number) => ({
-            ...t,
-            orderIndex: t.orderIndex ?? idx + 1,
-            status: t.status === 'running' ? 'failed' : t.status,
-            errorMsg: t.status === 'running' ? '应用重启导致任务中断' : t.errorMsg
-          }))
+          tasks.value = parsed.tasks.map((t: any, idx: number) => {
+            const item: PublishTask = {
+              ...t,
+              orderIndex: t.orderIndex ?? idx + 1,
+              status: t.status === 'running' ? 'failed' : t.status,
+              errorMsg: t.status === 'running' ? '应用重启导致任务中断' : t.errorMsg
+            }
+            taskMap.set(item.id, item)
+            return item
+          })
         }
         if (Array.isArray(parsed.batches)) {
           batches.value = parsed.batches
         }
         if (Array.isArray(parsed.lanes) && parsed.lanes.length > 0) {
-          lanes.value = parsed.lanes.slice(0, maxConcurrency.value)
+          lanes.value = parsed.lanes.slice(0, maxConcurrency.value).map((l: any) => ({
+            ...l,
+            tasks: Array.isArray(l.tasks) ? l.tasks.map((t: any) => {
+              if (taskMap.has(t.id)) {
+                return taskMap.get(t.id)!
+              }
+              const restored: PublishTask = {
+                ...t,
+                status: t.status === 'running' ? 'failed' : t.status,
+                errorMsg: t.status === 'running' ? '应用重启导致任务中断' : t.errorMsg
+              }
+              taskMap.set(restored.id, restored)
+              tasks.value.push(restored)
+              return restored
+            }) : []
+          }))
         }
       }
     } catch (e) {
@@ -179,6 +200,32 @@ export const useTaskStore = defineStore('task', () => {
       .trim()
   }
 
+  // 统一穿透更新任务状态 (同时更新 tasks.value 与各泳道中的所有实例引用)
+  const syncUpdateTask = (
+    predicate: (t: PublishTask) => boolean,
+    updater: (t: PublishTask) => void
+  ): boolean => {
+    let matched = false
+    const seen = new Set<PublishTask>()
+    tasks.value.forEach(t => {
+      if (predicate(t) && !seen.has(t)) {
+        seen.add(t)
+        updater(t)
+        matched = true
+      }
+    })
+    lanes.value.forEach(l => {
+      l.tasks.forEach(t => {
+        if (predicate(t) && !seen.has(t)) {
+          seen.add(t)
+          updater(t)
+          matched = true
+        }
+      })
+    })
+    return matched
+  }
+
   // 接收并智能路由引擎事件与日志 (结构化推进任务状态机)
   const appendLog = (evt: any) => {
     const timeStr = new Date().toLocaleTimeString()
@@ -207,44 +254,48 @@ export const useTaskStore = defineStore('task', () => {
 
     // 1. 结构化事件精准推进任务状态 (优先匹配 TaskId)
     if (evt.taskId || (plat && acc)) {
-      let targetTask = evt.taskId ? tasks.value.find(t => t.id === evt.taskId) : null
-      if (!targetTask && plat && acc) {
-        targetTask = tasks.value.find(t => t.platform === plat && t.account === acc && t.status !== 'success')
+      const matchPredicate = (t: PublishTask) => {
+        if (evt.taskId && t.id === evt.taskId) return true
+        if (plat && acc && t.platform === plat && t.account === acc && t.status !== 'success') return true
+        return false
       }
-      if (targetTask) {
+
+      const updated = syncUpdateTask(matchPredicate, (targetTask) => {
         targetTask.logs.push(logItem)
 
         if (type === 'task_start') {
           targetTask.status = 'running'
           targetTask.startedAt = timeStr
           targetTask.progress = 30
-          refreshAllLanesStatus()
         } else if (type === 'task_success') {
           targetTask.status = 'success'
           targetTask.completedAt = timeStr
           targetTask.completedAtTimestamp = Date.now()
           targetTask.progress = 100
           targetTask.errorMsg = ''
-          refreshAllLanesStatus()
         } else if (type === 'task_error') {
           targetTask.status = 'failed'
           targetTask.completedAt = timeStr
           targetTask.completedAtTimestamp = Date.now()
           targetTask.errorMsg = cleanMsg
-          refreshAllLanesStatus()
         } else if (type === 'risk_alert') {
           targetTask.status = 'failed'
           targetTask.isPaused = true
           targetTask.pauseReason = cleanMsg
           targetTask.errorMsg = cleanMsg
+        }
+      })
+
+      if (updated) {
+        if (type === 'risk_alert') {
           ElNotification({
             title: '⚠️ 触发账号安全熔断',
             message: cleanMsg,
             type: 'warning',
             duration: 9000
           })
-          refreshAllLanesStatus()
         }
+        refreshAllLanesStatus()
         return
       }
     }
@@ -598,20 +649,21 @@ export const useTaskStore = defineStore('task', () => {
 
       const results = await PipelinePublishMedia(goParam)
 
-      // 解析每个账号的发布结果 (优先根据 TaskId 精准匹配)
+      // 解析每个账号的发布结果 (优先根据 TaskId 精准匹配，同时同步 lanes 与 tasks)
       if (results && Array.isArray(results)) {
         results.forEach((res: engine.AccountPublishResult) => {
-          let matched = res.taskId ? tasks.value.find(t => t.id === res.taskId) : null
-          if (!matched) {
-            matched = tasks.value.find(t => t.platform === res.platform && t.account === res.account && t.status !== 'success')
-          }
-          if (matched && matched.status !== 'success') {
-            matched.status = res.success ? 'success' : 'failed'
-            matched.completedAt = new Date().toLocaleTimeString()
-            matched.completedAtTimestamp = Date.now()
-            matched.progress = 100
-            matched.errorMsg = res.errorMsg || ''
-          }
+          syncUpdateTask(
+            t => (res.taskId ? t.id === res.taskId : (t.platform === res.platform && t.account === res.account && t.status !== 'success')),
+            matched => {
+              if (matched.status !== 'success') {
+                matched.status = res.success ? 'success' : 'failed'
+                matched.completedAt = new Date().toLocaleTimeString()
+                matched.completedAtTimestamp = Date.now()
+                matched.progress = 100
+                matched.errorMsg = res.errorMsg || ''
+              }
+            }
+          )
         })
       }
 
@@ -640,16 +692,17 @@ export const useTaskStore = defineStore('task', () => {
       }
 
       // 将涉及到的未完成任务标记为失败并填充清晰错误原因，彻底避免任务一直卡在“排队中”
+      syncUpdateTask(
+        t => t.status === 'running' || t.status === 'queued',
+        t => {
+          t.status = 'failed'
+          t.errorMsg = errMsg
+          t.completedAt = new Date().toLocaleTimeString()
+          t.completedAtTimestamp = Date.now()
+        }
+      )
       lanes.value.forEach(l => {
         l.status = 'failed'
-        l.tasks.forEach(t => {
-          if (t.status === 'running' || t.status === 'queued') {
-            t.status = 'failed'
-            t.errorMsg = errMsg
-            t.completedAt = new Date().toLocaleTimeString()
-            t.completedAtTimestamp = Date.now()
-          }
-        })
       })
     } finally {
       isExecuting.value = false
@@ -662,7 +715,7 @@ export const useTaskStore = defineStore('task', () => {
         if (hasRemainingQueued) {
           setTimeout(() => {
             triggerMultiLaneExecution()
-          }, 300)
+          }, 1000)
         }
       }
     }
@@ -672,14 +725,15 @@ export const useTaskStore = defineStore('task', () => {
   const cancelWorkflow = async () => {
     await StopActivePublish()
     isExecuting.value = false
+    syncUpdateTask(
+      t => t.status === 'running' || t.status === 'queued',
+      t => {
+        t.status = 'cancelled'
+        t.errorMsg = '用户手动终止'
+      }
+    )
     lanes.value.forEach(l => {
       l.status = 'idle'
-      l.tasks.forEach(t => {
-        if (t.status === 'running' || t.status === 'queued') {
-          t.status = 'cancelled'
-          t.errorMsg = '用户手动终止'
-        }
-      })
     })
     refreshAllLanesStatus()
     saveTasksToStorage()
@@ -687,7 +741,7 @@ export const useTaskStore = defineStore('task', () => {
 
   // 7.1 中止单个执行中任务 (优先通过 TaskId 精准杀死进程，通道后续任务自动继续执行)
   const cancelTask = async (taskId: string) => {
-    const task = tasks.value.find(t => t.id === taskId)
+    const task = tasks.value.find(t => t.id === taskId) || lanes.value.flatMap(l => l.tasks).find(t => t.id === taskId)
     if (!task) return
 
     if (task.status === 'running') {
@@ -702,8 +756,10 @@ export const useTaskStore = defineStore('task', () => {
       }
     }
 
-    task.status = 'cancelled'
-    task.errorMsg = '已手动中止该任务，通道后续任务将自动继续执行'
+    syncUpdateTask(t => t.id === taskId, target => {
+      target.status = 'cancelled'
+      target.errorMsg = '已手动中止该任务，通道后续任务将自动继续执行'
+    })
 
     refreshAllLanesStatus()
     saveTasksToStorage()
@@ -712,12 +768,15 @@ export const useTaskStore = defineStore('task', () => {
 
   // 8. 重试 / 恢复单个任务 (自动排布至泳道)
   const retryTask = (taskId: string) => {
-    const task = tasks.value.find(t => t.id === taskId)
+    const task = tasks.value.find(t => t.id === taskId) || lanes.value.flatMap(l => l.tasks).find(t => t.id === taskId)
     if (!task) return
-    task.status = 'queued'
-    task.errorMsg = ''
-    task.progress = 0
-    task.logs = []
+
+    syncUpdateTask(t => t.id === taskId, target => {
+      target.status = 'queued'
+      target.errorMsg = ''
+      target.progress = 0
+      target.logs = []
+    })
 
     // 确保该任务在某个泳道内
     const inAnyLane = lanes.value.some(l => l.tasks.some(t => t.id === taskId))

@@ -340,6 +340,14 @@ func (rc *RiskController) ResumeAccount(platform, account string) bool {
 	st.ConsecutiveFailures = 0
 	st.CooldownUntil = time.Time{}
 	st.LastRiskCode = RiskCodeNone
+
+	// 清理该账号的历史内容防重指纹，允许人工放行重新发布
+	prefix := fmt.Sprintf("%s:%s:", platform, account)
+	for k := range rc.fingerprints {
+		if strings.HasPrefix(k, prefix) {
+			delete(rc.fingerprints, k)
+		}
+	}
 	rc.stateMu.Unlock()
 
 	rc.saveToDisk()
