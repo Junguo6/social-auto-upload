@@ -210,7 +210,7 @@ class BilibiliVideo(BaseVideoUploader):
                         await opt.click(force=True)
                         bilibili_logger.info(_msg("✅", "已选择【自制原创：未经作者允许，禁止转载】"))
                     else:
-                        radio = page.locator('text="自制", span:text("自制")').first
+                        radio = page.locator('span:has-text("自制"), label:has-text("自制"), div:has-text("自制")').first
                         if await radio.count() > 0:
                             await radio.click(force=True)
         except Exception as e:
@@ -366,52 +366,179 @@ class BilibiliVideo(BaseVideoUploader):
             await self._handle_schedule(page)
             await asyncio.sleep(0.5)
 
-        # 7. 处理封面 (优先自定义封面，若无则自动选取系统推荐封面)
-        await self._handle_cover(page)
 
-    async def _handle_cover(self, page: Page):
-        """处理视频封面：优先使用自定义封面，若无则自动等待并选取系统推荐截帧封面（默认第1张）"""
-        # 1. 若提供了自定义封面，优先上传
-        if self.thumbnail_path and self.thumbnail_path.exists():
-            bilibili_logger.info(_msg("🖼️", f"正在上传自定义封面: {self.thumbnail_path.name}"))
+    async def _upload_custom_cover(self, page: Page) -> bool:
+        """通过 B 站【封面制作】弹窗上传用户指定的本地自定义封面图片"""
+        bilibili_logger.info(_msg("🖼️", f"正在上传自定义封面: {self.thumbnail_path.name}"))
+        try:
+            # 1. 滚动到页面顶部封面区域
+            await page.evaluate("() => window.scrollTo(0, 0)")
+            await asyncio.sleep(0.5)
+
+            # 2. 定位添加封面或更改封面入口
+            pill = page.locator(
+                '.cover-slot .cover-empty-pill, .cover-slot .add-text, .cover-slot, .cover-empty, .cover-main .cover-module, div:text("封面设置"), div:text("更改封面")'
+            ).first
+            if await pill.count() == 0:
+                bilibili_logger.warning(_msg("⚠️", "未找到封面入口元素，尝试等待页面加载..."))
+                await asyncio.sleep(1)
+
+            # 点击入口打开【封面制作】弹窗
+            await pill.click(force=True)
+            bilibili_logger.info(_msg("⏳", "已点击封面入口，等待【封面制作】弹窗唤起..."))
+
+            editor = page.locator('.cover-editor').first
+            await editor.wait_for(state="visible", timeout=12000)
+
+            # 3. 在弹窗内直接对文件输入框注入封面图片
+            img_input = editor.locator('input[type="file"][accept*="image"]').first
+            if await img_input.count() > 0:
+                await img_input.set_input_files(str(self.thumbnail_path))
+                bilibili_logger.info(_msg("📁", f"已成功注入封面图片文件: {self.thumbnail_path.name}"))
+            else:
+                # 备用点击拖拽区域上传
+                upload_area = editor.locator('.bcc-upload.empty-uploader, .empty-uploader-wrap, div:has-text("拖拽图片或点击上传")').first
+                async with page.expect_file_chooser(timeout=5000) as fc_info:
+                    await upload_area.click(force=True)
+                chooser = await fc_info.value
+                await chooser.set_files(str(self.thumbnail_path))
+
+            # 4. 等待图片裁剪预览渲染完成
+            await asyncio.sleep(2)
+
+            # 5. 点击弹窗右下角的【完成】按钮
+            done_btn = editor.locator(
+                '.cover-editor .button.submit, .cover-editor-button .submit, .cover-editor div:text-is("完成"), .cover-editor button:has-text("完成")'
+            ).first
+            if await done_btn.count() > 0:
+                await done_btn.click(force=True)
+                bilibili_logger.info(_msg("🎯", "已点击【封面制作】完成按钮，正在应用封面设置..."))
+            else:
+                # 兜底用 JS 触发点击
+                await page.evaluate('''() => {
+                    const btn = document.querySelector('.cover-editor .button.submit, .cover-editor-button .submit');
+                    if (btn) btn.click();
+                }''')
+
+            # 等待弹窗消失
             try:
-                cover_uploader = page.locator(
-                    '.cover-upload, [class*="cover-upload"], div:text("更改封面"), div:text("上传封面"), div:text("添加封面")'
-                ).first
-                if await cover_uploader.count() > 0 and await cover_uploader.is_visible():
-                    async with page.expect_file_chooser(timeout=8000) as fc_info:
-                        await cover_uploader.click(force=True)
-                    chooser = await fc_info.value
-                    await chooser.set_files(str(self.thumbnail_path))
-                    await asyncio.sleep(1)
-                    confirm_btn = page.locator('button:text("完成"), button:text("确定"), text="完成"').first
-                    if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
-                        await confirm_btn.click(force=True)
-                    bilibili_logger.info(_msg("✅", "自定义封面上传完成"))
-                    return
-            except Exception as e:
-                bilibili_logger.warning(_msg("⚠️", f"自定义封面上传未成功: {e}，将尝试使用系统推荐封面"))
+                await editor.wait_for(state="hidden", timeout=8000)
+            except Exception:
+                # 若弹窗未自动消失，尝试点击右上角关闭按钮
+                close_btn = editor.locator('.bcc-dialog__close, i[class*="close"]').first
+                if await close_btn.count() > 0:
+                    await close_btn.click(force=True)
 
-        # 2. 智能检测并选择系统推荐截帧封面 (默认第 1 张)
-        bilibili_logger.info(_msg("🖼️", "检测到未配置自定义封面，正在检测系统推荐截帧封面..."))
-        for _ in range(12):
-            recommend_items = page.locator('.cover-recommend-list [class*="item"], .cover-recommend-list .img-item-box')
-            count = await recommend_items.count()
+            await asyncio.sleep(1)
+            bilibili_logger.info(_msg("✅", f"自定义封面上传完成: {self.thumbnail_path.name}"))
+            return True
+        except Exception as e:
+            bilibili_logger.warning(_msg("⚠️", f"自定义封面上传未成功: {e}，将使用系统推荐截帧封面兜底"))
+            # 确保关闭可能残留的弹窗遮罩
+            try:
+                await page.evaluate('''() => {
+                    document.querySelectorAll('.cover-editor, .bcc-dialog__wrap').forEach(el => {
+                        const close = el.querySelector('.bcc-dialog__close, i[class*="close"], .button.cancel');
+                        if (close) close.click();
+                    });
+                }''')
+            except Exception:
+                pass
+            return False
+
+    def _extract_video_frame(self) -> Path | None:
+        """从本地视频自动截取第 1 帧作为高可靠保底封面，彻底规避服务端截帧慢或失败"""
+        try:
+            import cv2
+            cap = cv2.VideoCapture(str(self.file_path))
+            ret, frame = cap.read()
+            cap.release()
+            if ret and frame is not None:
+                tmp_dir = Path.home() / ".sau_tmp"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                tmp_path = tmp_dir / f"bili_cover_{self.file_path.stem}.jpg"
+                cv2.imwrite(str(tmp_path), frame)
+                bilibili_logger.info(_msg("⚡", f"已从本地视频中快速截取首帧作为封面保底: {tmp_path.name}"))
+                return tmp_path
+        except Exception as e:
+            bilibili_logger.debug(f"本地截帧跳过: {e}")
+        return None
+
+    async def _select_recommended_cover(self, page: Page) -> bool:
+        """视频上传完成后，智能检测并选择系统推荐截帧封面（默认第1张，若服务端延迟过大则自动本地首帧保底）"""
+        bilibili_logger.info(_msg("🖼️", "视频上传已就绪，正在等待并检测 B 站服务端生成推荐截帧封面..."))
+
+        # 先将页面滚动到顶部封面区域，确保推荐封面列表进入视口
+        try:
+            await page.evaluate("() => window.scrollTo(0, 0)")
+            await asyncio.sleep(0.5)
+        except Exception:
+            pass
+
+        # 最多等待 25 秒服务端截帧生成，期间每隔 3 秒输出一次进度
+        for attempt in range(25):
+            # 优先精准定位推荐截帧卡片（必须是实际生成的图片卡片，排除 AI 生成按钮）
+            cards = page.locator(
+                '.cover-recommend-list .img-item-box.img-item-cover, .cover-recommend-list .card .img-item-cover, .cover-recommend-list .img-item-box'
+            )
+            count = await cards.count()
             if count > 0:
-                # 遍历寻找第 1 张非 AI 生成的真实推荐截帧
+                # 遍历找到第一个非 AI 按钮的卡片并点击
                 for idx in range(count):
-                    item = recommend_items.nth(idx)
-                    txt = (await item.inner_text()).strip()
-                    if "AI" not in txt:
-                        bilibili_logger.info(_msg("🎯", f"已定位到系统推荐截帧封面 (共 {count} 张)，默认选择第 1 张截帧..."))
-                        await item.scroll_into_view_if_needed()
-                        await item.click(force=True)
+                    card = cards.nth(idx)
+                    try:
+                        txt = (await card.inner_text()).strip()
+                        if "AI" in txt or "生成" in txt:
+                            continue
+                        await card.scroll_into_view_if_needed()
+                        await card.click(force=True)
                         await asyncio.sleep(1)
-                        bilibili_logger.info(_msg("✅", "已成功选定系统推荐封面！"))
-                        return
+
+                        # 验证主封面区域是否已经成功呈现封面
+                        cover_text = await page.locator('.cover-main').inner_text()
+                        if "封面设置" in cover_text or "更改封面" in cover_text or (await page.locator('.cover-main img, .cover-main [style*="background"]').count() > 0):
+                            bilibili_logger.info(_msg("🎯", f"已成功选用 B 站系统推荐第 {idx + 1} 张截帧封面！"))
+                            return True
+                    except Exception:
+                        pass
+
+                # JS 兜底点击第 1 张有效推荐封面卡片
+                try:
+                    js_clicked = await page.evaluate('''() => {
+                        const recCards = document.querySelectorAll('.cover-recommend-list .img-item-box, .cover-recommend-list .img-item-cover');
+                        for (const el of recCards) {
+                            if (el.closest('.ai-generate-btn') || (el.innerText || '').includes('AI') || (el.innerText || '').includes('生成')) {
+                                continue;
+                            }
+                            el.click();
+                            return true;
+                        }
+                        return false;
+                    }''')
+                    if js_clicked:
+                        await asyncio.sleep(1)
+                        bilibili_logger.info(_msg("🎯", "通过 DOM 成功选定第 1 张系统推荐截帧封面！"))
+                        return True
+                except Exception:
+                    pass
+
+            # 每隔 3 秒输出一次等待日志，给用户清晰的视觉反馈
+            if (attempt + 1) % 3 == 0:
+                bilibili_logger.info(_msg("⏳", f"正在等待 B 站服务端完成截帧处理 (已等待 {attempt + 1} 秒)..."))
+
             await asyncio.sleep(1)
 
-        bilibili_logger.warning(_msg("⚠️", "未检测到系统推荐封面候选项，后续将再次尝试兜底"))
+        # 超过 25 秒仍未截出：启动本地首帧秒级兜底上传
+        bilibili_logger.info(_msg("💡", "B 站服务端截帧耗时较长，正在启动本地视频首帧秒级兜底机制..."))
+        fallback_cover = self._extract_video_frame()
+        if fallback_cover and fallback_cover.exists():
+            self.thumbnail_path = fallback_cover
+            upload_success = await self._upload_custom_cover(page)
+            if upload_success:
+                return True
+
+        bilibili_logger.warning(_msg("⚠️", "未能获取到任何封面选项，将尝试继续投递"))
+        return False
 
     async def _wait_for_upload_finish(self, page: Page, timeout_seconds: int = 900):
         """等待视频分片上传全部完成"""
@@ -428,7 +555,7 @@ class BilibiliVideo(BaseVideoUploader):
             await self._clear_overlays(page)
 
             # 1. 精确指标一：检查是否存在并可见的“更换视频”按钮（上传完成后必定出现，且唯一性极高）
-            change_btn = page.locator('text="更换视频", button:has-text("更换视频"), span:has-text("更换视频")')
+            change_btn = page.locator('button:has-text("更换视频"), span:has-text("更换视频"), div:has-text("更换视频")')
             c_count = await change_btn.count()
             if c_count > 0:
                 for idx in range(min(c_count, 3)):
@@ -455,7 +582,7 @@ class BilibiliVideo(BaseVideoUploader):
                     pass
 
             # 3. 检查是否有上传失败报错
-            fail_loc = page.locator('.upload-failed, [class*="upload-error"], text="上传失败"')
+            fail_loc = page.locator('.upload-failed, [class*="upload-error"], span:has-text("上传失败"), div:has-text("上传失败")')
             if await fail_loc.count() > 0:
                 for idx in range(min(await fail_loc.count(), 3)):
                     if await fail_loc.nth(idx).is_visible():
@@ -577,11 +704,24 @@ class BilibiliVideo(BaseVideoUploader):
                 # 3. 等待视频分片上传 100% 完成
                 await self._wait_for_upload_finish(page)
 
-                # 4. 投稿前封面再次核验与兜底（确保 B 站必填项封面已选定）
-                add_cover_btn = page.locator('text="添加封面", div:has-text("添加封面")')
-                if await add_cover_btn.count() > 0 and await add_cover_btn.first.is_visible():
-                    bilibili_logger.info(_msg("🖼️", "视频上传完成，正在再次核验并补充选定推荐封面..."))
-                    await self._handle_cover(page)
+                # 4. 视频上传完成后，统一执行封面选定与应用
+                cover_ok = False
+                if self.thumbnail_path and self.thumbnail_path.exists():
+                    bilibili_logger.info(_msg("🖼️", f"检测到用户已指定本地封面，正在上传: {self.thumbnail_path.name}"))
+                    cover_ok = await self._upload_custom_cover(page)
+
+                if not cover_ok:
+                    # 若未提供自定义封面或自定义封面上传未成功，智能选用系统推荐截帧封面
+                    cover_ok = await self._select_recommended_cover(page)
+
+                # 投递前最终防线：检查是否仍然未选定封面（主槽位仍有“添加封面”字样且无图）
+                empty_cover = page.locator('.cover-slot .add-text, .cover-slot .cover-empty-pill')
+                if await empty_cover.count() > 0 and await empty_cover.first.is_visible():
+                    bilibili_logger.warning(_msg("⚠️", "检测到主封面仍然为空，正在触发终极首帧保底..."))
+                    fallback = self._extract_video_frame()
+                    if fallback and fallback.exists():
+                        self.thumbnail_path = fallback
+                        await self._upload_custom_cover(page)
 
                 # 5. 点击【立即投稿】按钮（强制消灭右下角遮挡气泡）
                 bilibili_logger.info(_msg("🚀", "视频与元数据已就绪，正在触发最终投递..."))
@@ -614,7 +754,7 @@ class BilibiliVideo(BaseVideoUploader):
 
                     # 判定方式 2：检测页面正文中弹出的明确投稿成功文本（避开左侧常驻侧边栏）
                     success_elem = page.locator(
-                        'h1:has-text("稿件投递成功"), h2:has-text("稿件投递成功"), div:text-is("稿件投递成功"), .success-title, a:text("查看稿件")'
+                        'h1:has-text("稿件投递成功"), h2:has-text("稿件投递成功"), div:text-is("稿件投递成功"), .success-title, a:has-text("查看稿件")'
                     )
                     if await success_elem.count() > 0 and await success_elem.first.is_visible():
                         success = True
