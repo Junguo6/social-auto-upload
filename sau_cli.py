@@ -275,6 +275,7 @@ class BilibiliVideoUploadRequest:
     tags: list[str]
     publish_date: datetime | int
     thumbnail_file: Path | None = None
+    declaration: str = "1"
     debug: bool = True
     headless: bool = True
 
@@ -798,6 +799,7 @@ async def upload_bilibili_video(request: BilibiliVideoUploadRequest) -> Path:
         account_file=account_file,
         tid=request.tid,
         desc=request.description,
+        declaration=request.declaration,
         thumbnail_path=request.thumbnail_file,
         headless=getattr(request, "headless", True),
         debug=getattr(request, "debug", True),
@@ -1123,9 +1125,10 @@ def build_parser() -> argparse.ArgumentParser:
     bilibili_upload_video_parser.add_argument("--account", required=True, help="Bilibili user-defined account_name")
     bilibili_upload_video_parser.add_argument("--file", required=True, type=existing_file_path, help="Video file path")
     bilibili_upload_video_parser.add_argument("--title", required=True, help="Video title")
-    bilibili_upload_video_parser.add_argument("--desc", required=True, help="Video description")
-    bilibili_upload_video_parser.add_argument("--tid", required=True, type=int, help="Bilibili category id")
+    bilibili_upload_video_parser.add_argument("--desc", default="", help="Optional video description")
+    bilibili_upload_video_parser.add_argument("--tid", default=171, type=int, help="Optional Bilibili category id (default: 171)")
     bilibili_upload_video_parser.add_argument("--tags", default="", help="Comma-separated tags, such as tag1,tag2")
+    bilibili_upload_video_parser.add_argument("--declaration", default="1", help="Declaration: 1 for self-made/original, 2 for reprint, or AI statement")
     bilibili_upload_video_parser.add_argument("--thumbnail", type=existing_file_path, help="Optional Bilibili cover image path")
     bilibili_upload_video_parser.add_argument("--schedule", type=schedule_value, help=f"Schedule time in {schedule_help}")
     add_runtime_flags(bilibili_upload_video_parser)
@@ -1366,19 +1369,6 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
             sys.stdout.write(f"{log_tag} for {platform}: {creator_url}\n")
             sys.stdout.flush()
 
-            if platform == "bilibili":
-                meta_dict = await adapter.run_tv_login_flow(page, context, account_file, account_name)
-                if meta_dict and meta_dict.get("success"):
-                    sys.stdout.write(f"Bilibili login flow completed: {json.dumps(meta_dict, ensure_ascii=False)}\n")
-                    sys.stdout.flush()
-                    login_notified = True
-                    await asyncio.sleep(1.2)
-                    try:
-                        await page.close()
-                    except Exception:
-                        pass
-                return 0
-
             try:
                 await page.goto(creator_url, wait_until="domcontentloaded")
             except Exception as e:
@@ -1511,8 +1501,7 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                             sys.stderr.write(f"Emergency login recovery failed: {ex}\n")
 
                     if login_notified:
-                        if platform != "bilibili":
-                            await context.storage_state(path=str(account_file))
+                        await context.storage_state(path=str(account_file))
                         if "meta_dict" in locals():
                             from utils.account_meta import inject_account_meta_and_rename
                             _, final_p, _ = inject_account_meta_and_rename(
@@ -1815,6 +1804,7 @@ async def dispatch(args: argparse.Namespace) -> int:
                 tags=parse_tags(args.tags),
                 publish_date=args.schedule or 0,
                 thumbnail_file=args.thumbnail,
+                declaration=getattr(args, "declaration", "1") or "1",
                 headless=args.headless,
                 debug=getattr(args, "debug", True),
             )

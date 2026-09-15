@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
 import sys
 from datetime import datetime
@@ -19,23 +20,16 @@ BILIBILI_CREATOR_URL = "https://member.bilibili.com/platform/home"
 BILIBILI_UPLOAD_FRAME_URL = "https://member.bilibili.com/platform/upload/video/frame"
 BILIBILI_MANAGE_URL = "https://member.bilibili.com/platform/upload-manager/article"
 
-# 常用分区映射表 (TID -> [一级分类, 二级分类])
+# 前端与 B站最新创作者服务平台分区映射表 (TID -> [一级分类, 二级分类])
 TID_CATEGORY_MAP = {
-    171: ("生活", "日常"),
-    172: ("生活", "出行"),
-    174: ("生活", "搞笑"),
-    173: ("生活", "手工"),
-    175: ("生活", "绘画"),
-    21: ("动画", "综合"),
-    138: ("游戏", "网络游戏"),
-    122: ("科技", "软件应用"),
-    230: ("知识", "科学科普"),
-    231: ("知识", "社科·法律·心理"),
-    76: ("美食", "美食制作"),
-    157: ("影视", "影视剪辑"),
-    163: ("时尚", "美妆护肤"),
-    130: ("音乐", "音乐综合"),
-    28: ("音乐", "原创音乐"),
+    230: ("科技数码", "软件应用"),     # 科技 - 软件应用/计算机技术
+    122: ("科技数码", "野生技术协会"),   # 科技 - 野生技术协会
+    171: ("游戏", "电子竞技"),         # 游戏 - 电子竞技
+    21:  ("生活经验", "生活兴趣"),      # 生活 - 日常
+    138: ("生活经验", "搞笑"),         # 生活 - 搞笑
+    163: ("美食", "美食制作"),         # 生活 - 美食制作
+    217: ("知识", "科学科普"),         # 知识 - 科学科普
+    201: ("知识", "商业财经"),         # 知识 - 商业财经
 }
 
 
@@ -64,6 +58,7 @@ class BilibiliVideo(BaseVideoUploader):
         category: str | None = None,
         tid: int = 171,
         desc: str | None = None,
+        declaration: str | None = "1",
         thumbnail_path: str | Path | None = None,
         debug: bool = DEBUG_MODE,
         headless: bool = LOCAL_CHROME_HEADLESS,
@@ -76,13 +71,13 @@ class BilibiliVideo(BaseVideoUploader):
         self.category = category
         self.tid = tid or 171
         self.desc = desc or self.title
+        self.declaration = str(declaration).strip() if declaration else "1"
         self.thumbnail_path = Path(thumbnail_path).resolve() if thumbnail_path and Path(thumbnail_path).exists() else None
         self.debug = debug
         self.headless = headless
 
     async def _extract_cookies_for_context(self) -> list[dict]:
         """从凭据文件中稳健提取 cookies 列表"""
-        import json
         if not self.account_file.exists():
             return []
         try:
@@ -92,7 +87,6 @@ class BilibiliVideo(BaseVideoUploader):
             if not cookies and "cookie_info" in data and isinstance(data["cookie_info"], dict):
                 cookies = data["cookie_info"].get("cookies", [])
             
-            # 格式化兼容 Playwright 字段
             pw_cookies = []
             for c in cookies:
                 if not isinstance(c, dict) or not c.get("name"):
@@ -115,10 +109,95 @@ class BilibiliVideo(BaseVideoUploader):
             bilibili_logger.warning(_msg("⚠️", f"读取 Cookie 发生异常: {e}"))
             return []
 
+    async def _clear_overlays(self, page: Page):
+        """自动检测并消除阻挡交互的弹窗、通知浮层、验证码遮罩及右下角气泡"""
+        try:
+            # 1. 点击常见的关闭按钮
+            close_buttons = page.locator(
+                '.risk-captcha [class*="close"], .base-verify [class*="close"], '
+                '.bcc-dialog__footer button, .bcc-dialog [class*="close"], '
+                'button:has-text("知道了"), button:has-text("确定"), button:has-text("我知道了"), '
+                '.vp-nd-f, [class*="bubble"] [class*="close"], [class*="guide"] [class*="close"]'
+            )
+            count = await close_buttons.count()
+            for i in range(min(count, 5)):
+                try:
+                    btn = close_buttons.nth(i)
+                    if await btn.is_visible():
+                        await btn.click(force=True, timeout=1200)
+                        await asyncio.sleep(0.2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        try:
+            # 2. 移除拦截指针事件的遮罩背景
+            await page.evaluate(r'''() => {
+                const overlaySelectors = [
+                    '.base-verify', '.base-verify-bg', '.risk-captcha', 
+                    '.bcc-dialog', '.add-modal', '.v-modal', '.vp-nd-f',
+                    '[class*="guide-bubble"]'
+                ];
+                document.querySelectorAll(overlaySelectors.join(',')).forEach(el => {
+                    try {
+                        el.style.display = 'none';
+                        el.remove();
+                    } catch(e) {}
+                });
+            }''')
+        except Exception:
+            pass
+
+    async def _handle_declaration(self, page: Page):
+        """配置创作声明（自制原创、转载注明出处、AI生成等）"""
+        await self._clear_overlays(page)
+        bilibili_logger.info(_msg("🛡️", f"正在配置创作声明 (declaration={self.declaration})..."))
+        try:
+            claim_input = page.locator('input[placeholder*="创作声明"]').first
+            if await claim_input.count() > 0 and await claim_input.is_visible():
+                await claim_input.click(force=True)
+                await asyncio.sleep(0.5)
+
+                decl = str(self.declaration).strip()
+                if decl == "2" or "转载" in decl:
+                    # 转载声明
+                    opt = page.locator('.bcc-select-option-list li:has-text("转载"), .bcc-select-item:has-text("转载")').first
+                    if await opt.count() > 0:
+                        await opt.click(force=True)
+                        bilibili_logger.info(_msg("✅", "已选择【内容为转载】"))
+                        await asyncio.sleep(0.5)
+
+                        # 填写转载出处输入框（必填）
+                        source_input = page.locator('input[placeholder*="转载"], input[placeholder*="来源"], input[placeholder*="出处"]').first
+                        if await source_input.count() > 0 and await source_input.is_visible():
+                            source_text = "转自公开网络渠道"
+                            await source_input.click(force=True)
+                            await source_input.fill(source_text)
+                            bilibili_logger.info(_msg("✅", f"已自动填报转载来源: {source_text}"))
+                elif "AI" in decl or "ai" in decl or "人工智能" in decl:
+                    opt = page.locator('.bcc-select-option-list li:has-text("AI"), .bcc-select-item:has-text("AI")').first
+                    if await opt.count() > 0:
+                        await opt.click(force=True)
+                        bilibili_logger.info(_msg("✅", "已选择【含AI生成内容】"))
+                else:
+                    # 自制原创 (默认 1)
+                    opt = page.locator('.bcc-select-option-list li:has-text("自制"), .bcc-select-item:has-text("自制")').first
+                    if await opt.count() > 0:
+                        await opt.click(force=True)
+                        bilibili_logger.info(_msg("✅", "已选择【自制原创：未经作者允许，禁止转载】"))
+                    else:
+                        radio = page.locator('text="自制", span:text("自制")').first
+                        if await radio.count() > 0:
+                            await radio.click(force=True)
+        except Exception as e:
+            bilibili_logger.warning(_msg("⚠️", f"配置创作声明失败: {e}，将使用系统默认值"))
+
     async def _select_partition(self, page: Page):
-        """选择视频投稿分区"""
+        """选择视频投稿分区（支持最新两级级联面板）"""
+        await self._clear_overlays(page)
         bilibili_logger.info(_msg("🏷️", f"正在配置投稿分区 (TID={self.tid})..."))
-        primary, secondary = TID_CATEGORY_MAP.get(self.tid, ("生活", "日常"))
+        primary, secondary = TID_CATEGORY_MAP.get(self.tid, ("生活经验", "生活兴趣"))
         if self.category:
             parts = [p.strip() for p in self.category.replace("-", "/").split("/") if p.strip()]
             if len(parts) >= 2:
@@ -126,60 +205,79 @@ class BilibiliVideo(BaseVideoUploader):
             elif len(parts) == 1:
                 secondary = parts[0]
 
-        # 策略 1: 查找推荐分区标签 (B站通常在分区下方列出几个推荐子分区)
+        # 策略 1: 检查快捷推荐分区标签
         try:
-            sec_tag = page.locator(f'span:text("{secondary}"), div:text("{secondary}")')
-            if await sec_tag.count() > 0 and await sec_tag.first.is_visible():
-                await sec_tag.first.click()
+            rec_tag = page.locator(f'.recommand-tag:has-text("{secondary}"), [class*="rec-tag"]:has-text("{secondary}")').first
+            if await rec_tag.count() > 0 and await rec_tag.is_visible():
+                await rec_tag.click(force=True)
                 bilibili_logger.info(_msg("✅", f"已快速选中推荐分区: {secondary}"))
                 return
         except Exception:
             pass
 
-        # 策略 2: 点击分区选择器容器进行级联选择
+        # 策略 2: 点击分区选择器展开级联面板
         try:
             selector_btn = page.locator(
-                'div.select-box-v2-container, div[class*="select-box"], div[class*="cascader-container"], div.drop-cascader-container'
+                '.select-controller, .select-item-cont, div.select-box-v2-container, div[class*="select-box"], div[class*="cascader-container"], div.drop-cascader-container'
             ).first
-            if await selector_btn.count() > 0 and await selector_btn.is_visible():
-                await selector_btn.click()
-                await asyncio.sleep(0.6)
+            if await selector_btn.count() > 0:
+                await selector_btn.click(force=True)
+                await asyncio.sleep(0.8)
 
-                # 点击主分类
-                main_item = page.locator(f'text="{primary}"').first
-                if await main_item.count() > 0 and await main_item.is_visible():
-                    await main_item.click()
-                    await asyncio.sleep(0.4)
+                # 点击一级主大类
+                first_item = page.locator(f'.drop-list-v2-item:has-text("{primary}"), [class*="cascader"] li:has-text("{primary}"), div:text("{primary}")').first
+                if await first_item.count() > 0:
+                    await first_item.click(force=True)
+                    await asyncio.sleep(0.5)
 
-                # 点击子分类
-                sub_item = page.locator(f'text="{secondary}"').first
-                if await sub_item.count() > 0 and await sub_item.is_visible():
-                    await sub_item.click()
+                # 点击二级子分类
+                second_item = page.locator(f'.drop-list-v2-item:has-text("{secondary}"), [class*="cascader"] li:has-text("{secondary}"), div:text("{secondary}")').first
+                if await second_item.count() > 0:
+                    await second_item.click(force=True)
                     bilibili_logger.info(_msg("✅", f"已级联选择分区: {primary} -> {secondary}"))
                     return
         except Exception as e:
-            bilibili_logger.warning(_msg("⚠️", f"级联选择分区遇到阻碍: {e}，尝试搜索匹配"))
+            bilibili_logger.warning(_msg("⚠️", f"级联选择分区遇到阻碍: {e}"))
 
         # 策略 3: 使用分区搜索框
         try:
             search_input = page.locator('input[placeholder*="搜索分区"], input[placeholder*="输入分区"]').first
             if await search_input.count() > 0 and await search_input.is_visible():
-                await search_input.click()
+                await search_input.click(force=True)
                 await search_input.fill(secondary)
                 await asyncio.sleep(0.6)
                 first_result = page.locator('div[class*="search-result-item"], li[class*="search-item"]').first
                 if await first_result.count() > 0:
-                    await first_result.click()
+                    await first_result.click(force=True)
                     bilibili_logger.info(_msg("✅", f"已通过搜索选中分区: {secondary}"))
                     return
         except Exception:
             pass
 
-        bilibili_logger.info(_msg("ℹ️", "分区使用系统默认推荐项"))
+        bilibili_logger.info(_msg("ℹ️", "分区保留当前选中项"))
+
+    async def _handle_schedule(self, page: Page):
+        """配置定时发布"""
+        if not self.publish_date:
+            return
+        await self._clear_overlays(page)
+        bilibili_logger.info(_msg("⏰", f"正在配置定时发布: {self.publish_date}..."))
+        try:
+            switch_btn = page.locator('div:has-text("定时发布") .bcc-switch, div:has-text("定时发布") [class*="switch"], .form-item:has-text("定时发布") [role="switch"]').first
+            if await switch_btn.count() > 0:
+                is_checked = "checked" in (await switch_btn.get_attribute("class") or "")
+                if not is_checked:
+                    await switch_btn.click(force=True)
+                    await asyncio.sleep(0.8)
+                bilibili_logger.info(_msg("✅", "已开启定时发布开关"))
+        except Exception as e:
+            bilibili_logger.warning(_msg("⚠️", f"配置定时发布失败: {e}"))
 
     async def _fill_form_metadata(self, page: Page):
-        """填写稿件表单元数据（标题、自制、分区、标签、简介等）"""
+        """填写稿件表单元数据（标题、创作声明、分区、标签、简介等）"""
         bilibili_logger.info(_msg("📝", f"开始填写稿件信息: 标题={self.title}"))
+
+        await self._clear_overlays(page)
 
         # 1. 标题 (B站限制 80 字符)
         title_val = self.title[:80]
@@ -188,7 +286,7 @@ class BilibiliVideo(BaseVideoUploader):
                 'input[placeholder*="请输入稿件标题"], input[placeholder*="稿件标题"], input[placeholder*="标题"], input.input-val'
             ).first
             await title_input.wait_for(state="visible", timeout=15000)
-            await title_input.click()
+            await title_input.click(force=True)
             await title_input.fill(title_val)
             bilibili_logger.info(_msg("✅", f"已输入稿件标题: {title_val}"))
         except Exception as e:
@@ -196,14 +294,8 @@ class BilibiliVideo(BaseVideoUploader):
 
         await asyncio.sleep(0.5)
 
-        # 2. 勾选“自制”
-        try:
-            original_radio = page.locator('text="自制", span:text("自制")').first
-            if await original_radio.count() > 0 and await original_radio.is_visible():
-                await original_radio.click()
-        except Exception:
-            pass
-
+        # 2. 创作声明（自制/转载/AI）
+        await self._handle_declaration(page)
         await asyncio.sleep(0.5)
 
         # 3. 选择分区
@@ -220,7 +312,7 @@ class BilibiliVideo(BaseVideoUploader):
                 if await tag_input.count() > 0 and await tag_input.is_visible():
                     for tag in self.tags[:10]:
                         try:
-                            await tag_input.click()
+                            await tag_input.click(force=True)
                             await tag_input.fill(tag)
                             await page.keyboard.press("Enter")
                             await asyncio.sleep(0.4)
@@ -240,13 +332,18 @@ class BilibiliVideo(BaseVideoUploader):
                     'div.ql-editor, textarea[placeholder*="填写更全"], textarea[placeholder*="视频简介"], textarea'
                 ).first
                 if await desc_input.count() > 0 and await desc_input.is_visible():
-                    await desc_input.click()
+                    await desc_input.click(force=True)
                     await desc_input.fill(self.desc)
                     bilibili_logger.info(_msg("✅", "简介填写完成"))
             except Exception as e:
                 bilibili_logger.warning(_msg("⚠️", f"填写简介失败: {e}"))
 
-        # 6. 上传封面 (若有自定义封面)
+        # 6. 定时发布
+        if self.publish_date:
+            await self._handle_schedule(page)
+            await asyncio.sleep(0.5)
+
+        # 7. 上传封面 (若有自定义封面)
         if self.thumbnail_path and self.thumbnail_path.exists():
             bilibili_logger.info(_msg("🖼️", f"正在上传自定义封面: {self.thumbnail_path.name}"))
             try:
@@ -255,13 +352,13 @@ class BilibiliVideo(BaseVideoUploader):
                 ).first
                 if await cover_uploader.count() > 0 and await cover_uploader.is_visible():
                     async with page.expect_file_chooser(timeout=8000) as fc_info:
-                        await cover_uploader.click()
+                        await cover_uploader.click(force=True)
                     chooser = await fc_info.value
                     await chooser.set_files(str(self.thumbnail_path))
                     await asyncio.sleep(1)
                     confirm_btn = page.locator('button:text("完成"), button:text("确定"), text="完成"').first
                     if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
-                        await confirm_btn.click()
+                        await confirm_btn.click(force=True)
                     bilibili_logger.info(_msg("✅", "自定义封面上传完成"))
             except Exception as e:
                 bilibili_logger.warning(_msg("⚠️", f"自定义封面上传未成功: {e}，将使用系统截帧封面"))
@@ -275,6 +372,9 @@ class BilibiliVideo(BaseVideoUploader):
             elapsed = asyncio.get_event_loop().time() - start_time
             if elapsed > timeout_seconds:
                 raise TimeoutError(f"视频上传超时 (超过 {timeout_seconds} 秒)")
+
+            # 消除可能弹出的遮罩
+            await self._clear_overlays(page)
 
             # 检查是否已显示“上传完成”
             done_indicator = page.locator('text="上传完成", text="重新上传", span:text("上传完成")')
@@ -355,6 +455,9 @@ class BilibiliVideo(BaseVideoUploader):
                 await page.goto(BILIBILI_UPLOAD_FRAME_URL, wait_until="domcontentloaded", timeout=40000)
                 await asyncio.sleep(2)
 
+                # 初始清除各类弹窗与遮罩
+                await self._clear_overlays(page)
+
                 # 检查登录态是否有效（若被重定向到登录页则提示凭证失效）
                 curr_url = page.url
                 if "passport.bilibili.com" in curr_url or "login" in curr_url:
@@ -369,7 +472,7 @@ class BilibiliVideo(BaseVideoUploader):
                     async with page.expect_file_chooser(timeout=15000) as fc_info:
                         await page.locator(
                             '.bcc-upload-wrapper, [class*="upload-btn"], [class*="upload_btn"], .upload-btn'
-                        ).first.click()
+                        ).first.click(force=True)
                     chooser = await fc_info.value
                     await chooser.set_files(str(self.file_path))
 
@@ -382,8 +485,9 @@ class BilibiliVideo(BaseVideoUploader):
                 # 3. 等待视频分片上传 100% 完成
                 await self._wait_for_upload_finish(page)
 
-                # 4. 点击【立即投稿】按钮
+                # 4. 点击【立即投稿】按钮（强制消灭右下角遮挡气泡）
                 bilibili_logger.info(_msg("🚀", "视频上传完成，正在触发最终投递..."))
+                await self._clear_overlays(page)
                 await asyncio.sleep(1)
 
                 submit_btn = page.locator(
@@ -391,8 +495,9 @@ class BilibiliVideo(BaseVideoUploader):
                 ).first
                 await submit_btn.wait_for(state="visible", timeout=15000)
                 await submit_btn.scroll_into_view_if_needed()
+                await self._clear_overlays(page)
                 await asyncio.sleep(0.5)
-                await submit_btn.click()
+                await submit_btn.click(force=True)
 
                 # 5. 等待投递成功确认
                 bilibili_logger.info(_msg("⏳", "正在确认投递结果..."))
