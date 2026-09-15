@@ -136,10 +136,9 @@ class BilibiliVideo(BaseVideoUploader):
             pass
 
         try:
-            # 2. 移除拦截指针事件的遮罩背景
+            # 2. 移除拦截指针事件的遮罩背景 (仅针对非验证码的提示遮罩)
             await page.evaluate(r'''() => {
                 const overlaySelectors = [
-                    '.base-verify', '.base-verify-bg', '.risk-captcha', 
                     '.bcc-dialog', '.add-modal', '.v-modal', '.vp-nd-f',
                     '[class*="guide-bubble"]'
                 ];
@@ -150,6 +149,26 @@ class BilibiliVideo(BaseVideoUploader):
                     } catch(e) {}
                 });
             }''')
+        except Exception:
+            pass
+
+    async def _check_and_handle_captcha(self, page: Page):
+        """检测是否出现平台安全验证码（短信验证码、极验滑块等），若出现则根据策略主动跳过该账号"""
+        try:
+            captcha_locators = page.locator(
+                '.risk-captcha, .base-verify.sms-verify, input.sms-cell, '
+                '.geetest_panel, .geetest_popup_wrap, .geetest_radar_tip, [class*="captcha-box"], [class*="risk-dialog"]'
+            )
+            count = await captcha_locators.count()
+            for i in range(count):
+                item = captcha_locators.nth(i)
+                if await item.is_visible():
+                    bilibili_logger.warning(
+                        _msg("⚠️", "检测到账号触发平台安全验证码（短信验证/人机滑块），根据配置策略自动跳过该账号！")
+                    )
+                    raise RuntimeError("检测到平台安全验证码，已自动跳过该账号")
+        except RuntimeError:
+            raise
         except Exception:
             pass
 
@@ -483,6 +502,9 @@ class BilibiliVideo(BaseVideoUploader):
                 bilibili_logger.info(_msg("✅", "视频文件已成功载入，进入表单编辑与上传同步阶段"))
                 await asyncio.sleep(2)
 
+                # 检查是否触发安全验证码，若触发则自动跳过
+                await self._check_and_handle_captcha(page)
+
                 # 2. 填写稿件表单元数据（标题、分区、标签、简介等）
                 await self._fill_form_metadata(page)
 
@@ -493,6 +515,9 @@ class BilibiliVideo(BaseVideoUploader):
                 bilibili_logger.info(_msg("🚀", "视频上传完成，正在触发最终投递..."))
                 await self._clear_overlays(page)
                 await asyncio.sleep(1)
+
+                # 投递前再次检查验证码
+                await self._check_and_handle_captcha(page)
 
                 submit_btn = page.locator(
                     'button:text("立即投稿"), .submit-add, [class*="submit-btn"], button[class*="submit"]'
