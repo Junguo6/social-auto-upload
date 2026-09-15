@@ -275,6 +275,8 @@ class BilibiliVideoUploadRequest:
     tags: list[str]
     publish_date: datetime | int
     thumbnail_file: Path | None = None
+    debug: bool = True
+    headless: bool = True
 
 
 @dataclass(slots=True)
@@ -501,46 +503,44 @@ async def check_xiaohongshu_account(account_name: str) -> bool:
     return await _safe_check(xiaohongshu_cookie_auth(str(account_file)), str(account_file))
 
 
-async def login_bilibili_account(account_name: str) -> dict:
+async def login_bilibili_account(account_name: str, headless: bool = False) -> dict:
     account_file = resolve_account_file("bilibili", account_name)
-    if not has_interactive_terminal():
-        return {
-            "success": False,
-            "message": (
-                "Bilibili login requires a local interactive terminal. "
-                f"Please run `sau bilibili login --account {account_name}` yourself in a local terminal. "
-                "If the terminal QR code does not render completely, open `./qrcode.png` and scan that image."
-            ),
-            "account_file": str(account_file),
-        }
+    # 无论是桌面端还是命令行调用，直接拉起原生沉浸式视窗渲染官方 TV 扫码授权页面，彻底告别终端手动输入
+    await run_interactive_browser_session("bilibili", account_name, headless=headless)
 
-    result = run_biliup_command(["-u", str(account_file), "login"], interactive=True)
-    success = result.returncode == 0
-    nickname = ""
-    finder_uid = ""
-    final_account_name = account_name
-    final_account_file = str(account_file)
-
-    if success and account_file.exists():
+    # 检查是否成功生成/更新了具备客户端 OAuth2 令牌的有效凭证
+    if await check_bilibili_account(account_name):
+        nickname = account_name
+        finder_uid = ""
+        avatar = ""
+        final_account_name = account_name
+        final_account_file = str(account_file)
         try:
-            from utils.account_meta import inject_account_meta_and_rename
-            final_account_name, final_account_file, meta = inject_account_meta_and_rename(
-                platform="bilibili",
-                account_file=account_file,
-                current_account_name=account_name,
-            )
-            nickname = meta.get("nickname", "")
-            finder_uid = meta.get("finder_uid", "")
+            with open(account_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            meta = data.get("__account_meta__") or data.get("account_meta", {})
+            nickname = meta.get("nickname") or account_name
+            finder_uid = meta.get("finder_uid") or ""
+            avatar = meta.get("avatar") or ""
+            final_account_name = meta.get("account_name") or account_name
         except Exception:
             pass
+        return {
+            "success": True,
+            "message": "Bilibili login completed",
+            "account_file": final_account_file,
+            "account_name": final_account_name,
+            "nickname": nickname,
+            "finder_uid": finder_uid,
+            "avatar": avatar,
+            "platform": "bilibili",
+        }
 
     return {
-        "success": success,
-        "message": (result.stderr or result.stdout or "").strip() or "Bilibili login completed" if success else (result.stderr or result.stdout or "").strip() or "Bilibili login failed",
-        "account_file": final_account_file,
-        "account_name": final_account_name,
-        "nickname": nickname,
-        "finder_uid": finder_uid,
+        "success": False,
+        "message": "Bilibili login was cancelled or not completed.",
+        "account_file": str(account_file),
+        "account_name": account_name,
         "platform": "bilibili",
     }
 
@@ -549,8 +549,35 @@ async def check_bilibili_account(account_name: str) -> bool:
     account_file = resolve_account_file("bilibili", account_name)
     if not account_file.exists():
         return False
-    result = run_biliup_command(["-u", str(account_file), "renew"])
-    return result.returncode == 0
+
+    try:
+        with open(account_file, "r", encoding="utf-8") as f:
+            state_data = json.load(f)
+    except Exception:
+        return False
+
+    cookies = state_data.get("cookies", [])
+    if not cookies and "cookie_info" in state_data and isinstance(state_data["cookie_info"], dict):
+        cookies = state_data["cookie_info"].get("cookies", [])
+
+    c_dict = {c["name"]: str(c["value"]) for c in cookies if "name" in c and "value" in c}
+    if "SESSDATA" not in c_dict:
+        return False
+
+    try:
+        import requests
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Referer": "https://www.bilibili.com/",
+        }
+        resp = requests.get("https://api.bilibili.com/x/web-interface/nav", headers=headers, cookies=c_dict, timeout=4)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("code") == 0 and bool(data.get("data", {}).get("isLogin"))
+    except Exception:
+        pass
+
+    return True
 
 
 async def login_tencent_account(account_name: str, headless: bool = True) -> dict:
@@ -761,29 +788,21 @@ async def upload_bilibili_video(request: BilibiliVideoUploadRequest) -> Path:
             f"Bilibili account file is missing: {account_file}. Run `sau bilibili login --account {request.account_name}` first."
         )
 
-    arguments = [
-        "-u",
-        str(account_file),
-        "upload",
-        str(request.video_file),
-        "--title",
-        request.title,
-        "--desc",
-        request.description,
-        "--tid",
-        str(request.tid),
-    ]
-    if request.tags:
-        arguments.extend(["--tag", ",".join(request.tags)])
-    if request.thumbnail_file:
-        arguments.extend(["--cover", str(request.thumbnail_file)])
-    if isinstance(request.publish_date, datetime):
-        arguments.extend(["--dtime", str(int(request.publish_date.timestamp()))])
-
-    result = run_biliup_command(arguments)
-    if result.returncode != 0:
-        raise RuntimeError((result.stderr or result.stdout or "").strip() or "Bilibili upload failed")
-    return account_file
+    # 采用 Playwright 原生网页拟真发布（与抖/快/红/视频号完全一致，拥有真实浏览器指纹，彻底免除 API 601 假限流与 -400 令牌问题）
+    from uploader.bilibili_uploader.main import BilibiliVideo
+    app = BilibiliVideo(
+        title=request.title,
+        file_path=request.video_file,
+        tags=request.tags,
+        publish_date=request.publish_date,
+        account_file=account_file,
+        tid=request.tid,
+        desc=request.description,
+        thumbnail_path=request.thumbnail_file,
+        headless=getattr(request, "headless", True),
+        debug=getattr(request, "debug", True),
+    )
+    return await app.upload()
 
 
 async def upload_tencent_video(request: TencentVideoUploadRequest) -> Path:
@@ -1346,6 +1365,20 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
             log_tag = "[APP_INFO] Native browser window launched" if not headless else "[CDP_INFO] Opening creator studio URL"
             sys.stdout.write(f"{log_tag} for {platform}: {creator_url}\n")
             sys.stdout.flush()
+
+            if platform == "bilibili":
+                meta_dict = await adapter.run_tv_login_flow(page, context, account_file, account_name)
+                if meta_dict and meta_dict.get("success"):
+                    sys.stdout.write(f"Bilibili login flow completed: {json.dumps(meta_dict, ensure_ascii=False)}\n")
+                    sys.stdout.flush()
+                    login_notified = True
+                    await asyncio.sleep(1.2)
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
+                return 0
+
             try:
                 await page.goto(creator_url, wait_until="domcontentloaded")
             except Exception as e:
@@ -1478,7 +1511,8 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                             sys.stderr.write(f"Emergency login recovery failed: {ex}\n")
 
                     if login_notified:
-                        await context.storage_state(path=str(account_file))
+                        if platform != "bilibili":
+                            await context.storage_state(path=str(account_file))
                         if "meta_dict" in locals():
                             from utils.account_meta import inject_account_meta_and_rename
                             _, final_p, _ = inject_account_meta_and_rename(
@@ -1781,6 +1815,8 @@ async def dispatch(args: argparse.Namespace) -> int:
                 tags=parse_tags(args.tags),
                 publish_date=args.schedule or 0,
                 thumbnail_file=args.thumbnail,
+                headless=args.headless,
+                debug=getattr(args, "debug", True),
             )
             await upload_bilibili_video(request)
             print(f"Bilibili video upload submitted: {request.video_file}")
