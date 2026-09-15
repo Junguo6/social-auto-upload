@@ -6,6 +6,7 @@
     top="4vh"
     align-center
     append-to-body
+    :before-close="handleBeforeClose"
     destroy-on-close
     class="cell-config-global-dialog"
   >
@@ -199,8 +200,8 @@
           <el-icon><Connection /></el-icon> 一键克隆同步到同平台其他账号
         </el-button>
         <div class="btn-group">
-          <el-button size="default" @click="visible = false">取消</el-button>
-          <el-button size="default" type="primary" class="gradient-btn" @click="visible = false">
+          <el-button size="default" @click="handleCancel">取消</el-button>
+          <el-button size="default" type="primary" class="gradient-btn" @click="handleSave">
             完成并保存微调
           </el-button>
         </div>
@@ -253,21 +254,88 @@ const visible = computed({
 // 是否全屏展示状态
 const isFullscreen = ref(false)
 
-// 标记为已定制
-const handleDirty = () => {
-  if (props.cellData?.cell) {
-    props.cellData.cell.isCustomized = true
+// 记录打开弹窗时的原始快照深拷贝，用于取消时原样回退
+let originalSnapshot: string | null = null
+let isSaved = false
+
+// 打开弹窗时记录初始状态快照
+watch(
+  () => props.modelValue,
+  (isOpen) => {
+    if (isOpen && props.cellData?.cell) {
+      isSaved = false
+      originalSnapshot = JSON.stringify({
+        customTitle: props.cellData.cell.customTitle || '',
+        customSchedule: props.cellData.cell.customSchedule || '',
+        scheduleMode: props.cellData.cell.scheduleMode || 'inherit',
+        enabled: props.cellData.cell.enabled !== false,
+        isCustomized: !!props.cellData.cell.isCustomized,
+        override: JSON.parse(JSON.stringify(props.cellData.cell.override || {}))
+      })
+    }
+  },
+  { immediate: true }
+)
+
+// 判断是否有实质性的专属定制内容
+const hasActiveCustomization = (cell: MatrixCellConfig): boolean => {
+  if (cell.customTitle && cell.customTitle.trim()) return true
+  if (cell.override?.desc && cell.override.desc.trim()) return true
+  if (cell.override?.tags && cell.override.tags.trim()) return true
+  if (cell.scheduleMode && cell.scheduleMode !== 'inherit') return true
+  
+  // 平台专属字段是否被定制
+  const ov = cell.override
+  if (ov) {
+    if (ov.collection || ov.productTitle || ov.productLink || ov.shortTitle || ov.category || ov.draft) return true
+    if (ov.declaration && ov.declaration !== '1' && ov.declaration !== '') return true
   }
+  return false
 }
 
-// 深度监听单元格专属配置，自动标记为已定制
-watch(
-  () => props.cellData?.cell?.override,
-  () => {
-    handleDirty()
-  },
-  { deep: true }
-)
+// 标记为已修改 (用户显式输入时)
+const handleDirty = () => {
+  // 仅作为标记，实际状态在 handleSave 时精确判定
+}
+
+// 确认并保存微调
+const handleSave = () => {
+  if (props.cellData?.cell) {
+    isSaved = true
+    const hasCustom = hasActiveCustomization(props.cellData.cell)
+    props.cellData.cell.isCustomized = hasCustom
+    if (hasCustom) {
+      ElMessage.success('已保存个性化微调配置')
+    } else {
+      ElMessage.info('未检测到实质专属改动，已保持实时继承全局')
+    }
+  }
+  visible.value = false
+}
+
+// 取消编辑并完全还原初始快照
+const handleCancel = () => {
+  if (!isSaved && originalSnapshot && props.cellData?.cell) {
+    try {
+      const restored = JSON.parse(originalSnapshot)
+      props.cellData.cell.customTitle = restored.customTitle
+      props.cellData.cell.customSchedule = restored.customSchedule
+      props.cellData.cell.scheduleMode = restored.scheduleMode
+      props.cellData.cell.enabled = restored.enabled
+      props.cellData.cell.isCustomized = restored.isCustomized
+      if (restored.override && props.cellData.cell.override) {
+        Object.assign(props.cellData.cell.override, restored.override)
+      }
+    } catch (e) {}
+  }
+  visible.value = false
+}
+
+// 弹窗关闭前拦截
+const handleBeforeClose = (done: () => void) => {
+  handleCancel()
+  done()
+}
 
 // 一键复制继承原值到覆盖输入框
 const copyInheritedToOverride = () => {

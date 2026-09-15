@@ -390,30 +390,69 @@ class BilibiliVideo(BaseVideoUploader):
         """等待视频分片上传全部完成"""
         bilibili_logger.info(_msg("⏳", "正在监控视频上传进度，等待服务端接收完成..."))
         start_time = asyncio.get_event_loop().time()
+        last_progress = ""
 
         while True:
             elapsed = asyncio.get_event_loop().time() - start_time
             if elapsed > timeout_seconds:
                 raise TimeoutError(f"视频上传超时 (超过 {timeout_seconds} 秒)")
 
-            # 消除可能弹出的遮罩
+            # 消除可能弹出的遮罩和引导气泡
             await self._clear_overlays(page)
 
-            # 检查是否已显示“上传完成”
-            done_indicator = page.locator('text="上传完成", text="重新上传", span:text("上传完成")')
-            if await done_indicator.count() > 0 and await done_indicator.first.is_visible():
-                bilibili_logger.info(_msg("🎉", "视频分片上传 100% 完成！"))
-                break
+            # 1. 精确指标一：检查是否存在并可见的“更换视频”按钮（上传完成后必定出现，且唯一性极高）
+            change_btn = page.locator('text="更换视频", button:has-text("更换视频"), span:has-text("更换视频")')
+            c_count = await change_btn.count()
+            if c_count > 0:
+                for idx in range(min(c_count, 3)):
+                    if await change_btn.nth(idx).is_visible():
+                        bilibili_logger.info(_msg("🎉", "检测到视频上传已完成（出现更换视频标识）！"))
+                        return
 
-            # 提取进度百分比输出日志
+            # 2. 精确指标二：遍历检查“上传完成”文本的可见性（避免 .first 取到不可见外层容器）
+            done_spans = page.locator('span:text-is("上传完成"), span.text:has-text("上传完成"), div:text-is("上传完成")')
+            count = await done_spans.count()
+            if count == 0:
+                done_spans = page.locator('span:has-text("上传完成"), div:has-text("上传完成")')
+                count = await done_spans.count()
+
+            for idx in range(min(count, 15)):
+                try:
+                    elem = done_spans.nth(idx)
+                    if await elem.is_visible():
+                        txt = (await elem.inner_text()).strip()
+                        if "上传完成" in txt and len(txt) <= 10:  # 确保是小标签，不是包含大量文字的外层大容器
+                            bilibili_logger.info(_msg("🎉", "视频分片上传 100% 完成！"))
+                            return
+                except Exception:
+                    pass
+
+            # 3. 检查是否有上传失败报错
+            fail_loc = page.locator('.upload-failed, [class*="upload-error"], text="上传失败"')
+            if await fail_loc.count() > 0:
+                for idx in range(min(await fail_loc.count(), 3)):
+                    if await fail_loc.nth(idx).is_visible():
+                        err_text = (await fail_loc.nth(idx).inner_text()).strip()
+                        raise RuntimeError(f"B站视频上传失败: {err_text}")
+
+            # 4. 提取进度百分比输出日志
             try:
-                progress_elem = page.locator('.progress-text, [class*="progress-num"], [class*="upload-progress"]').first
+                progress_elem = page.locator('.progress-text, [class*="progress-num"], [class*="upload-progress"], [class*="upload-status"]').first
                 if await progress_elem.count() > 0 and await progress_elem.is_visible():
                     p_text = (await progress_elem.inner_text()).strip()
-                    if p_text:
+                    if p_text and p_text != last_progress:
+                        last_progress = p_text
                         bilibili_logger.info(_msg("📤", f"上传进度: {p_text}"))
             except Exception:
                 pass
+
+            # 5. 智能兜底：B 站官方明确支持“信息填写后，就可投稿！不需等待上传完成”
+            # 若等待已超 30 秒，且底部的“立即投稿”按钮处于可见状态，可顺利推进至投稿
+            if elapsed > 30:
+                submit_btn = page.locator('button:text("立即投稿"), .submit-add, [class*="submit-btn"]')
+                if await submit_btn.count() > 0 and await submit_btn.first.is_visible():
+                    bilibili_logger.info(_msg("💡", "已达稳定上传状态（服务支持后台接收），准备进入投稿流程..."))
+                    return
 
             await asyncio.sleep(2)
 
