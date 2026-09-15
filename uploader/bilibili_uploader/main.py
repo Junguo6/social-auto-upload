@@ -366,12 +366,17 @@ class BilibiliVideo(BaseVideoUploader):
             await self._handle_schedule(page)
             await asyncio.sleep(0.5)
 
-        # 7. 上传封面 (若有自定义封面)
+        # 7. 处理封面 (优先自定义封面，若无则自动选取系统推荐封面)
+        await self._handle_cover(page)
+
+    async def _handle_cover(self, page: Page):
+        """处理视频封面：优先使用自定义封面，若无则自动等待并选取系统推荐截帧封面（默认第1张）"""
+        # 1. 若提供了自定义封面，优先上传
         if self.thumbnail_path and self.thumbnail_path.exists():
             bilibili_logger.info(_msg("🖼️", f"正在上传自定义封面: {self.thumbnail_path.name}"))
             try:
                 cover_uploader = page.locator(
-                    '.cover-upload, [class*="cover-upload"], div:text("更改封面"), div:text("上传封面")'
+                    '.cover-upload, [class*="cover-upload"], div:text("更改封面"), div:text("上传封面"), div:text("添加封面")'
                 ).first
                 if await cover_uploader.count() > 0 and await cover_uploader.is_visible():
                     async with page.expect_file_chooser(timeout=8000) as fc_info:
@@ -383,8 +388,30 @@ class BilibiliVideo(BaseVideoUploader):
                     if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
                         await confirm_btn.click(force=True)
                     bilibili_logger.info(_msg("✅", "自定义封面上传完成"))
+                    return
             except Exception as e:
-                bilibili_logger.warning(_msg("⚠️", f"自定义封面上传未成功: {e}，将使用系统截帧封面"))
+                bilibili_logger.warning(_msg("⚠️", f"自定义封面上传未成功: {e}，将尝试使用系统推荐封面"))
+
+        # 2. 智能检测并选择系统推荐截帧封面 (默认第 1 张)
+        bilibili_logger.info(_msg("🖼️", "检测到未配置自定义封面，正在检测系统推荐截帧封面..."))
+        for _ in range(12):
+            recommend_items = page.locator('.cover-recommend-list [class*="item"], .cover-recommend-list .img-item-box')
+            count = await recommend_items.count()
+            if count > 0:
+                # 遍历寻找第 1 张非 AI 生成的真实推荐截帧
+                for idx in range(count):
+                    item = recommend_items.nth(idx)
+                    txt = (await item.inner_text()).strip()
+                    if "AI" not in txt:
+                        bilibili_logger.info(_msg("🎯", f"已定位到系统推荐截帧封面 (共 {count} 张)，默认选择第 1 张截帧..."))
+                        await item.scroll_into_view_if_needed()
+                        await item.click(force=True)
+                        await asyncio.sleep(1)
+                        bilibili_logger.info(_msg("✅", "已成功选定系统推荐封面！"))
+                        return
+            await asyncio.sleep(1)
+
+        bilibili_logger.warning(_msg("⚠️", "未检测到系统推荐封面候选项，后续将再次尝试兜底"))
 
     async def _wait_for_upload_finish(self, page: Page, timeout_seconds: int = 900):
         """等待视频分片上传全部完成"""
@@ -550,8 +577,14 @@ class BilibiliVideo(BaseVideoUploader):
                 # 3. 等待视频分片上传 100% 完成
                 await self._wait_for_upload_finish(page)
 
-                # 4. 点击【立即投稿】按钮（强制消灭右下角遮挡气泡）
-                bilibili_logger.info(_msg("🚀", "视频上传完成，正在触发最终投递..."))
+                # 4. 投稿前封面再次核验与兜底（确保 B 站必填项封面已选定）
+                add_cover_btn = page.locator('text="添加封面", div:has-text("添加封面")')
+                if await add_cover_btn.count() > 0 and await add_cover_btn.first.is_visible():
+                    bilibili_logger.info(_msg("🖼️", "视频上传完成，正在再次核验并补充选定推荐封面..."))
+                    await self._handle_cover(page)
+
+                # 5. 点击【立即投稿】按钮（强制消灭右下角遮挡气泡）
+                bilibili_logger.info(_msg("🚀", "视频与元数据已就绪，正在触发最终投递..."))
                 await self._clear_overlays(page)
                 await asyncio.sleep(1)
 
@@ -567,28 +600,42 @@ class BilibiliVideo(BaseVideoUploader):
                 await asyncio.sleep(0.5)
                 await submit_btn.click(force=True)
 
-                # 5. 等待投递成功确认
+                # 6. 等待投递成功确认（精确校验，严防误判）
                 bilibili_logger.info(_msg("⏳", "正在确认投递结果..."))
                 success = False
                 for _ in range(25):
                     await asyncio.sleep(1)
-                    page_text = await page.content()
-                    if (
-                        "稿件投递成功" in page_text
-                        or "投稿成功" in page_text
-                        or "稿件管理" in page_text
-                        or "upload-manager" in page.url
-                    ):
+                    curr_url = page.url
+
+                    # 判定方式 1：页面发生真实跳转到稿件管理列表或投稿成功结果页
+                    if "upload-manager" in curr_url or "upload/success" in curr_url or "platform/upload-manager" in curr_url:
                         success = True
                         break
 
+                    # 判定方式 2：检测页面正文中弹出的明确投稿成功文本（避开左侧常驻侧边栏）
+                    success_elem = page.locator(
+                        'h1:has-text("稿件投递成功"), h2:has-text("稿件投递成功"), div:text-is("稿件投递成功"), .success-title, a:text("查看稿件")'
+                    )
+                    if await success_elem.count() > 0 and await success_elem.first.is_visible():
+                        success = True
+                        break
+
+                    # 实时捕获表单校验报错（如：请上传视频封面、标题不合规等），即时阻断
+                    err_box = page.locator('.error-tip, .bili-message-error, .toast-error, [class*="error-message"], [class*="error-tip"]')
+                    if await err_box.count() > 0:
+                        for e_idx in range(min(await err_box.count(), 3)):
+                            if await err_box.nth(e_idx).is_visible():
+                                err_msg = (await err_box.nth(e_idx).inner_text()).strip()
+                                if err_msg:
+                                    raise RuntimeError(f"B站表单校验未通过: {err_msg}")
+
                 if not success:
-                    # 若页面仍留在投稿页但有错误提示框，抓取错误
-                    err_box = page.locator('.error-tip, .bili-message-error, [class*="error-message"]')
+                    # 超时未确认成功，再次检查错误提示
+                    err_box = page.locator('.error-tip, .bili-message-error, .toast-error, [class*="error-message"], [class*="error-tip"]')
                     if await err_box.count() > 0 and await err_box.first.is_visible():
                         err_msg = (await err_box.first.inner_text()).strip()
                         raise RuntimeError(f"B站表单校验未通过: {err_msg}")
-                    bilibili_logger.warning(_msg("⚠️", "未检测到明确成功提示，根据页面跳转判定完成"))
+                    raise RuntimeError("B站投稿提交超时或未通过校验，页面未检测到投递成功跳转")
 
                 bilibili_logger.info(_msg("🎉", f"哔哩哔哩稿件发布成功: 《{self.title}》！"))
                 await asyncio.sleep(2)
