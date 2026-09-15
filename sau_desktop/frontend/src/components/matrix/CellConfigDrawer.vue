@@ -1,53 +1,65 @@
 <template>
   <el-dialog
     v-model="visible"
-    width="960px"
-    top="5vh"
+    :width="isFullscreen ? '100vw' : '1180px'"
+    :fullscreen="isFullscreen"
+    top="4vh"
     align-center
+    append-to-body
     destroy-on-close
-    class="cell-config-dialog"
+    class="cell-config-global-dialog"
   >
-    <!-- 自定义高质感标题栏 -->
+    <!-- 全局自适应高质感标题栏 -->
     <template #header>
       <div class="dialog-custom-header" v-if="cellData">
         <div class="header-left">
           <span class="plat-pill" :style="{ background: getPlatformColor(cellData.platform) }">
             {{ getPlatformName(cellData.platform) }}
           </span>
-          <span class="header-title">渠道发布定制 · @{{ cellData.nickname || cellData.account }}</span>
+          <span class="header-title">全局发布微调 · @{{ cellData.nickname || cellData.account }}</span>
+          <el-tag :type="cellData.cell.enabled ? 'success' : 'info'" size="small" class="status-tag">
+            {{ cellData.cell.enabled ? '已激活本通道' : '跳过不发布' }}
+          </el-tag>
         </div>
         <div class="header-right">
           <div class="banner-media-info">
             <el-icon class="media-icon"><Film /></el-icon>
             <span class="media-name" :title="cellData.mediaName">{{ cellData.mediaName }}</span>
           </div>
-          <el-tag :type="cellData.cell.enabled ? 'success' : 'info'" size="small" class="status-tag">
-            {{ cellData.cell.enabled ? '已启用发布' : '暂停不发布' }}
-          </el-tag>
+          <el-tooltip :content="isFullscreen ? '退出全屏' : '全屏展开'" placement="bottom">
+            <el-button
+              circle
+              size="small"
+              class="fullscreen-toggle-btn"
+              @click="isFullscreen = !isFullscreen"
+            >
+              <el-icon><FullScreen /></el-icon>
+            </el-button>
+          </el-tooltip>
         </div>
       </div>
     </template>
 
-    <!-- 双栏开阔内容区 (告别单列抽屉局促感) -->
+    <!-- 双栏开阔全局工作台 (彻底告别单列抽屉狭小局促感) -->
     <div v-if="cellData" class="dialog-body custom-scrollbar">
       <div class="dialog-two-columns">
-        <!-- 左栏：继承基线、状态与发布时机 (占 38%) -->
+        <!-- 左栏：继承对照基准与排期策略 (占 36%) -->
         <div class="column-left">
-          <!-- 1. 全局继承原值实时对照卡片 -->
+          <!-- 1. 全局继承基准卡片 -->
           <div class="inherited-context-card">
             <div class="context-header">
               <div class="context-title">
                 <el-icon><CopyDocument /></el-icon>
-                <span>全局继承基准</span>
+                <span>全局继承基准预演</span>
               </div>
               <el-button size="small" link type="primary" class="copy-btn" @click="copyInheritedToOverride">
-                <el-icon><DocumentCopy /></el-icon> 一键带入微调
+                <el-icon><DocumentCopy /></el-icon> 一键带入原值微调
               </el-button>
             </div>
             <div class="context-body">
               <div class="context-item">
                 <span class="c-label">继承标题:</span>
-                <span class="c-val" :title="cellData.inheritedTitle">{{ cellData.inheritedTitle || '无标题' }}</span>
+                <span class="c-val text-bold" :title="cellData.inheritedTitle">{{ cellData.inheritedTitle || '无标题' }}</span>
               </div>
               <div class="context-item" v-if="cellData.inheritedDesc">
                 <span class="c-label">继承正文:</span>
@@ -55,7 +67,7 @@
               </div>
               <div class="context-item" v-if="cellData.inheritedTags">
                 <span class="c-label">继承标签:</span>
-                <span class="c-val">{{ cellData.inheritedTags }}</span>
+                <span class="c-val tag-cloud">{{ cellData.inheritedTags }}</span>
               </div>
               <div class="context-item">
                 <span class="c-label">预计排期:</span>
@@ -64,14 +76,14 @@
             </div>
           </div>
 
-          <!-- 2. 发布通道状态与时机控制 -->
+          <!-- 2. 发布通道激活状态与排期策略 -->
           <div class="config-section">
             <div class="section-title">
               <el-icon><Timer /></el-icon>
-              <span>发布状态与排期策略</span>
+              <span>发布通道与排期策略</span>
             </div>
             <div class="field-row">
-              <span class="field-label">启用该通道发布:</span>
+              <span class="field-label">启用该账号发布:</span>
               <el-switch
                 v-model="cellData.cell.enabled"
                 active-text="启用"
@@ -92,7 +104,7 @@
               <el-date-picker
                 v-model="cellData.cell.customSchedule"
                 type="datetime"
-                placeholder="选择该账号专属定时时间"
+                placeholder="选择该账号专属定时发布时间"
                 value-format="YYYY-MM-DD HH:mm"
                 size="small"
                 style="width: 100%;"
@@ -102,14 +114,14 @@
           </div>
         </div>
 
-        <!-- 右栏：专属文案微调与平台专属特性 (占 62%) -->
+        <!-- 右栏：专属文案与平台高级专属特性 (占 64%) -->
         <div class="column-right">
-          <!-- 3. 专属标题与文案微调 -->
+          <!-- 3. 专属标题与正文文案微调 -->
           <div class="config-section" v-if="cellData.cell.enabled">
             <div class="section-title-row">
               <div class="section-title">
                 <el-icon><EditPen /></el-icon>
-                <span>专属标题与文案微调</span>
+                <span>专属标题与正文文案微调</span>
               </div>
               <el-button v-if="cellData.cell.isCustomized" size="small" link type="warning" @click="resetToInherit">
                 恢复继承全局
@@ -119,13 +131,13 @@
             <div class="field-col">
               <div class="label-with-hint">
                 <span class="field-label">专属稿件标题:</span>
-                <span class="field-hint">留空则自动继承全局标题</span>
+                <span class="field-hint">留空则自动继承全局统一标题</span>
               </div>
               <el-input
                 v-model="cellData.cell.customTitle"
-                placeholder="针对该账号微调后的个性化标题..."
+                placeholder="输入该账号独立微调标题..."
                 clearable
-                size="small"
+                size="default"
                 @input="handleDirty"
               />
             </div>
@@ -133,14 +145,14 @@
             <div class="field-col">
               <div class="label-with-hint">
                 <span class="field-label">专属正文简介描述:</span>
-                <span class="field-hint">留空则继承全局简介正文</span>
+                <span class="field-hint">留空则继承全局统一文案</span>
               </div>
               <el-input
                 v-model="cellData.cell.override.desc"
                 type="textarea"
-                :rows="3"
-                placeholder="针对该账号个性化微调的文案、话术、引导语或口播词..."
-                size="small"
+                :rows="4"
+                placeholder="针对该账号个性化微调的文案、话术、引导语或专属口播词..."
+                size="default"
                 @input="handleDirty"
               />
             </div>
@@ -148,45 +160,47 @@
             <div class="field-col">
               <div class="label-with-hint">
                 <span class="field-label">专属话题标签:</span>
-                <span class="field-hint">逗号分隔</span>
+                <span class="field-hint">多个标签用逗号分隔</span>
               </div>
               <el-input
                 v-model="cellData.cell.override.tags"
                 placeholder="如：专属话题A, 专属话题B"
                 clearable
-                size="small"
+                size="default"
                 @input="handleDirty"
               />
             </div>
           </div>
 
-          <!-- 4. 平台专属高级特性 (组件化一体复用) -->
+          <!-- 4. 平台专属高级特性 (组件化全局复用) -->
           <div class="config-section" v-if="cellData.cell.enabled">
             <div class="section-title">
               <el-icon><Setting /></el-icon>
               <span>{{ getPlatformName(cellData.platform) }} 平台专属高级特性</span>
-              <span class="sub-hint">(必填分区或平台独有合规设置)</span>
+              <span class="sub-hint">(必填主分区、版权合规声明与平台专属控制)</span>
             </div>
 
-            <TencentForm v-if="cellData.platform === 'tencent'" :override="cellData.cell.override" />
-            <BilibiliForm v-else-if="cellData.platform === 'bilibili'" :override="cellData.cell.override" />
-            <DouyinForm v-else-if="cellData.platform === 'douyin'" :override="cellData.cell.override" />
-            <XiaohongshuForm v-else-if="cellData.platform === 'xiaohongshu'" :override="cellData.cell.override" />
-            <GenericForm v-else :override="cellData.cell.override" />
+            <div class="platform-form-wrapper">
+              <TencentForm v-if="cellData.platform === 'tencent'" :override="cellData.cell.override" />
+              <BilibiliForm v-else-if="cellData.platform === 'bilibili'" :override="cellData.cell.override" />
+              <DouyinForm v-else-if="cellData.platform === 'douyin'" :override="cellData.cell.override" />
+              <XiaohongshuForm v-else-if="cellData.platform === 'xiaohongshu'" :override="cellData.cell.override" />
+              <GenericForm v-else :override="cellData.cell.override" />
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 底部操作栏 -->
+    <!-- 底部全局操作栏 -->
     <template #footer>
       <div class="dialog-footer">
         <el-button size="small" type="primary" link @click="$emit('open-sync')">
           <el-icon><Connection /></el-icon> 一键克隆同步到同平台其他账号
         </el-button>
         <div class="btn-group">
-          <el-button size="small" @click="visible = false">取消</el-button>
-          <el-button size="small" type="primary" class="gradient-btn-sm" @click="visible = false">
+          <el-button size="default" @click="visible = false">取消</el-button>
+          <el-button size="default" type="primary" class="gradient-btn" @click="visible = false">
             完成并保存微调
           </el-button>
         </div>
@@ -196,12 +210,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPlatformConfig } from '../../config/platforms'
 import type { MatrixCellConfig } from '../../types/matrix'
 
-// 平台专属表单子组件 (与矩阵定制卡片完全复用同一套组件与校验规范)
+// 平台专属表单子组件
 import TencentForm from './platforms/TencentForm.vue'
 import DouyinForm from './platforms/DouyinForm.vue'
 import BilibiliForm from './platforms/BilibiliForm.vue'
@@ -235,6 +249,9 @@ const visible = computed({
   get: () => props.modelValue,
   set: (val) => emit('update:modelValue', val)
 })
+
+// 是否全屏展示状态
+const isFullscreen = ref(false)
 
 // 标记为已定制
 const handleDirty = () => {
@@ -290,29 +307,31 @@ const getPlatformColor = (platId?: string): string => {
 </script>
 
 <style scoped>
-:deep(.el-dialog.cell-config-dialog) {
+/* 全局挂载 Dialog 顶层样式 */
+:deep(.el-dialog.cell-config-global-dialog) {
   border-radius: 16px;
   overflow: hidden;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.36);
+  transition: all 0.25s ease-in-out;
 }
 
 :deep(.el-dialog__header) {
   margin: 0;
-  padding: 16px 22px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-detail);
 }
 
 :deep(.el-dialog__body) {
-  padding: 20px 22px;
-  max-height: 78vh;
+  padding: 22px 26px;
+  max-height: 80vh;
   overflow-y: auto;
 }
 
 :deep(.el-dialog__footer) {
-  padding: 14px 22px;
+  padding: 14px 26px;
   border-top: 1px solid var(--border-subtle);
   background: var(--bg-detail);
 }
@@ -323,26 +342,27 @@ const getPlatformColor = (platId?: string): string => {
   justify-content: space-between;
   align-items: center;
   width: 100%;
-  padding-right: 24px;
+  padding-right: 28px;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .plat-pill {
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: 20px;
   color: #fff;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.5px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 
 .header-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-main);
 }
@@ -350,39 +370,52 @@ const getPlatformColor = (platId?: string): string => {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .banner-media-info {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: 13px;
   color: var(--text-secondary);
   background: var(--bg-card);
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 8px;
   border: 1px solid var(--border-subtle);
 }
 
 .media-icon {
   color: var(--primary-color);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .media-name {
-  max-width: 220px;
+  max-width: 280px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 600;
 }
 
-/* 双栏网格开阔排版 */
+.fullscreen-toggle-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.fullscreen-toggle-btn:hover {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+/* 双栏开阔网格排版 */
 .dialog-two-columns {
   display: grid;
-  grid-template-columns: 360px 1fr;
-  gap: 18px;
+  grid-template-columns: 380px 1fr;
+  gap: 22px;
   align-items: start;
 }
 
@@ -390,7 +423,7 @@ const getPlatformColor = (platId?: string): string => {
 .column-right {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 /* 继承原值对照卡片 */
@@ -398,10 +431,10 @@ const getPlatformColor = (platId?: string): string => {
   background: rgba(99, 102, 241, 0.05);
   border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: 12px;
-  padding: 14px 16px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .context-header {
@@ -411,7 +444,7 @@ const getPlatformColor = (platId?: string): string => {
 }
 
 .context-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--primary-color);
   display: flex;
@@ -420,17 +453,17 @@ const getPlatformColor = (platId?: string): string => {
 }
 
 .copy-btn {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
 .context-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  font-size: 12px;
+  gap: 10px;
+  font-size: 13px;
   background: var(--bg-card);
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: 8px;
   border: 1px solid var(--border-subtle);
 }
@@ -438,13 +471,13 @@ const getPlatformColor = (platId?: string): string => {
 .context-item {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
 }
 
 .c-label {
   color: var(--text-muted);
   font-weight: 600;
-  width: 58px;
+  width: 65px;
   flex-shrink: 0;
 }
 
@@ -452,6 +485,11 @@ const getPlatformColor = (platId?: string): string => {
   color: var(--text-main);
   flex: 1;
   word-break: break-all;
+  line-height: 1.5;
+}
+
+.text-bold {
+  font-weight: 600;
 }
 
 .text-clamp-3 {
@@ -459,6 +497,11 @@ const getPlatformColor = (platId?: string): string => {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.tag-cloud {
+  color: var(--primary-color);
+  font-family: monospace;
 }
 
 .timing-text {
@@ -471,10 +514,10 @@ const getPlatformColor = (platId?: string): string => {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
-  padding: 16px 18px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .section-title-row {
@@ -484,7 +527,7 @@ const getPlatformColor = (platId?: string): string => {
 }
 
 .section-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-main);
   display: flex;
@@ -502,7 +545,7 @@ const getPlatformColor = (platId?: string): string => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .field-col {
@@ -518,7 +561,7 @@ const getPlatformColor = (platId?: string): string => {
 }
 
 .field-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   font-weight: 600;
 }
@@ -526,6 +569,13 @@ const getPlatformColor = (platId?: string): string => {
 .field-hint {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.platform-form-wrapper {
+  background: var(--bg-detail);
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
 }
 
 .dialog-footer {
@@ -538,12 +588,13 @@ const getPlatformColor = (platId?: string): string => {
 .btn-group {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
-.gradient-btn-sm {
+.gradient-btn {
   background: linear-gradient(135deg, var(--primary-color) 0%, #4f46e5 100%);
   border: none;
   font-weight: 600;
+  padding: 8px 20px;
 }
 </style>
