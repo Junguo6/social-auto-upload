@@ -152,7 +152,7 @@
         </div>
       </div>
 
-      <!-- 5. 平台专属特性参数 (必填与特色特性) -->
+      <!-- 5. 平台专属特性参数 (组件化复用) -->
       <div class="config-section" v-if="cellData.cell.enabled">
         <div class="section-title">
           <el-icon><Setting /></el-icon>
@@ -160,98 +160,11 @@
           <span class="sub-hint">(必填或平台独有能力)</span>
         </div>
 
-        <!-- Bilibili 专属分区 -->
-        <div v-if="cellData.platform === 'bilibili'" class="platform-specific-box">
-          <div class="field-row">
-            <span class="field-label">B站投稿分区 ID <span style="color:var(--status-danger)">*</span>:</span>
-            <el-select v-model="cellData.cell.override.tid" size="small" style="width: 200px;" @change="handleDirty">
-              <el-option :value="230" label="科技 (230)" />
-              <el-option :value="171" label="电子竞技 (171)" />
-              <el-option :value="21" label="日常 (21)" />
-              <el-option :value="188" label="数码 (188)" />
-              <el-option :value="138" label="搞笑 (138)" />
-              <el-option :value="76" label="美食 (76)" />
-              <el-option :value="160" label="生活 (160)" />
-            </el-select>
-          </div>
-          <div class="field-row">
-            <span class="field-label">作品可见性:</span>
-            <el-select v-model="cellData.cell.override.visibility" size="small" style="width: 160px;" @change="handleDirty">
-              <el-option value="public" label="公开" />
-              <el-option value="unlisted" label="仅链接可见" />
-              <el-option value="private" label="私密" />
-            </el-select>
-          </div>
-        </div>
-
-        <!-- 腾讯微信视频号专属 -->
-        <div v-else-if="cellData.platform === 'tencent'" class="platform-specific-box">
-          <div class="field-row">
-            <span class="field-label">存为草稿箱 (不直接公开发布):</span>
-            <el-switch v-model="cellData.cell.override.draft" active-text="存为草稿" inactive-text="立即发布" @change="handleDirty" />
-          </div>
-          <div class="field-col">
-            <span class="field-label">视频号短标题 (≤16字):</span>
-            <el-input
-              v-model="cellData.cell.override.shortTitle"
-              placeholder="微信卡片转发时展示的短标题"
-              maxlength="16"
-              size="small"
-              @input="handleDirty"
-            />
-          </div>
-          <div class="field-col">
-            <span class="field-label">原创分类:</span>
-            <el-input
-              v-model="cellData.cell.override.category"
-              placeholder="如：科技互联网、短剧、教育科普"
-              size="small"
-              @input="handleDirty"
-            />
-          </div>
-        </div>
-
-        <!-- 抖音专属带货与合集 -->
-        <div v-else-if="cellData.platform === 'douyin'" class="platform-specific-box">
-          <div class="field-col">
-            <span class="field-label">挂载抖音合集:</span>
-            <el-input
-              v-model="cellData.cell.override.collection"
-              placeholder="输入已有抖音合集名称"
-              size="small"
-              @input="handleDirty"
-            />
-          </div>
-          <div class="field-col">
-            <span class="field-label">小黄车商品短标题:</span>
-            <el-input
-              v-model="cellData.cell.override.productTitle"
-              placeholder="商品短标题"
-              size="small"
-              @input="handleDirty"
-            />
-          </div>
-          <div class="field-col">
-            <span class="field-label">小黄车商品链接:</span>
-            <el-input
-              v-model="cellData.cell.override.productLink"
-              placeholder="https://haohuo.jinritemai.com/..."
-              size="small"
-              @input="handleDirty"
-            />
-          </div>
-        </div>
-
-        <!-- 通用合规声明与指引 -->
-        <div class="field-col" style="margin-top: 10px;">
-          <span class="field-label">原创 / AI内容合规声明:</span>
-          <el-input
-            v-model="cellData.cell.override.declaration"
-            placeholder="如：该内容由AI生成，或本视频为原创"
-            size="small"
-            @input="handleDirty"
-          />
-        </div>
+        <TencentForm v-if="cellData.platform === 'tencent'" :override="cellData.cell.override" />
+        <BilibiliForm v-else-if="cellData.platform === 'bilibili'" :override="cellData.cell.override" />
+        <DouyinForm v-else-if="cellData.platform === 'douyin'" :override="cellData.cell.override" />
+        <XiaohongshuForm v-else-if="cellData.platform === 'xiaohongshu'" :override="cellData.cell.override" />
+        <GenericForm v-else :override="cellData.cell.override" />
       </div>
     </div>
 
@@ -272,10 +185,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPlatformConfig } from '../../config/platforms'
 import type { MatrixCellConfig } from '../../types/matrix'
+
+// 平台专属表单子组件 (与矩阵定制卡片完全复用同一套组件与校验规范)
+import TencentForm from './platforms/TencentForm.vue'
+import DouyinForm from './platforms/DouyinForm.vue'
+import BilibiliForm from './platforms/BilibiliForm.vue'
+import XiaohongshuForm from './platforms/XiaohongshuForm.vue'
+import GenericForm from './platforms/GenericForm.vue'
 
 export interface CellDataWrap {
   mediaId: string
@@ -318,6 +238,15 @@ const handleDirty = () => {
     props.cellData.cell.isCustomized = true
   }
 }
+
+// 深度监听单元格专属配置，自动标记为已定制
+watch(
+  () => props.cellData?.cell?.override,
+  () => {
+    handleDirty()
+  },
+  { deep: true }
+)
 
 // 一键复制继承原值到覆盖输入框
 const copyInheritedToOverride = () => {
