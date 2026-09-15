@@ -131,16 +131,20 @@ export const PLATFORMS: PlatformConfig[] = [
   */
 ]
 
-// B站常用分区字典
+// B站常用分区字典 (严格对齐 B站创作者服务平台最新级联分类)
 export const BILIBILI_PARTITIONS = [
-  { id: 230, name: '科技 - 软件应用/计算机技术' },
-  { id: 122, name: '科技 - 野生技术协会' },
+  { id: 230, name: '科技数码 - 软件应用 / 计算机技术' },
+  { id: 122, name: '科技数码 - 野生技术协会' },
+  { id: 240, name: '人工智能 - 创新应用 / 前沿探索' },
   { id: 171, name: '游戏 - 电子竞技' },
-  { id: 21, name: '生活 - 日常' },
-  { id: 138, name: '生活 - 搞笑' },
-  { id: 163, name: '生活 - 美食制作' },
+  { id: 17,  name: '游戏 - 单机游戏' },
+  { id: 21,  name: '生活经验 - 日常生活' },
+  { id: 138, name: '生活经验 - 搞笑趣味' },
+  { id: 163, name: '美食 - 美食制作' },
   { id: 217, name: '知识 - 科学科普' },
-  { id: 201, name: '知识 - 商业财经' }
+  { id: 201, name: '知识 - 商业财经' },
+  { id: 157, name: '影视 - 影视剪辑' },
+  { id: 130, name: '音乐 - 音乐综合' }
 ]
 
 export const getPlatformConfig = (id: string): PlatformConfig => {
