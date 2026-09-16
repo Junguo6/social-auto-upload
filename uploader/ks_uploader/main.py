@@ -36,6 +36,64 @@ def _msg(emoji: str, text: str) -> str:
     return f"{emoji} {text}"
 
 
+async def _human_delay(min_sec: float = 0.8, max_sec: float = 2.2) -> float:
+    """产生带有正态扰动的真实人类随机停留延迟，打破脚本固定间隔规律。"""
+    import random
+    delay = random.uniform(min_sec, max_sec)
+    await asyncio.sleep(delay)
+    return delay
+
+
+async def _native_click(page, locator) -> bool:
+    """对元素做"真实人类级"点击：
+    1. 动态生成按钮区域内的随机偏心坐标 (避免每次落在同一个像素点)
+    2. 物理鼠标轨迹移动
+    3. 带有微幅随机时间差的物理点击与底层 Event 链
+    """
+    import random
+    try:
+        await locator.scroll_into_view_if_needed(timeout=5000)
+    except Exception:
+        pass
+    try:
+        box = await locator.bounding_box()
+    except Exception:
+        box = None
+    if not box:
+        try:
+            await locator.click(timeout=8000)
+            return True
+        except Exception:
+            return False
+
+    # 概率偏心打点：在元素的 20%~80% 内部区域随机取坐标，绝不固定落在 0.00 中心点
+    offset_x = (random.random() - 0.5) * (box["width"] * 0.5)
+    offset_y = (random.random() - 0.5) * (box["height"] * 0.5)
+    x = box["x"] + box["width"] / 2 + offset_x
+    y = box["y"] + box["height"] / 2 + offset_y
+
+    try:
+        await page.mouse.move(x, y)
+        await asyncio.sleep(random.uniform(0.1, 0.3))
+        await page.mouse.click(x, y)
+        await asyncio.sleep(random.uniform(0.15, 0.35))
+        await page.evaluate(
+            """({x, y}) => {
+                const el = document.elementFromPoint(x, y);
+                if (!el) return;
+                const opts = {bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:1};
+                for (const t of ['pointerover','pointerenter','pointerdown','mousedown','pointerup','mouseup','click']) {
+                    const C = t.startsWith('pointer') ? PointerEvent : MouseEvent;
+                    try { el.dispatchEvent(new C(t, opts)); } catch(e){ try{ el.dispatchEvent(new MouseEvent(t,opts)); }catch(_){} }
+                }
+            }""",
+            {"x": x, "y": y},
+        )
+        return True
+    except Exception:
+        return False
+
+
 async def _dump_page_debug(page, tag: str) -> str:
     """出错时保存整页截图 + 当前 HTML，返回保存目录，便于对照新 DOM 修选择器。"""
     import time
@@ -723,10 +781,21 @@ class KSVideo(KSBaseUploader):
             await page.keyboard.type(self.desc or self.title)
             await page.keyboard.press("Enter")
 
-            for index, tag in enumerate(self.tags[:3], start=1):
+            max_tags = 5
+            for index, tag in enumerate(self.tags[:max_tags], start=1):
                 kuaishou_logger.info(_msg("🏷️", f"小人正在添加第 {index} 个话题: #{tag}"))
-                await page.keyboard.type(f"#{tag} ")
-                await asyncio.sleep(2)
+                try:
+                    await page.keyboard.type(f"#{tag}", delay=30)
+                    await asyncio.sleep(1)
+                    topic_option = page.locator("div[class*='topic'], div[class*='option'], div.ant-select-item-option").first
+                    if await topic_option.count() and await topic_option.is_visible():
+                        await _native_click(page, topic_option)
+                    else:
+                        await page.keyboard.press("Space")
+                except Exception as exc:
+                    kuaishou_logger.warning(_msg("🏷️", f"话题『{tag}』选中重试: {exc}"))
+                    await page.keyboard.press("Space")
+                await asyncio.sleep(1)
 
             max_retries = 60
             retry_count = 0
@@ -759,25 +828,33 @@ class KSVideo(KSBaseUploader):
             if self.publish_strategy == KUAISHOU_PUBLISH_STRATEGY_SCHEDULED and self.publish_date != 0:
                 await self.set_schedule_time(page, self.publish_date)
 
-            while True:
+            max_pub_attempts = 25
+            pub_attempts = 0
+            while pub_attempts < max_pub_attempts:
+                pub_attempts += 1
                 try:
-                    publish_button = page.get_by_text("发布", exact=True)
-                    if await publish_button.count() > 0:
-                        await publish_button.click()
+                    publish_button = page.get_by_text("发布", exact=True).first
+                    if not await publish_button.count():
+                        publish_button = page.locator("button[class*='publish-btn'], button:has-text('发布')").first
+                    if await publish_button.count() > 0 and await publish_button.is_visible():
+                        await _native_click(page, publish_button)
 
                     await asyncio.sleep(1)
-                    confirm_button = page.get_by_text("确认发布")
-                    if await confirm_button.count() > 0:
-                        await confirm_button.click()
+                    confirm_button = page.get_by_text("确认发布").first
+                    if await confirm_button.count() > 0 and await confirm_button.is_visible():
+                        await _native_click(page, confirm_button)
 
                     await page.wait_for_url(KUAISHOU_MANAGE_URL_PATTERN, timeout=5000)
                     kuaishou_logger.success(_msg("🥳", "视频发布成功，小人开心收工"))
                     break
                 except Exception as exc:
-                    kuaishou_logger.info(_msg("🏃", f"小人正在冲刺发布视频: {exc}"))
+                    kuaishou_logger.info(_msg("🏃", f"小人正在冲刺发布视频 (第 {pub_attempts}/{max_pub_attempts} 次): {exc}"))
                     if self.debug:
                         await page.screenshot(full_page=True)
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(1.5)
+
+            if pub_attempts >= max_pub_attempts:
+                raise RuntimeError("快手视频发布超时，未能完成发布跳转，请检查是否有敏感词或合规校验拦截")
 
             upload_success = True
         finally:
@@ -898,25 +975,33 @@ class KSNote(KSBaseUploader):
         if self.publish_strategy == KUAISHOU_PUBLISH_STRATEGY_SCHEDULED and self.publish_date != 0:
             await self.set_schedule_time(page, self.publish_date)
 
-        while True:
+        max_pub_attempts = 25
+        pub_attempts = 0
+        while pub_attempts < max_pub_attempts:
+            pub_attempts += 1
             try:
-                publish_button = page.get_by_text("发布", exact=True)
-                if await publish_button.count() > 0:
-                    await publish_button.click()
+                publish_button = page.get_by_text("发布", exact=True).first
+                if not await publish_button.count():
+                    publish_button = page.locator("button[class*='publish-btn'], button:has-text('发布')").first
+                if await publish_button.count() > 0 and await publish_button.is_visible():
+                    await _native_click(page, publish_button)
 
                 await asyncio.sleep(1)
-                confirm_button = page.get_by_text("确认发布")
-                if await confirm_button.count() > 0:
-                    await confirm_button.click()
+                confirm_button = page.get_by_text("确认发布").first
+                if await confirm_button.count() > 0 and await confirm_button.is_visible():
+                    await _native_click(page, confirm_button)
 
                 await page.wait_for_url(KUAISHOU_MANAGE_URL_PATTERN, timeout=5000)
                 kuaishou_logger.success(_msg("🥳", "图文发布成功，小人开心收工"))
                 break
             except Exception as exc:
-                kuaishou_logger.info(_msg("🏃", f"小人正在冲刺发布图文: {exc}"))
+                kuaishou_logger.info(_msg("🏃", f"小人正在冲刺发布图文 (第 {pub_attempts}/{max_pub_attempts} 次): {exc}"))
                 if self.debug:
                     await page.screenshot(full_page=True)
-                await asyncio.sleep(1)
+                await asyncio.sleep(1.5)
+
+        if pub_attempts >= max_pub_attempts:
+            raise RuntimeError("快手图文发布超时，未能完成发布跳转，请检查是否有敏感词或合规校验拦截")
 
     async def upload(self, playwright: Playwright) -> None:
         kuaishou_logger.info(_msg("🧍", "小人先检查 cookie、图片和发布时间"))
