@@ -64,6 +64,80 @@ async def _js_click_by_text(page: Page, text: str) -> bool:
     )
 
 
+async def _human_delay(min_sec: float = 0.8, max_sec: float = 2.2) -> float:
+    """产生带有正态扰动的真实人类随机停留延迟，打破脚本固定间隔规律。"""
+    import random
+    delay = random.uniform(min_sec, max_sec)
+    await asyncio.sleep(delay)
+    return delay
+
+
+async def _simulate_human_mouse_movement(page: Page, target_x: float, target_y: float, steps: int = 5) -> None:
+    """在点击目标前模拟人类鼠标平滑轨迹移动，规避小红书反自动化轨迹检测。"""
+    try:
+        import random
+        for i in range(1, steps + 1):
+            t = i / steps
+            offset_x = random.randint(-10, 10) * (1 - t)
+            offset_y = random.randint(-10, 10) * (1 - t)
+            curr_x = target_x * t + offset_x
+            curr_y = target_y * t + offset_y
+            await page.mouse.move(curr_x, curr_y)
+            await asyncio.sleep(0.02)
+        await page.mouse.move(target_x, target_y)
+    except Exception:
+        pass
+
+
+async def _native_click(page: Page, locator) -> bool:
+    """对元素做"真实人类级"点击：
+    1. 动态生成按钮区域内的随机偏心坐标 (避免固定落在 0.00 中心点)
+    2. 贝塞尔曲线轨迹平滑移动
+    3. 带有微幅随机时间差的物理点击与底层 Event 链
+    """
+    import random
+    try:
+        await locator.scroll_into_view_if_needed(timeout=5000)
+    except Exception:
+        pass
+    try:
+        box = await locator.bounding_box()
+    except Exception:
+        box = None
+    if not box:
+        try:
+            await locator.click(timeout=8000)
+            return True
+        except Exception:
+            return False
+
+    offset_x = (random.random() - 0.5) * (box["width"] * 0.5)
+    offset_y = (random.random() - 0.5) * (box["height"] * 0.5)
+    x = box["x"] + box["width"] / 2 + offset_x
+    y = box["y"] + box["height"] / 2 + offset_y
+
+    try:
+        await _simulate_human_mouse_movement(page, x, y)
+        await asyncio.sleep(random.uniform(0.1, 0.25))
+        await page.mouse.click(x, y)
+        await asyncio.sleep(random.uniform(0.15, 0.3))
+        await page.evaluate(
+            """({x, y}) => {
+                const el = document.elementFromPoint(x, y);
+                if (!el) return;
+                const opts = {bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:1};
+                for (const t of ['pointerover','pointerenter','pointerdown','mousedown','pointerup','mouseup','click']) {
+                    const C = t.startsWith('pointer') ? PointerEvent : MouseEvent;
+                    try { el.dispatchEvent(new C(t, opts)); } catch(e){ try{ el.dispatchEvent(new MouseEvent(t,opts)); }catch(_){} }
+                }
+            }""",
+            {"x": x, "y": y},
+        )
+        return True
+    except Exception:
+        return False
+
+
 async def _emit_qrcode_callback(qrcode_callback, payload: dict):
     if not qrcode_callback:
         return
@@ -729,12 +803,17 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
         if self.publish_strategy == XIAOHONGSHU_PUBLISH_STRATEGY_SCHEDULED and self.publish_date != 0:
             await self.set_schedule_time_xiaohongshu(page, self.publish_date)
 
-        while True:
+        max_pub_attempts = 25
+        pub_attempts = 0
+        while pub_attempts < max_pub_attempts:
+            pub_attempts += 1
             try:
-                if self.publish_strategy == XIAOHONGSHU_PUBLISH_STRATEGY_SCHEDULED:
-                    await page.locator('button:has-text("定时发布")').click()
-                else:
-                    await page.locator('button:has-text("发布")').click()
+                btn = page.locator('button:has-text("定时发布")' if self.publish_strategy == XIAOHONGSHU_PUBLISH_STRATEGY_SCHEDULED else 'button:has-text("发布")').first
+                if await btn.count() and await btn.is_visible():
+                    box = await btn.bounding_box()
+                    if box:
+                        await _simulate_human_mouse_movement(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                    await btn.click()
                 await page.wait_for_url(
                     XHS_PUBLISH_SUCCESS_URL_PATTERN,
                     timeout=3000
@@ -742,10 +821,13 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
                 xiaohongshu_logger.success(_msg("🥳", "视频发布成功，小人开心收工"))
                 break
             except Exception:
-                xiaohongshu_logger.info(_msg("🏃", "小人正在冲刺发布视频"))
+                xiaohongshu_logger.info(_msg("🏃", f"小人正在冲刺发布视频 (第 {pub_attempts}/{max_pub_attempts} 次)"))
                 if self.debug:
                     await page.screenshot(full_page=True)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1)
+
+        if pub_attempts >= max_pub_attempts:
+            raise RuntimeError("小红书视频发布超时，未能触发发布成功跳转，请检查敏感词或图片合规")
 
     async def upload(self, playwright: Playwright) -> None:
         xiaohongshu_logger.info(_msg("🧍", "小人先检查 cookie、视频文件、封面和发布时间"))
@@ -852,12 +934,17 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
         if self.publish_strategy == XIAOHONGSHU_PUBLISH_STRATEGY_SCHEDULED and self.publish_date != 0:
             await self.set_schedule_time_xiaohongshu(page, self.publish_date)
 
-        while True:
+        max_pub_attempts = 25
+        pub_attempts = 0
+        while pub_attempts < max_pub_attempts:
+            pub_attempts += 1
             try:
-                if self.publish_strategy == XIAOHONGSHU_PUBLISH_STRATEGY_SCHEDULED:
-                    await page.locator('button:has-text("定时发布")').click()
-                else:
-                    await page.locator('button:has-text("发布")').click()
+                btn = page.locator('button:has-text("定时发布")' if self.publish_strategy == XIAOHONGSHU_PUBLISH_STRATEGY_SCHEDULED else 'button:has-text("发布")').first
+                if await btn.count() and await btn.is_visible():
+                    box = await btn.bounding_box()
+                    if box:
+                        await _simulate_human_mouse_movement(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                    await btn.click()
                 await page.wait_for_url(
                     XHS_PUBLISH_SUCCESS_URL_PATTERN,
                     timeout=3000
@@ -865,10 +952,13 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
                 xiaohongshu_logger.success(_msg("🥳", "图文发布成功，小人开心收工"))
                 break
             except Exception:
-                xiaohongshu_logger.info(_msg("🏃", "小人正在冲刺发布图文"))
+                xiaohongshu_logger.info(_msg("🏃", f"小人正在冲刺发布图文 (第 {pub_attempts}/{max_pub_attempts} 次)"))
                 if self.debug:
                     await page.screenshot(full_page=True)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1)
+
+        if pub_attempts >= max_pub_attempts:
+            raise RuntimeError("小红书图文发布超时，未能触发发布成功跳转，请检查敏感词或图片合规")
 
     async def upload(self, playwright: Playwright) -> None:
         xiaohongshu_logger.info(_msg("🧍", "小人先检查 cookie、图片和发布时间"))

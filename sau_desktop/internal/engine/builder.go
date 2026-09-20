@@ -145,13 +145,11 @@ func (b *TaskArgsBuilder) BuildTaskArgs(task AccountPublishTask) []string {
 		}
 	}
 
-	// 运行模式 (bilibili 命令行封装不接收 --headless/--headed 参数)
-	if task.Platform != "bilibili" {
-		if task.Headless {
-			args = append(args, "--headless")
-		} else {
-			args = append(args, "--headed")
-		}
+	// 运行模式
+	if task.Headless {
+		args = append(args, "--headless")
+	} else {
+		args = append(args, "--headed")
 	}
 
 	return args
