@@ -30,7 +30,7 @@ export const useTaskStore = defineStore('task', () => {
     return Math.min(5, Math.max(1, settingsStore.settings.concurrency || 3))
   })
 
-  // 是否允许继续新增线程通道
+  // 是否允许继续新增发布通道
   const canAddLane = computed(() => {
     return lanes.value.length < maxConcurrency.value
   })
@@ -122,7 +122,7 @@ export const useTaskStore = defineStore('task', () => {
       for (let i = 0; i < initCount; i++) {
         initialLanes.push({
           id: `lane-${i + 1}`,
-          name: `线程通道 ${i + 1}`,
+          name: `发布通道 ${i + 1}`,
           status: 'idle',
           delayBetweenTasks: 15,
           tasks: []
@@ -289,7 +289,7 @@ export const useTaskStore = defineStore('task', () => {
       if (updated) {
         if (type === 'risk_alert') {
           ElNotification({
-            title: '⚠️ 触发账号安全熔断',
+            title: '⚠️ 账号已自动保护暂停',
             message: cleanMsg,
             type: 'warning',
             duration: 9000
@@ -392,7 +392,7 @@ export const useTaskStore = defineStore('task', () => {
       const idx = lanes.value.length + 1
       lanes.value.push({
         id: `lane-${Date.now()}-${idx}`,
-        name: `线程通道 ${idx}`,
+        name: `发布通道 ${idx}`,
         status: 'idle',
         delayBetweenTasks: 15,
         tasks: []
@@ -457,12 +457,12 @@ export const useTaskStore = defineStore('task', () => {
     laneCount = Math.min(laneCount, maxConcurrency.value)
     laneCount = Math.max(1, laneCount)
 
-    // 3. 构建全新线程通道
+    // 3. 构建全新发布通道
     const newLanes: TaskLane[] = []
     for (let i = 0; i < laneCount; i++) {
       newLanes.push({
         id: `lane-${i + 1}`,
-        name: `线程通道 ${i + 1}`,
+        name: `发布通道 ${i + 1}`,
         status: 'idle',
         delayBetweenTasks: 15,
         tasks: []
@@ -501,7 +501,7 @@ export const useTaskStore = defineStore('task', () => {
     saveTasksToStorage()
   }
 
-  // 3. 泳道管理：新增线程通道 (上限保护)
+  // 3. 泳道管理：新增发布通道 (上限保护)
   const addLane = () => {
     if (!canAddLane.value) {
       ElMessage.warning(`已达到系统设置的最大并发限制 (${maxConcurrency.value} 个线程)，如需增加请前往「系统设置」调整`)
@@ -510,20 +510,20 @@ export const useTaskStore = defineStore('task', () => {
     const nextIdx = lanes.value.length + 1
     lanes.value.push({
       id: `lane-${Date.now()}`,
-      name: `线程通道 ${nextIdx}`,
+      name: `发布通道 ${nextIdx}`,
       status: 'idle',
       delayBetweenTasks: 15,
       tasks: []
     })
     refreshAllLanesStatus()
     saveTasksToStorage()
-    ElMessage.success(`已添加「线程通道 ${nextIdx}」`)
+    ElMessage.success(`已添加「发布通道 ${nextIdx}」`)
   }
 
-  // 4. 泳道管理：移除线程通道 (通道内任务退回未分配池)
+  // 4. 泳道管理：移除发布通道 (通道内任务退回未分配池)
   const removeLane = (laneId: string) => {
     if (lanes.value.length <= 1) {
-      ElMessage.info('至少需要保留 1 个执行线程通道')
+      ElMessage.info('至少需要保留 1 个执行发布通道')
       return
     }
     const idx = lanes.value.findIndex(l => l.id === laneId)
@@ -584,7 +584,14 @@ export const useTaskStore = defineStore('task', () => {
 
     // 检查是否有排队中或运行中的任务
     const activeLanesWithTasks = lanes.value.filter(l => l.tasks.some(t => t.status === 'queued' || t.status === 'running'))
-    if (activeLanesWithTasks.length === 0) return
+    if (activeLanesWithTasks.length === 0) {
+      if (unassignedTasks.value.length > 0) {
+        ElMessage.warning(`还有 ${unassignedTasks.value.length} 个任务在「待分配任务池」，请先把它们拖入发布通道再启动调度`)
+      } else {
+        ElMessage.info('当前没有可调度的任务')
+      }
+      return
+    }
 
     // 前置鉴权检查：未激活直接拦截并引导
     const authStore = useAuthStore()
@@ -844,7 +851,7 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
-  // 13. 人工已处理，解除账号安全熔断状态并自动恢复队列
+  // 13. 人工已处理，解除账号安全保护状态并自动恢复队列
   const resumeAccountRisk = async (platform: string, account: string) => {
     try {
       await ResumeAccount(platform, account)
@@ -852,7 +859,7 @@ export const useTaskStore = defineStore('task', () => {
         if (t.platform === platform && t.account === account) {
           t.isPaused = false
           t.pauseReason = ''
-          if (t.status === 'failed' && (t.errorMsg?.includes('熔断') || t.errorMsg?.includes('准入'))) {
+          if (t.status === 'failed' && (t.errorMsg?.includes('已自动保护暂停') || t.errorMsg?.includes('准入'))) {
             t.status = 'queued'
             t.errorMsg = ''
           }
@@ -863,7 +870,7 @@ export const useTaskStore = defineStore('task', () => {
           if (t.platform === platform && t.account === account) {
             t.isPaused = false
             t.pauseReason = ''
-            if (t.status === 'failed' && (t.errorMsg?.includes('熔断') || t.errorMsg?.includes('准入'))) {
+            if (t.status === 'failed' && (t.errorMsg?.includes('已自动保护暂停') || t.errorMsg?.includes('准入'))) {
               t.status = 'queued'
               t.errorMsg = ''
             }
@@ -872,9 +879,9 @@ export const useTaskStore = defineStore('task', () => {
       })
       refreshAllLanesStatus()
       saveTasksToStorage()
-      ElMessage.success(`已成功解除 [${platform}:${account}] 的安全熔断，相关任务已重新排队`)
+      ElMessage.success(`已成功解除 [${platform}:${account}] 的安全保护，相关任务已重新排队`)
     } catch (err: any) {
-      ElMessage.error(`解除熔断失败: ${err.message || err}`)
+      ElMessage.error(`解除安全保护失败: ${err.message || err}`)
     }
   }
 

@@ -147,6 +147,10 @@ export const BILIBILI_PARTITIONS = [
   { id: 130, name: '音乐 - 音乐综合' }
 ]
 
-export const getPlatformConfig = (id: string): PlatformConfig => {
-  return PLATFORMS.find(p => p.id === id) || PLATFORMS[0]
-}
+export const UNKNOWN_PLATFORM = (id: string): PlatformConfig => ({
+  id, name: `未知平台(${id})`, alias: id, brandColor: '#94a3b8',
+  gradient: 'linear-gradient(135deg, #64748b 0%, #94a3b8 100%)',
+  supportsVideo: true, supportsNote: false, icon: 'QuestionFilled', placeholder: ''
+})
+export const getPlatformConfig = (id: string): PlatformConfig =>
+  PLATFORMS.find(p => p.id === id) || UNKNOWN_PLATFORM(id)

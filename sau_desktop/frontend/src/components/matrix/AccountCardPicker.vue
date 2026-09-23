@@ -2,16 +2,11 @@
   <div class="account-card-picker glass-card">
     <div class="card-header">
       <div class="card-title-box">
-        <span class="step-badge">2</span>
         <div class="title-text-group">
           <div class="main-title">
             <span>要发到哪些账号</span>
             <span class="req-star">*</span>
-            <span class="badge-count" v-if="selectedKeys.length > 0">
-              已选 {{ selectedKeys.length }} 个账号 (覆盖 {{ activePlatformCount }} 个平台)
-            </span>
           </div>
-          <div class="sub-title">勾选目标矩阵账号，系统会自动校验凭证有效性，可按业务分组快捷一键选择</div>
         </div>
       </div>
 
@@ -19,14 +14,17 @@
         <el-button size="small" link type="primary" @click="selectAllValid">
           <el-icon><Check /></el-icon> 全选有效账号
         </el-button>
-        <el-button size="small" link @click="clearSelection">
-          <el-icon><Close /></el-icon> 取消全选
-        </el-button>
+        <el-tooltip content="取消全选" placement="top">
+          <el-button size="small" link @click="clearSelection">
+            <el-icon><Close /></el-icon>
+          </el-button>
+        </el-tooltip>
       </div>
     </div>
 
     <!-- 分组过滤栏与搜索 -->
     <div class="filter-toolbar">
+      <span class="badge-count" v-if="selectedKeys.length > 0">已选 {{ selectedKeys.length }} 个账号 · 覆盖 {{ activePlatformCount }} 个平台</span>
       <div class="group-tabs">
         <button
           v-for="grp in allGroups"
@@ -73,9 +71,8 @@
             {{ acc.nickname || acc.account }}
           </div>
           <div class="account-meta">
-            <span class="plat-name">{{ getPlatformName(acc.platform) }}</span>
             <span class="status-dot" :class="{ online: acc.isValid }"></span>
-            <span class="status-text">{{ acc.isValid ? '凭证正常' : '已失效' }}</span>
+            <span class="status-text" v-if="!acc.isValid">已失效</span>
           </div>
         </div>
 
@@ -199,17 +196,19 @@ const getPlatformShort = (pid: string) => {
 }
 
 const getPlatformColor = (pid: string) => {
-  return getPlatformConfig(pid)?.color || '#6366f1'
+  return getPlatformConfig(pid)?.brandColor || '#6366f1'
 }
 </script>
 
 <style scoped>
 .account-card-picker {
-  padding: 18px 20px;
+  padding: 20px 24px;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 14px;
   transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .card-header {
@@ -223,21 +222,6 @@ const getPlatformColor = (pid: string) => {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.step-badge {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--primary-gradient);
-  color: #fff;
-  font-weight: 700;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
-  flex-shrink: 0;
 }
 
 .title-text-group {
@@ -269,11 +253,6 @@ const getPlatformColor = (pid: string) => {
   font-weight: 600;
 }
 
-.sub-title {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
 .header-actions {
   display: flex;
   align-items: center;
@@ -288,6 +267,20 @@ const getPlatformColor = (pid: string) => {
   gap: 12px;
   margin-bottom: 14px;
   flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.filter-toolbar .badge-count {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.title-text-group {
+  min-width: 0;
+}
+
+.main-title {
+  white-space: nowrap;
 }
 
 .group-tabs {
@@ -343,7 +336,8 @@ const getPlatformColor = (pid: string) => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 10px;
-  max-height: 240px;
+  flex: 1;
+  min-height: 260px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -376,14 +370,14 @@ const getPlatformColor = (pid: string) => {
 }
 
 .platform-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
   flex-shrink: 0;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
@@ -413,9 +407,7 @@ const getPlatformColor = (pid: string) => {
   font-size: 11px;
 }
 
-.plat-name {
-  color: var(--text-secondary);
-}
+/* account-meta is handled by parent */
 
 .status-dot {
   width: 6px;

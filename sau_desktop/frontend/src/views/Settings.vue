@@ -50,13 +50,13 @@
           <div class="setting-item">
             <div class="setting-meta">
               <span class="title">默认运行模式</span>
-              <span class="desc">后台静默执行可大幅节省图形渲染显存；弹出可见窗口便于调试和观察自动化模拟行为。</span>
+              <span class="desc">后台静默运行更省资源；弹出窗口便于观察自动化过程。</span>
             </div>
             <div class="setting-control">
               <el-switch 
                 v-model="form.headless" 
-                active-text="后台无头静默 (推荐日常批量)" 
-                inactive-text="弹出可见浏览器 (推荐初次调试)" 
+                active-text="后台静默运行（推荐日常批量）" 
+                inactive-text="弹出可见浏览器（推荐初次调试）" 
               />
             </div>
           </div>
@@ -216,6 +216,10 @@ const handleClearHistory = () => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding-bottom: 24px;
 }
 
 .workspace-header {

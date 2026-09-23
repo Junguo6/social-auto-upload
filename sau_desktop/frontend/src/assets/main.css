@@ -6,11 +6,11 @@
 
 :root {
   /* 品牌通用色彩 */
-  --primary-color: #6366f1;
+  --primary-color: #4f46e5;
   --primary-light: #818cf8;
   --primary-dark: #4f46e5;
-  --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
-  --primary-glow: 0 0 20px rgba(99, 102, 241, 0.35);
+  --primary-gradient: #4f46e5;   /* 原三色渐变 #6366f1→#a855f7→#ec4899 退为纯色 */
+  --primary-glow: none;
 
   /* 平台品牌色 */
   --color-douyin: #fe2c55;
@@ -41,8 +41,8 @@ html.dark {
   --bg-app: #090d16;
   --bg-sidebar: #0f172a;
   --bg-header: rgba(15, 23, 42, 0.5);
-  --bg-card: rgba(19, 27, 46, 0.75);
-  --bg-card-solid: #131b2e;
+  --bg-card: #141c31;
+  --bg-card-solid: #141c31;
   --bg-input: #151e33;
   --bg-detail: rgba(0, 0, 0, 0.25);
   --bg-dialog: #0f172a;
@@ -53,7 +53,7 @@ html.dark {
   --text-console: #cbd5e1;
   --text-console-time: #64748b;
 
-  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.10);
   --border-highlight: rgba(255, 255, 255, 0.16);
   --border-focus: rgba(99, 102, 241, 0.5);
 
@@ -62,14 +62,14 @@ html.dark {
   --text-muted: #64748b;
   --text-disabled: #475569;
 
-  --shadow-card: 0 12px 32px 0 rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.30);
 }
 
 /* ============================
    2. 明亮模式 (Light Mode)
    ============================ */
 html.light, :root:not(.dark) {
-  --bg-app: #f4f6fb;
+  --bg-app: #f5f7fa;
   --bg-sidebar: #ffffff;
   --bg-header: rgba(255, 255, 255, 0.85);
   --bg-card: #ffffff;
@@ -84,8 +84,8 @@ html.light, :root:not(.dark) {
   --text-console: #334155;
   --text-console-time: #94a3b8;
 
-  --border-subtle: #e2e8f0;
-  --border-highlight: #cbd5e1;
+  --border-subtle: #e8ebf0;
+  --border-highlight: #d8dee8;
   --border-focus: #6366f1;
 
   --text-main: #0f172a;
@@ -93,7 +93,7 @@ html.light, :root:not(.dark) {
   --text-muted: #64748b;
   --text-disabled: #94a3b8;
 
-  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.06);
+  --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.06);
 }
 
 * {
@@ -115,10 +115,10 @@ body {
 /* 玻璃拟态卡片 */
 .glass-card {
   background: var(--bg-card) !important;
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 14px !important;
+  border-radius: 10px !important;
   box-shadow: var(--shadow-card) !important;
   transition: all 0.25s ease;
 }
@@ -221,3 +221,57 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ── 去装饰：光晕清零 ── */
+[class*="badge"], [class*="icon"], [class*="dot"], [class*="chip"],
+[class*="pill"], [class*="avatar"], [class*="logo"], [class*="btn"] { box-shadow: none !important; }
+.gradient-btn:hover { transform: none !important; box-shadow: none !important; }
+
+/* ── 平台标识：保留一档色相，压掉满饱和 ── */
+[class*="plat-badge"], .platform-avatar, [class*="plat-icon"],
+.avatar-plat-icon, .card-plat-icon, .platform-omnibox-tag {
+  border: 1px solid var(--border-subtle) !important;
+  font-weight: 600 !important;
+}
+html.light [class*="plat-badge"], html.light .platform-avatar, html.light [class*="plat-icon"],
+html.light .avatar-plat-icon, html.light .card-plat-icon, html.light .platform-omnibox-tag,
+html.light .contact-avatar-wrapper { box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.84) !important; color: #334155 !important; }
+html.light .contact-avatar-wrapper * { color: #334155 !important; }
+html.dark [class*="plat-badge"], html.dark .platform-avatar, html.dark [class*="plat-icon"],
+html.dark .avatar-plat-icon, html.dark .card-plat-icon,
+html.dark .contact-avatar-wrapper { box-shadow: inset 0 0 0 999px rgba(11, 16, 32, 0.60) !important; }
+
+/* ── 步骤徽标：色块 → 描边 ── */
+.step-badge, .step-num, .guide-step.active .step-num {
+  background: transparent !important;
+  border: 1px solid var(--border-highlight) !important;
+  color: var(--primary-color) !important;
+  box-shadow: none !important;
+}
+
+/* ── 按钮层级：次级按钮描边式 ── */
+.gradient-btn-sm {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-highlight) !important;
+  color: var(--primary-color) !important;
+  box-shadow: none !important;
+}
+.gradient-btn-sm:hover { background: var(--bg-detail) !important; }
+
+/* ── 主 CTA 禁用态必须可辨 ── */
+.gradient-btn.is-disabled, .gradient-btn[disabled],
+.gradient-btn-lg.is-disabled, .gradient-btn-matrix.is-disabled {
+  background: var(--bg-detail) !important;
+  color: var(--text-disabled) !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+}
+
+/* ── 暗色补光：虚线空状态与步骤连接线在暗底上可见 ── */
+html.dark .empty-upload-zone { border-color: rgba(255, 255, 255, 0.28) !important; }
+html.dark .empty-upload-zone:hover { border-color: var(--primary-light) !important; }
+html.dark .step-connector { background: rgba(255, 255, 255, 0.22) !important; }
+
+/* ── 精简：去掉纯装饰的圆点与胶囊图标 ── */
+.summary-dot { display: none !important; }
+.top-task-pill .el-icon, .auth-status-pill .el-icon { display: none !important; }

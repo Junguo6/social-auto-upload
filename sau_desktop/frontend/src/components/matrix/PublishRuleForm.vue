@@ -2,13 +2,11 @@
   <div class="publish-rule-form glass-card">
     <div class="card-header">
       <div class="card-title-box">
-        <span class="step-badge">3</span>
         <div class="title-text-group">
           <div class="main-title">
             <span>发布信息与批量规则</span>
             <span class="req-star">*</span>
           </div>
-          <div class="sub-title">通用文案将默认同步到所有平台账号，支持动态占位符变量一键批量生成标题与排期</div>
         </div>
       </div>
     </div>
@@ -94,7 +92,7 @@
 
         <!-- 标题批量生成实时预览 -->
         <div v-if="previewTitles.length > 0 && hasDynamicVars" class="batch-title-preview">
-          <span class="preview-label">批量生成效果预演:</span>
+          <span class="preview-label">预演：</span>
           <div class="preview-tags">
             <span v-for="(pt, idx) in previewTitles" :key="idx" class="preview-tag">
               #{{ idx + 1 }} {{ pt }}
@@ -110,11 +108,16 @@
             <el-icon><Document /></el-icon>
             <span>正文描述 / 简介</span>
           </label>
-          <div class="quick-tags">
-            <el-button size="small" link type="primary" @click="appendDesc('#短剧 #追剧')">+短剧追更</el-button>
-            <el-button size="small" link type="primary" @click="appendDesc('#自媒体干货')">+自媒体干货</el-button>
-            <el-button size="small" link type="primary" @click="appendDesc('#好物分享')">+带货推荐</el-button>
-          </div>
+          <el-dropdown trigger="click" @command="appendDesc">
+            <el-button size="small" link type="primary">+ 常用话题</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="#短剧 #追剧">+短剧追更</el-dropdown-item>
+                <el-dropdown-item command="#自媒体干货">+自媒体干货</el-dropdown-item>
+                <el-dropdown-item command="#好物分享">+带货推荐</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
         <el-input
           v-model="masterForm.desc"
@@ -297,21 +300,6 @@ const appendTag = (t: string) => {
   gap: 12px;
 }
 
-.step-badge {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--primary-gradient);
-  color: #fff;
-  font-weight: 700;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
-  flex-shrink: 0;
-}
-
 .title-text-group {
   display: flex;
   flex-direction: column;
@@ -422,11 +410,6 @@ const appendTag = (t: string) => {
   color: var(--text-secondary);
   padding: 1px 7px;
   border-radius: 4px;
-}
-
-.quick-tags {
-  display: flex;
-  gap: 6px;
 }
 
 .form-row-two {

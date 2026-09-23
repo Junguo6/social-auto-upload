@@ -2,14 +2,11 @@
   <div class="media-list-card glass-card">
     <div class="card-header">
       <div class="card-title-box">
-        <span class="step-badge">1</span>
         <div class="title-text-group">
           <div class="main-title">
             <span>要发哪些视频 / 素材</span>
             <span class="req-star">*</span>
-            <span class="badge-count" v-if="mediaList.length > 0">已添加 {{ mediaList.length }} 个</span>
           </div>
-          <div class="sub-title">支持批量多选导入本地短视频，系统将自动识别视频名、集数并在矩阵中排产</div>
         </div>
       </div>
 
@@ -17,14 +14,17 @@
         <el-button type="primary" class="gradient-btn-sm" @click="handleSelectFiles">
           <el-icon><Plus /></el-icon> 批量添加视频 (多选)
         </el-button>
-        <el-button v-if="mediaList.length > 0" type="danger" link size="small" @click="handleClearAll">
-          <el-icon><Delete /></el-icon> 清空
-        </el-button>
+        <el-tooltip content="清空已添加的视频" placement="top">
+          <el-button v-if="mediaList.length > 0" type="danger" link size="small" @click="handleClearAll">
+            <el-icon><Delete /></el-icon>
+          </el-button>
+        </el-tooltip>
       </div>
     </div>
 
     <!-- 搜索与快捷操作条 -->
     <div class="media-toolbar" v-if="mediaList.length > 0">
+      <span class="badge-count" v-if="mediaList.length > 0">已添加 {{ mediaList.length }} 个</span>
       <el-input
         v-model="searchQuery"
         placeholder="搜索视频文件名..."
@@ -123,7 +123,6 @@
         <el-icon><UploadFilled /></el-icon>
       </div>
       <div class="upload-title">点击批量选择本地短视频文件</div>
-      <div class="upload-hint">支持按住 Ctrl / Cmd 批量多选，兼容 MP4, MOV, MKV 等主流格式</div>
       <el-button type="primary" class="gradient-btn-sm" style="margin-top: 14px;">
         <el-icon><FolderOpened /></el-icon> 浏览本地素材库
       </el-button>
@@ -249,11 +248,13 @@ const handleClearAll = () => {
 
 <style scoped>
 .media-list-card {
-  padding: 18px 20px;
+  padding: 20px 24px;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 14px;
   transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .card-header {
@@ -267,21 +268,6 @@ const handleClearAll = () => {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.step-badge {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--primary-gradient);
-  color: #fff;
-  font-weight: 700;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
-  flex-shrink: 0;
 }
 
 .title-text-group {
@@ -313,11 +299,6 @@ const handleClearAll = () => {
   font-weight: 600;
 }
 
-.sub-title {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
 .header-actions {
   display: flex;
   align-items: center;
@@ -330,6 +311,21 @@ const handleClearAll = () => {
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.media-toolbar .badge-count {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.title-text-group {
+  min-width: 0;
+}
+
+.main-title {
+  white-space: nowrap;
 }
 
 .search-input {
@@ -489,12 +485,13 @@ const handleClearAll = () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 32px 16px;
+  padding: 16px;
   border: 1.5px dashed var(--border-highlight);
   border-radius: 12px;
   cursor: pointer;
   background: var(--bg-detail);
   transition: all 0.25s ease;
+  max-height: 140px;
 }
 
 .empty-upload-zone:hover {
@@ -503,16 +500,16 @@ const handleClearAll = () => {
 }
 
 .upload-icon-pulse {
-  width: 52px;
-  height: 52px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: rgba(99, 102, 241, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
+  font-size: 18px;
   color: var(--primary-color);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .upload-title {
@@ -522,10 +519,6 @@ const handleClearAll = () => {
   margin-bottom: 4px;
 }
 
-.upload-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-}
 
 .search-empty {
   text-align: center;

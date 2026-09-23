@@ -81,18 +81,11 @@
         >
           <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(pending.platform).gradient }">
             <el-icon class="avatar-pending-spinner is-loading"><Loading /></el-icon>
-            <span class="avatar-plat-icon">
-              <el-icon><component :is="getPlatformStyle(pending.platform).icon" /></el-icon>
-            </span>
-            <span class="avatar-status-dot is-syncing" title="已拉起浏览器视窗，等待扫码授权"></span>
           </div>
 
           <div class="contact-meta-content">
             <div class="contact-first-row">
               <span class="contact-name-text pending-title">{{ pending.alias ? `正在接入 [${pending.alias}]...` : '正在接入新账号...' }}</span>
-              <span class="contact-platform-tag" :style="{ color: getPlatformStyle(pending.platform).brandColor }">
-                {{ getPlatformStyle(pending.platform).name }}
-              </span>
             </div>
 
             <div class="contact-second-row">
@@ -124,25 +117,12 @@
               :alt="acc.nickname || acc.account"
             />
             <span v-else class="avatar-char">{{ getAccountAvatarText(acc) }}</span>
-            <!-- 右下角平台微标 -->
-            <span class="avatar-plat-icon">
-              <el-icon><component :is="getPlatformStyle(acc.platform).icon" /></el-icon>
-            </span>
-            <!-- 左上角健康度状态呼吸指示灯 -->
-            <span 
-              class="avatar-status-dot" 
-              :class="acc.checked ? (acc.isValid ? 'is-valid' : 'is-invalid') : 'is-unchecked'"
-              :title="acc.checked ? (acc.isValid ? '登录凭证健康有效' : '登录凭证已失效') : '凭证待检测'"
-            ></span>
           </div>
 
           <!-- 文本与状态信息 -->
           <div class="contact-meta-content">
             <div class="contact-first-row">
               <span class="contact-name-text">{{ acc.nickname || acc.account }}</span>
-              <span class="contact-platform-tag" :style="{ color: getPlatformStyle(acc.platform).brandColor }">
-                {{ getPlatformStyle(acc.platform).name }}
-              </span>
             </div>
 
             <div class="contact-second-row">
@@ -225,7 +205,7 @@
             <el-icon><Right /></el-icon>
           </button>
           <button class="nav-icon-btn" @click="handleReloadPage" title="重新刷新网页">
-            <el-icon :class="{ 'is-loading': isStartingSession }"><Refresh /></el-icon>
+            <el-icon :class="{ 'is-loading': currentActiveTab?.isStartingSession }"><Refresh /></el-icon>
           </button>
           <button class="nav-icon-btn" @click="handleGoHome" title="返回创作者首页">
             <el-icon><HomeFilled /></el-icon>
@@ -645,7 +625,10 @@ interface PendingAccountLogin {
 const pendingAccountLogins = ref<PendingAccountLogin[]>([])
 
 const platformList = computed(() => PLATFORMS)
-const availablePlatforms = computed(() => PLATFORMS)
+const availablePlatforms = computed(() => {
+  const ids = new Set<string>([...PLATFORMS.map(p => p.id), ...accountStore.accounts.map(a => a.platform)])
+  return [...ids].map(id => getPlatformConfig(id))
+})
 
 // 当前激活的标签页
 const currentActiveTab = computed<BrowserTab | null>(() => {
@@ -996,9 +979,13 @@ const confirmDelete = (platform: string, account: string) => {
       type: 'warning'
     }
   ).then(async () => {
-    await accountStore.removeAccount(platform, account)
-    ElMessage.success('账号已成功解绑并清理本地凭证')
-    closeTab(`${platform}:${account}`)
+    const ok = await accountStore.removeAccount(platform, account)
+    if (ok) {
+      ElMessage.success('账号已成功解绑并清理本地凭证')
+      closeTab(`${platform}:${account}`)
+    } else {
+      ElMessage.error('本地凭证文件删除失败，账号未移除，请检查文件权限后重试')
+    }
   }).catch(() => {})
 }
 
@@ -1294,46 +1281,6 @@ watch(() => accountStore.accounts, (newAccounts) => {
   line-height: 1;
 }
 
-.avatar-plat-icon {
-  position: absolute;
-  bottom: -2px;
-  right: -2px;
-  width: 17px;
-  height: 17px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  color: var(--primary-color);
-}
-
-.avatar-status-dot {
-  position: absolute;
-  top: 0px;
-  left: 0px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  border: 1.5px solid var(--bg-card);
-}
-
-.avatar-status-dot.is-valid {
-  background: #10b981;
-  box-shadow: 0 0 6px #10b981;
-}
-
-.avatar-status-dot.is-invalid {
-  background: #ef4444;
-  box-shadow: 0 0 6px #ef4444;
-}
-
-.avatar-status-dot.is-unchecked {
-  background: #94a3b8;
-}
-
 /* 文本信息 (高清晰度对比) */
 .contact-meta-content {
   flex: 1;
@@ -1357,12 +1304,6 @@ watch(() => accountStore.accounts, (newAccounts) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.contact-platform-tag {
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
 }
 
 .contact-second-row {

@@ -70,18 +70,8 @@
         </el-tooltip>
       </nav>
 
-      <!-- 侧边栏底部：引擎状态与折叠开关 -->
+      <!-- 侧边栏底部：折叠开关 -->
       <div class="sidebar-footer">
-        <div class="engine-status" v-if="!isSidebarCollapsed">
-          <div class="status-indicator">
-            <span class="pulse-dot"></span>
-          </div>
-          <div class="status-info">
-            <span class="status-title">Sidecar 引擎</span>
-            <span class="status-sub">Patchright 就绪</span>
-          </div>
-        </div>
-
         <button 
           class="collapse-toggle-btn" 
           :title="isSidebarCollapsed ? '展开导航栏' : '收起导航栏'"
@@ -98,8 +88,6 @@
       <!-- 顶部 Header 状态栏 -->
       <header class="top-nav">
         <div class="nav-breadcrumb">
-          <span class="parent">工作台</span>
-          <span class="separator">/</span>
           <span class="current">{{ currentRouteTitle }}</span>
         </div>
 
@@ -202,14 +190,24 @@ onMounted(() => {
 /* 侧边栏 */
 .sidebar {
   width: 220px;
-  background: var(--bg-sidebar);
-  border-right: 1px solid var(--border-subtle);
+  background: #1c2333 !important;
+  border-right: none !important;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.25s ease, border-color 0.25s ease;
   z-index: 10;
 }
+
+.sidebar .brand-title { color: #f8fafc !important; }
+.sidebar .brand-desc { color: #94a3b8 !important; }
+.sidebar .nav-link { color: #a8b2c4 !important; }
+.sidebar .nav-link:hover { background: rgba(255, 255, 255, 0.06) !important; color: #fff !important; }
+.sidebar .nav-link.active { background: rgba(255, 255, 255, 0.10) !important; border: none !important; color: #fff !important; }
+.sidebar .nav-badge { background: #4f46e5 !important; }
+.sidebar .task-badge-dot { background: #4f46e5 !important; box-shadow: none !important; }
+.sidebar-footer { border-top: 1px solid rgba(255, 255, 255, 0.08) !important; }
+.collapse-toggle-btn { background: rgba(255, 255, 255, 0.05) !important; border-color: rgba(255, 255, 255, 0.08) !important; color: #a8b2c4 !important; }
 
 .sidebar.collapsed {
   width: 64px;
@@ -351,41 +349,6 @@ onMounted(() => {
 
 .sidebar.collapsed .sidebar-footer {
   padding: 10px 6px;
-}
-
-.engine-status {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  padding: 6px 10px;
-  border-radius: 8px;
-}
-
-.pulse-dot {
-  display: block;
-  width: 6px;
-  height: 6px;
-  background: var(--status-success);
-  border-radius: 50%;
-  box-shadow: 0 0 8px var(--status-success);
-}
-
-.status-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.status-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.status-sub {
-  font-size: 9px;
-  color: var(--status-success);
 }
 
 .collapse-toggle-btn {

@@ -5,18 +5,13 @@
         <el-icon><Grid /></el-icon>
       </div>
       <div class="studio-title-box">
-        <div class="studio-title">
-          <span>全景矩阵差异化发布工作台</span>
-          <span class="badge-pro">MATRIX STUDIO</span>
-        </div>
-        <div class="studio-sub">左侧全局主模板智能分发，右侧各平台与账号独立精准调优</div>
+        <div class="studio-title">发布配置</div>
       </div>
     </div>
 
     <div class="topbar-actions">
       <el-dropdown trigger="click" @command="$emit('template-command', $event)">
         <el-button class="glass-btn">
-          <el-icon><FolderOpened /></el-icon>
           <span>预设模板 ({{ savedTemplates.length }})</span>
           <el-icon class="el-icon--right"><ArrowDown /></el-icon>
         </el-button>
@@ -40,12 +35,8 @@
         </template>
       </el-dropdown>
 
-      <el-button class="glass-btn" @click="$emit('fill-demo')">
-        <el-icon><MagicStick /></el-icon> 填入演示作品
-      </el-button>
-
       <el-button class="glass-btn danger-hover" @click="$emit('reset-all')">
-        <el-icon><RefreshLeft /></el-icon> 重置配置
+        重置配置
       </el-button>
     </div>
   </div>
@@ -60,7 +51,6 @@ defineProps<{
 
 defineEmits<{
   (e: 'template-command', cmd: string): void
-  (e: 'fill-demo'): void
   (e: 'reset-all'): void
 }>()
 </script>
@@ -101,26 +91,6 @@ defineEmits<{
   font-size: 16px;
   font-weight: 700;
   color: var(--text-main);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.badge-pro {
-  font-size: 10px;
-  padding: 2px 6px;
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.35);
-  color: #818cf8;
-  border-radius: 4px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-
-.studio-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 3px;
 }
 
 .topbar-actions {

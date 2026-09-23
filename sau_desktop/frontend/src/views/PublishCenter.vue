@@ -4,28 +4,24 @@
     <StudioTopBar
       :saved-templates="savedTemplates"
       @template-command="handleTemplateCommand"
-      @fill-demo="fillDemoContent"
       @reset-all="resetAllForm"
     />
 
     <!-- 步骤导航指示条 -->
     <div class="step-guide-bar glass-card">
-      <div class="guide-step" :class="{ done: mediaList.length > 0, active: mediaList.length === 0 }">
-        <span class="step-num">{{ mediaList.length > 0 ? '✓' : '1' }}</span>
+      <div class="guide-step" :class="{ done: step1Done, active: !step1Done }">
+        <span class="step-num">{{ step1Done ? '✓' : '1' }}</span>
         <span class="step-text">添加待发视频 ({{ mediaList.length }})</span>
       </div>
-      <div class="step-connector"></div>
-      <div class="guide-step" :class="{ done: selectedAccountKeys.length > 0, active: mediaList.length > 0 && selectedAccountKeys.length === 0 }">
-        <span class="step-num">{{ selectedAccountKeys.length > 0 ? '✓' : '2' }}</span>
+      <div class="guide-step" :class="{ done: step2Done, active: step1Done && !step2Done }">
+        <span class="step-num">{{ step2Done ? '✓' : '2' }}</span>
         <span class="step-text">选择矩阵账号 ({{ selectedAccountKeys.length }})</span>
       </div>
-      <div class="step-connector"></div>
-      <div class="guide-step" :class="{ done: !!masterForm.title, active: selectedAccountKeys.length > 0 && !masterForm.title }">
-        <span class="step-num">{{ masterForm.title ? '✓' : '3' }}</span>
+      <div class="guide-step" :class="{ done: step3Done, active: step2Done && !step3Done }">
+        <span class="step-num">{{ step3Done ? '✓' : '3' }}</span>
         <span class="step-text">规则与批量变量</span>
       </div>
-      <div class="step-connector"></div>
-      <div class="guide-step" :class="{ active: mediaList.length > 0 && selectedAccountKeys.length > 0 }">
+      <div class="guide-step" :class="{ active: step3Done }">
         <span class="step-num">4</span>
         <span class="step-text">透视矩阵确认</span>
       </div>
@@ -68,35 +64,29 @@
     <!-- 3. 底部常驻调度执行控制 Dock -->
     <div class="studio-bottom-bar glass-card">
       <div class="summary-info">
-        <span class="summary-dot"></span>
         <span class="summary-main">
-          已就绪 <strong>{{ activeMediaList.length }}</strong> 个待发视频 ·
-          共激活 <strong>{{ totalActivatedTaskCount }}</strong> 次独立发布 ·
-          涉及 <strong>{{ activeAccounts.length }}</strong> 个矩阵账号
+          待发 <strong>{{ activeMediaList.length }}</strong> ·
+          激活 <strong>{{ totalActivatedTaskCount }}</strong> ·
+          账号 <strong>{{ activeAccounts.length }}</strong>
         </span>
       </div>
 
       <div class="dock-controls">
-        <div class="control-item">
-          <span class="control-label">并发 Goroutines:</span>
-          <el-input-number
-            v-model="concurrency"
-            :min="1"
-            :max="8"
-            size="small"
-            class="concurrency-input"
-          />
-        </div>
-
-        <div class="control-item">
-          <el-tooltip content="静默在后台以无头无窗模式运行浏览器发布" placement="top">
-            <el-switch
-              v-model="isHeadless"
-              active-text="静默无头执行"
-              inactive-text="前台可见"
-            />
-          </el-tooltip>
-        </div>
+        <el-popover placement="top" :width="250" trigger="click">
+          <template #reference>
+            <el-button size="small" class="glass-btn">
+              高级设置 · 同时发布 {{ concurrency }} · {{ isHeadless ? '后台静默运行' : '前台可见运行' }}
+            </el-button>
+          </template>
+          <div class="adv-row">
+            <span class="adv-label">同时发布数</span>
+            <el-input-number v-model="concurrency" :min="1" :max="8" size="small" />
+          </div>
+          <div class="adv-row">
+            <span class="adv-label">后台静默运行</span>
+            <el-switch v-model="isHeadless" />
+          </div>
+        </el-popover>
 
         <el-button
           type="primary"
@@ -123,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAccountStore } from '../stores/accountStore'
@@ -152,7 +142,6 @@ const router = useRouter()
 const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
-const { savedTemplates, saveAsTemplate, loadTemplate } = useMatrixPresets()
 const { createCrossMatrixPublishBatch } = useMatrixPublish()
 
 // 1. 待发视频清单与已选 ID
@@ -174,6 +163,14 @@ const masterForm = reactive<MasterForm>({
   schedule: ''
 })
 
+// 步骤完成状态统一计算源
+const step1Done = computed(() => mediaList.value.length > 0)
+const step2Done = computed(() => step1Done.value && selectedAccountKeys.value.length > 0)
+const step3Done = computed(() => step2Done.value && !!masterForm.title.trim())
+
+// 预设模板（必须在 masterForm 之后创建，否则 TDZ 运行时崩溃）
+const { savedTemplates, loadTemplatesFromStorage, handleTemplateCommand } = useMatrixPresets(masterForm, {}, {})
+
 // 批量排期与变量规则配置
 const ruleConfig = reactive<BatchRuleConfig>({
   titleTemplate: '{视频名}',
@@ -190,8 +187,10 @@ const ruleConfig = reactive<BatchRuleConfig>({
 const matrixMap = reactive<Record<string, Record<string, MatrixCellConfig>>>({})
 
 // 底部调度控制
-const concurrency = ref(settingsStore.concurrency || 3)
-const isHeadless = ref(true)
+const concurrency = ref(settingsStore.settings.concurrency || 3)
+const isHeadless = ref(settingsStore.settings.headless)
+
+watch(isHeadless, (v) => settingsStore.updateSettings({ headless: v }))
 
 // 同步克隆弹窗状态
 const showSyncModal = ref(false)
@@ -236,36 +235,6 @@ const totalActivatedTaskCount = computed(() => {
   })
   return count
 })
-
-// 顶部模板操作
-const handleTemplateCommand = (cmd: string) => {
-  if (cmd === '__save__') {
-    ElMessageBox.prompt('请输入该预设模板名称 (如：通用矩阵发布模板)', '保存为矩阵发布模板', {
-      confirmButtonText: '确定保存',
-      cancelButtonText: '取消',
-      inputPattern: /\S+/,
-      inputErrorMessage: '模板名称不能为空'
-    }).then(({ value }) => {
-      saveAsTemplate(value.trim(), masterForm, {}, {})
-      ElMessage.success(`模板 [${value.trim()}] 保存成功`)
-    }).catch(() => {})
-    return
-  }
-
-  const found = loadTemplate(cmd)
-  if (found) {
-    Object.assign(masterForm, found.master)
-    ElMessage.success(`已应用预设模板: ${found.name}`)
-  }
-}
-
-// 示例数据填充
-const fillDemoContent = () => {
-  masterForm.title = 'AI科技实测 - 第{集数}集 | {视频名}'
-  masterForm.desc = '今天给大家深度测试最新自动化发布工作流，效率直接翻倍！点赞关注获取更多黑科技。'
-  masterForm.tags = 'AI工具, 效率提升, 黑科技, 自动化'
-  ElMessage.success('已填入常用示例规则')
-}
 
 // 一键重置
 const resetAllForm = () => {
@@ -390,15 +359,16 @@ const handleStartPublish = async () => {
   }
 }
 
-// 页面挂载默认选中有效账号
+// 页面挂载初始化
 onMounted(() => {
-  if (accountStore.accounts.length > 0 && selectedAccountKeys.value.length === 0) {
-    // 默认勾选前 4 个凭证正常的账号
-    const valids = accountStore.accounts
-      .filter(a => a.isValid)
-      .slice(0, 4)
-      .map(a => `${a.platform}:${a.account}`)
-    selectedAccountKeys.value = valids
+  // 加载预设模板
+  loadTemplatesFromStorage()
+  // 仅做提示，不预选账号（避免误发风险）
+  if (accountStore.accounts.length > 0) {
+    const valids = accountStore.accounts.filter(a => a.isValid).length
+    if (valids > 0) {
+      ElMessage.info(`检测到 ${valids} 个可用账号，请在步骤 ② 自行勾选要发布的账号`)
+    }
   }
 })
 </script>
@@ -407,10 +377,10 @@ onMounted(() => {
 .matrix-studio-workspace {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 24px;
   height: calc(100vh - 64px);
   overflow-y: auto;
-  padding: 16px 20px 100px;
+  padding: 20px 24px 96px;
   box-sizing: border-box;
 }
 
@@ -419,7 +389,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
+  padding: 8px 20px;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
@@ -432,6 +402,8 @@ onMounted(() => {
   font-size: 13px;
   color: var(--text-muted);
   transition: all 0.25s ease;
+  flex: 1;
+  justify-content: center;
 }
 
 .guide-step.active {
@@ -444,8 +416,8 @@ onMounted(() => {
 }
 
 .step-num {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: var(--bg-input);
   border: 1.5px solid var(--border-subtle);
@@ -470,12 +442,6 @@ onMounted(() => {
   color: var(--status-success);
 }
 
-.step-connector {
-  flex: 1;
-  height: 2px;
-  background: var(--border-subtle);
-  margin: 0 16px;
-}
 
 /* 四步流布局 */
 .studio-content-flow {
@@ -506,7 +472,7 @@ onMounted(() => {
   bottom: 0;
   left: 220px;
   right: 0;
-  height: 68px;
+  height: 52px;
   background: var(--bg-card);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -547,22 +513,19 @@ onMounted(() => {
 .dock-controls {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 12px;
 }
 
-.control-item {
+.adv-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  padding: 6px 0;
 }
 
-.control-label {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.concurrency-input {
-  width: 90px;
+.adv-label {
+  font-size: 12.5px;
+  color: var(--text-secondary);
 }
 
 .publish-submit-btn {

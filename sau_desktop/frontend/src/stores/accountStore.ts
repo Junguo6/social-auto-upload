@@ -76,18 +76,20 @@ export const useAccountStore = defineStore('account', () => {
     }
   }
 
-  // 删除/解绑账号 (前端与磁盘凭证物理文件双向同步删除，杜绝幽灵账号)
-  const removeAccount = async (platform: string, account: string) => {
+  // 删除/解绑账号 (前端与磁盘凭证双向同步，先删磁盘，成功后再移除本地列表)
+  const removeAccount = async (platform: string, account: string): Promise<boolean> => {
+    try {
+      await DeleteAccountCredential(platform, account)
+    } catch (e) {
+      console.warn('删除磁盘凭证异常:', e)
+      return false
+    }
     const idx = accounts.value.findIndex(a => a.platform === platform && a.account === account)
     if (idx >= 0) {
       accounts.value.splice(idx, 1)
       saveToStorage()
     }
-    try {
-      await DeleteAccountCredential(platform, account)
-    } catch (e) {
-      console.warn('删除磁盘凭证异常:', e)
-    }
+    return true
   }
 
   // 检测单个账号状态

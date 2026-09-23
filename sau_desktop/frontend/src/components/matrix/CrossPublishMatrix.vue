@@ -3,13 +3,11 @@
     <!-- 1. 头部标题与双主视图切换器 -->
     <div class="matrix-header">
       <div class="title-box">
-        <span class="step-badge">4</span>
         <div class="title-text-group">
           <div class="main-title">
             <span>视频 × 账号 对应关系矩阵</span>
             <span class="req-star">*</span>
           </div>
-          <div class="sub-title">核对每个视频在各账号的发布渠道与时间，支持流水线清单与交叉透视双视图自由切换</div>
         </div>
       </div>
 
@@ -523,7 +521,7 @@ const handleOpenDrawer = (media: MediaItem, acc: { platform: string; account: st
 // 平台图标辅助
 const getPlatformName = (pid: string) => getPlatformConfig(pid)?.name || pid
 const getPlatformShort = (pid: string) => getPlatformName(pid).substring(0, 2)
-const getPlatformColor = (pid: string) => getPlatformConfig(pid)?.color || '#6366f1'
+const getPlatformColor = (pid: string) => getPlatformConfig(pid)?.brandColor || '#6366f1'
 </script>
 
 <style scoped>
@@ -548,21 +546,6 @@ const getPlatformColor = (pid: string) => getPlatformConfig(pid)?.color || '#636
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.step-badge {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--primary-gradient);
-  color: #fff;
-  font-weight: 700;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
-  flex-shrink: 0;
 }
 
 .title-text-group {

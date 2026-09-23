@@ -33,9 +33,9 @@
           <el-checkbox v-model="fields.title">专属标题</el-checkbox>
           <el-checkbox v-model="fields.desc">正文描述 / 文案</el-checkbox>
           <el-checkbox v-model="fields.tags">话题标签 (Tags)</el-checkbox>
-          <el-checkbox v-model="fields.thumbnail">封面图片</el-checkbox>
+          <el-checkbox v-if="false" v-model="fields.thumbnail">封面图片</el-checkbox>
           <el-checkbox v-model="fields.schedule">发布时机 / 定时</el-checkbox>
-          <el-checkbox v-model="fields.platformExclusive">平台专属特性 (合集/带货/声明/分区)</el-checkbox>
+          <el-checkbox v-if="false" v-model="fields.platformExclusive">平台专属特性 (合集/带货/声明/分区)</el-checkbox>
         </div>
       </div>
 
@@ -111,7 +111,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void
-  (e: 'confirm-sync', payload: { fields: SyncConfigFields; targetKeys: string[] }): void
+  (e: 'confirm-sync', payload: { fields: SyncConfigFields; targetAccountKeys: string[] }): void
 }>()
 
 const accountStore = useAccountStore()
@@ -166,7 +166,7 @@ const handleConfirmSync = () => {
   }
   emit('confirm-sync', {
     fields: { ...fields },
-    targetKeys: Array.from(targetKeys.value)
+    targetAccountKeys: Array.from(targetKeys.value)
   })
   emit('update:modelValue', false)
   ElMessage.success(`已成功将配置同步至 ${targetKeys.value.size} 个目标账号`)

@@ -487,6 +487,11 @@ const openGlobalLogs = () => {
   showLogDrawer.value = true
 }
 
+const openTaskLogs = (task: PublishTask) => {
+  selectedTaskForDrawer.value = task
+  showLogDrawer.value = true
+}
+
 const getStepDelay = (task: PublishTask, lane: any) => {
   if (task.delaySeconds !== undefined && task.delaySeconds !== null) {
     return task.delaySeconds
@@ -656,7 +661,7 @@ const handleDropOnUnassigned = (_e: DragEvent) => {
 }
 
 .gradient-btn-matrix {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
+  background: var(--primary-color) !important;
   border: none !important;
   box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
 }

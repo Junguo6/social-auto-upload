@@ -4,7 +4,7 @@
     <div class="canvas-header-bar">
       <div class="header-left">
         <span class="live-indicator" :class="{ 'is-active': isReceiving }"></span>
-        <span class="live-title">{{ title || '实时无头浏览器视窗 (CDP)' }}</span>
+        <span class="live-title">{{ title || '实时浏览器画面' }}</span>
         <span class="fps-badge" v-if="fps > 0">{{ fps }} FPS</span>
       </div>
       <div class="header-right">
@@ -51,7 +51,7 @@
       <!-- 等待/加载遮罩 -->
       <div class="canvas-placeholder" v-if="!hasReceivedFirstFrame">
         <el-icon class="is-loading loading-icon"><Loading /></el-icon>
-        <p class="placeholder-text">正在初始化后台无头浏览器并建立 CDP 画面通道...</p>
+        <p class="placeholder-text">正在启动浏览器并连接画面...</p>
         <span class="placeholder-sub">无需外部弹出浏览器窗口，所有扫码与交互将在当前界面实时呈现</span>
       </div>
     </div>

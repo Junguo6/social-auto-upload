@@ -152,7 +152,7 @@ const successRate = computed(() => {
   const fromHistory = publishStore.taskHistory.length
   const fromTasks = taskStore.tasks.filter(t => t.status === 'success' || t.status === 'failed').length
   const total = Math.max(fromHistory, fromTasks)
-  if (total === 0) return '100%'
+  if (total === 0) return '—'
   return ((success / total) * 100).toFixed(1) + '%'
 })
 </script>
