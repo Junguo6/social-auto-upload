@@ -25,7 +25,10 @@ import (
 const (
 	ExecutableName  = "SocialAutoUpload"
 	keyringUsername = "device-seed-encrypt-key"
-	base62Chars     = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	// 识别码字符集：Base58 —— 去掉 4 个易混字符：0（零）、O（大写 o）、I（大写 i）、l（小写 L）
+	// 目的：用户手抄/口述识别码时不会再把「0 和 O」「1 和 l/I」认错。
+	// 注意：长度仍为 16 位，字符集是 [0-9A-Za-z] 的子集，服务端存字符串不受影响。
+	base58Chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 )
 
 var (
@@ -35,8 +38,10 @@ var (
 	identityLock       sync.Mutex
 )
 
-// encodeBase62 将字节数组使用大整数算法编码为 Base62 字符串 (与小映/剪辑插件完全一致)
-func encodeBase62(data []byte) string {
+// encodeBase58 将字节数组使用大整数算法编码为 Base58 字符串。
+// 与批量助手的 Base62 不同：本工具刻意排除易混字符（0/O/I/l），
+// 因为分发助手的识别码需要用户手动抄写/口述的场景更多。
+func encodeBase58(data []byte) string {
 	if len(data) == 0 {
 		return ""
 	}
@@ -44,23 +49,23 @@ func encodeBase62(data []byte) string {
 	bigInt := new(big.Int)
 	bigInt.SetBytes(data)
 
-	base := big.NewInt(62)
+	base := big.NewInt(58)
 	zero := big.NewInt(0)
 	result := ""
 
 	for bigInt.Cmp(zero) > 0 {
 		remainder := new(big.Int)
 		bigInt.DivMod(bigInt, base, remainder)
-		result = string(base62Chars[remainder.Int64()]) + result
+		result = string(base58Chars[remainder.Int64()]) + result
 	}
 
 	return result
 }
 
-// GenerateDeviceID 生成新版识别码（16 位）：Base62(SHA256(machineid + random_seed)) 的前 16 位
+// GenerateDeviceID 生成新版识别码（16 位）：Base58(SHA256(machineid + random_seed)) 的前 16 位
 func GenerateDeviceID(machineID, randomSeed string) string {
 	sum := sha256.Sum256([]byte(machineID + randomSeed))
-	full := encodeBase62(sum[:])
+	full := encodeBase58(sum[:])
 	if len(full) >= 16 {
 		return full[:16]
 	}

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -32,5 +33,22 @@ func TestDeviceIdentityAndOverview(t *testing.T) {
 		t.Fatalf("输入无效激活码应当报错，但却成功了！")
 	} else {
 		fmt.Printf("输入无效激活码预期报错拦截成功: %v\n", err)
+	}
+}
+
+// TestGenerateDeviceID_UsesBase58Charset 识别码只允许 Base58 字符：
+// 不能出现易混字符 0 / O / I / l
+func TestGenerateDeviceID_UsesBase58Charset(t *testing.T) {
+	const allowed = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+	for i := 0; i < 500; i++ {
+		id := GenerateDeviceID(fmt.Sprintf("machine-%d", i), fmt.Sprintf("seed-%d", i))
+		if len(id) != 16 {
+			t.Fatalf("识别码长度应为 16，实际 %d（%s）", len(id), id)
+		}
+		for _, ch := range id {
+			if !strings.ContainsRune(allowed, ch) {
+				t.Fatalf("识别码 %s 出现非 Base58 字符 %q（易混字符 0/O/I/l 必须被排除）", id, ch)
+			}
+		}
 	}
 }
