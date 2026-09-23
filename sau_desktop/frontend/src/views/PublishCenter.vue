@@ -4,7 +4,6 @@
     <div class="config-block glass-card">
       <div class="block-head">
         <div class="block-title"><span class="idx">1</span>发布设置</div>
-        <div class="block-sub">按顺序配置三项，Tab 上会显示完成状态</div>
       </div>
 
       <div class="config-tabs">
@@ -46,6 +45,7 @@
           v-show="activeTab === 'media'"
           v-model:media-list="mediaList"
           v-model:selected-media-ids="selectedMediaIds"
+          v-model:unit-level="unitLevel"
         />
         <!-- 第二步：选择账号 -->
         <AccountCardPicker
@@ -66,7 +66,6 @@
     <div class="matrix-block glass-card">
       <div class="block-head">
         <div class="block-title"><span class="idx">2</span>内容与账号对应表</div>
-        <div class="block-sub">上传视频后按文件夹层级展示；可自动匹配或手动指定账号</div>
       </div>
 
       <!-- 下半区：内容与账号对应表（层级表格） -->
@@ -74,6 +73,7 @@
         :media-list="activeMediaList"
         :selected-accounts="activeAccounts"
         :matrix-map="matrixMap"
+        :unit-level="unitLevel"
         @update:matrix-map="onMatrixMapUpdate"
       />
     </div>
@@ -166,6 +166,9 @@ const { createCrossMatrixPublishBatch } = useMatrixPublish()
 // 1. 待发视频清单与已选 ID
 const mediaList = ref<MediaItem[]>([])
 const selectedMediaIds = ref<string[]>([])
+
+/** 分配/汇总的单位层级（由上传区设定，对应表据此汇总与分配） */
+const unitLevel = ref(2)
 
 // 2. 目标矩阵账号 keys ("platform:account")
 const selectedAccountKeys = ref<string[]>([])
@@ -467,11 +470,6 @@ onMounted(() => {
   font-size: 12px;
   font-weight: 700;
   color: #fff;
-}
-
-.block-sub {
-  font-size: 12px;
-  color: var(--text-muted);
 }
 
 /* ===== Tab ===== */

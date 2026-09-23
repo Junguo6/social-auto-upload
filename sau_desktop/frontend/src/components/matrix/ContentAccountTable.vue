@@ -1,66 +1,37 @@
 <template>
   <div class="content-account-table">
-    <!-- 视角 Tab（同一份对应关系的三种读法） -->
-    <div v-if="rows.length > 0" class="view-tabs">
-      <button
-        class="view-tab"
-        :class="{ on: viewMode === 'folder' }"
-        @click="switchView('folder')"
-      >文件夹视角</button>
-      <button
-        class="view-tab"
-        :class="{ on: viewMode === 'video' }"
-        @click="switchView('video')"
-      >视频视角</button>
-      <button
-        class="view-tab"
-        :class="{ on: viewMode === 'account' }"
-        @click="switchView('account')"
-      >账号视角</button>
-    </div>
-
-    <!-- 统计行（紧跟 Tab，右侧显示） -->
-    <div v-if="rows.length > 0" class="summary-row">
-      <span class="summary">
-        <b>{{ rows.length }}</b> 个视频 ·
-        <b>{{ coveredAccountCount }}</b> 个账号 ·
-        <span :class="{ 'is-warn': pendingCount > 0 }">待分配 {{ pendingCount }}</span>
-      </span>
-    </div>
-
-    <!-- 分配设置卡片 -->
-    <div v-if="rows.length > 0" class="assign-card">
-      <!-- 汇总层级（仅文件夹视角且素材有层级时） -->
-      <div v-if="viewMode === 'folder' && maxFolderDepth >= 1" class="assign-item">
-        <span class="assign-label">汇总层级</span>
-        <select v-model.number="folderLevel" class="tb-select">
-          <option :value="0">全部视频（不分组）</option>
-          <option v-for="n in maxFolderDepth" :key="n" :value="n">按第 {{ n }} 层汇总</option>
-        </select>
-        <span class="assign-sub">分配也按此层级</span>
+    <!-- 1. 分配设置（先配置，再查看） -->
+    <!-- 视角面板：页签 + 内容（同一外框，视觉上为一体） -->
+    <div v-if="rows.length > 0" class="views-panel">
+      <div class="view-tabs">
+        <button class="view-tab" :class="{ on: viewMode === 'folder' }" @click="switchView('folder')" title="一个文件夹里的内容整体发给同一个账号">
+          {{ maxFolderDepth >= 1 ? '文件夹为单位' : '文件夹为单位' }}
+        </button>
+        <button class="view-tab" :class="{ on: viewMode === 'video' }" @click="switchView('video')" title="每条视频单独分配账号">视频为单位</button>
       </div>
 
-      <!-- 分配方式 -->
-      <div class="assign-item">
-        <span class="assign-label">分配方式</span>
-        <select v-model="assignMode" class="tb-select">
-          <option value="sequential">按顺序均分</option>
-          <option value="manual">手动指定</option>
-        </select>
-      </div>
+      <!-- 说明行：单位说明 + 异常提示 + 重置入口 -->
+      <div class="unit-desc">
+        <span class="unit-desc-text">
+          <template v-if="viewMode === 'folder'">
+            <span v-if="maxFolderDepth >= 1" class="level-badge">第 {{ unitLevel }} 层</span>
+            文件夹里的内容整体发给同一个账号
+          </template>
+          <template v-else>
+            每条视频单独分配账号，按列表顺序轮流对应
+          </template>
+        </span>
 
-      <div class="assign-actions">
-        <button class="tb-btn" @click="reapplyAssign">重新应用分配</button>
-        <button class="tb-btn ghost" @click="clearAssign">清空账号分配</button>
         <span v-if="assignHint" class="assign-hint">{{ assignHint }}</span>
-      </div>
-    </div>
 
-    <!-- ============ 视角 1：文件夹视角 ============ -->
-    <div v-if="rows.length > 0 && viewMode === 'folder'" class="table-wrap">
-      <table>
-        <thead>
-          <tr>
+        <button class="reset-btn" @click="reapplyAssign">重置分配</button>
+      </div>
+
+      <!-- 文件夹为单位 -->
+      <div v-if="viewMode === 'folder'" class="table-wrap">
+        <table>
+          <thead>
+            <tr>
             <th>内容</th>
             <th style="width: 300px">发布账号</th>
             <th style="width: 92px">状态</th>
@@ -68,9 +39,7 @@
           </tr>
         </thead>
         <tbody>
-          <template v-for="g in filteredGroups" :key="g.key">
-            <!-- 文件夹分区标题行（不可点击，仅作分组识别） -->
-            <tr class="group-row" :class="{ 'no-assign': g.assigned === 0 }">
+          <tr v-for="g in filteredGroups" :key="g.key" class="group-row" :class="{ 'no-assign': g.assigned === 0 }">
               <td class="col-content">
                 <div class="folder" :title="g.fullPath || g.parentFolder">
                   <FolderIcon v-if="g.parentFolder" :size="15" />
@@ -109,89 +78,14 @@
               <td>
                 <button class="jump-btn" @click.stop="jumpToVideosByFolder(g.key)">明细 ›</button>
               </td>
-            </tr>
-
-            <!-- 视频明细：仅当汇总层级已到「最后一层」时才列出 -->
-            <tr v-for="v in (isLeafLevel ? g.videos : [])" :key="v.id" class="video-row">
-              <td class="col-content">
-                <div class="vid">
-                  <span class="vname">{{ v.fileName }}</span>
-                  <span v-if="v.childFolder" class="sub-path">{{ v.childFolder }}</span>
-                  <span v-if="v.parsedEpisode" class="cp">第{{ v.parsedEpisode }}集</span>
-                </div>
-              </td>
-              <td class="col-accts">
-                <div class="chips">
-                  <span
-                    v-for="key in getAssigned(v.id)"
-                    :key="key"
-                    class="acct"
-                    :class="{ auto: autoMatchedIds.includes(v.id + '|' + key) }"
-                    title="点击移除"
-                    @click.stop="removeAssign(v.id, key)"
-                  >
-                    <span class="av" :style="{ background: platformMeta(key.split(':')[0]).color }">
-                      {{ platformMeta(key.split(':')[0]).short }}
-                    </span>{{ getAccountName(key) }}
-                  </span>
-                  <span v-if="getAssigned(v.id).length === 0" class="acct empty" @click.stop="openPicker(v.id)">
-                    + 指定账号
-                  </span>
-                </div>
-              </td>
-              <td>
-                <span v-if="getAssigned(v.id).length === 0" class="badge warn">待分配</span>
-                <span v-else class="badge ok">已分配 {{ getAssigned(v.id).length }}</span>
-              </td>
-              <td></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- ============ 视角 2：按账号看 ============ -->
-    <div v-if="rows.length > 0 && viewMode === 'account'" class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th style="width: 260px">账号</th>
-            <th>负责的内容</th>
-            <th style="width: 110px">合计</th>
-            <th style="width: 78px"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="a in accountRows" :key="a.key" class="acct-row">
-            <td>
-              <div class="acct-cell">
-                <span class="av big" :style="{ background: platformMeta(a.platform).color }">
-                  {{ platformMeta(a.platform).short }}
-                </span>
-                <div>
-                  <div class="aname">{{ a.name }}</div>
-                  <div class="aplat">{{ a.platform }}</div>
-                </div>
-              </div>
-            </td>
-            <td>
-              <div class="src-chips">
-                <span v-for="s in a.sources" :key="s.folder" class="src">{{ s.folder }} <b>{{ s.count }}</b></span>
-                <span v-if="a.total === 0" class="none">未分发任何内容</span>
-              </div>
-            </td>
-            <td><span class="total" :class="{ zero: a.total === 0 }">{{ a.total }} 个视频</span></td>
-            <td>
-              <button v-if="a.total > 0" class="jump-btn" @click.stop="jumpToVideosByAccount(a.key)">明细 ›</button>
-            </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <!-- ============ 视角 3：视频视角 ============ -->
-    <div v-if="rows.length > 0 && viewMode === 'video'">
-      <!-- 视频视角：跳转筛选条 -->
+    <!-- 视频为单位 -->
+    <div v-else>
+      <!-- 视频为单位：跳转筛选条 -->
       <div v-if="jumpFilter" class="jump-bar">
         <span class="jump-label">仅显示：</span>
         <span class="jump-chip">
@@ -255,8 +149,9 @@
             </tr>
           </tbody>
         </table>
-      </div>
-    </div>
+      </div><!-- /.table-wrap -->
+    </div><!-- /video section -->
+    </div><!-- /views-panel -->
 
     <!-- 指定账号弹窗 -->
     <el-dialog v-model="pickerVisible" title="指定发布账号" width="420px">
@@ -322,14 +217,6 @@ interface GroupRow {
   filtered?: boolean
 }
 
-interface AccountRow {
-  key: string
-  platform: string
-  name: string
-  sources: Array<{ folder: string; count: number }>
-  total: number
-}
-
 interface RowItem {
   id: string
   fileName: string
@@ -345,6 +232,8 @@ const props = defineProps<{
   mediaList: MediaItem[]
   selectedAccounts: Array<{ platform: string; account: string; nickname?: string }>
   matrixMap: Record<string, Record<string, MatrixCellConfig>>
+  /** 分配/汇总的单位层级，由上传区设定 */
+  unitLevel: number
 }>()
 
 const emit = defineEmits<{
@@ -356,89 +245,63 @@ const emit = defineEmits<{
 
 const autoMatchedIds = ref<string[]>([])
 
-type ViewMode = 'folder' | 'video' | 'account'
+type ViewMode = 'folder' | 'video'
 const viewMode = ref<ViewMode>('folder')
 
 /**
- * 默认视角：
- * · 素材里存在子文件夹（有分组结构）→ 文件夹视角
- * · 素材全是平铺视频（无子文件夹）  → 视频视角
+ * 默认分配单位：
+ * · 素材里存在子文件夹（有分组结构）→ 文件夹为单位
+ * · 素材全是平铺视频（无子文件夹）  → 视频为单位
  */
 const defaultViewMode = computed<ViewMode>(() =>
   props.mediaList.some((m) => (m.folderCrumbs || []).length > 0) ? 'folder' : 'video'
 )
 
-// 仅在「素材结构」变化时重置视角；用户手动切换视角后，只要媒体结构没变，watch 不会再触发
+// 仅在「素材结构」变化时重置单位选择；用户手动切换后，只要媒体结构没变，watch 不会再触发
 watch(defaultViewMode, (v) => { viewMode.value = v }, { immediate: true })
 
-// ============ 文件夹视角：汇总层级 ============
-/** 文件夹视角按第几层汇总（1 = 最外层，默认） */
-const folderLevel = ref(1)
-
+// ============ 文件夹为单位：汇总层级（由上传区控制） ============
 /** 素材里实际存在的最深目录层级 */
 const maxFolderDepth = computed(() =>
   props.mediaList.reduce((mx, m) => Math.max(mx, (m.folderCrumbs || []).length), 0)
 )
 
-// 素材结构变化时，默认汇总到「第 2 层」：
-// 层级约定为「第 1 层 = 父文件夹（拖入的根）、第 2 层 = 账号目录、第 3 层 = 内容目录」，
-// 第 2 层才是常用的分组粒度（按账号把内容分下去）。
-// 素材不足两层时（一层文件夹或纯平铺视频）回退到实际深度。
-watch(
-  maxFolderDepth,
-  (depth) => {
-    folderLevel.value = Math.min(2, depth)
-  },
-  { immediate: true }
-)
+// 切换层级时清掉跳转筛选，避免 group key 变了导致过滤失效
+watch(() => props.unitLevel, () => {
+  jumpFilter.value = null
+})
 
-/** 当前汇总层级是否已到素材的最深层（最后一层） */
-const isLeafLevel = computed(
-  () => maxFolderDepth.value > 0 && folderLevel.value >= maxFolderDepth.value
-)
-
-/** 按当前层级取分组 key（folderLevel === 0 时不分组，全部归为一组） */
+/** 按当前层级取分组 key（unitLevel === 0 时不分组，全部归为一组） */
 function groupKeyOf(crumbs: string[]): string {
-  if (folderLevel.value === 0) return '__all__'
+  if (props.unitLevel === 0) return '__all__'
   if (!crumbs || crumbs.length === 0) return '__ungrouped__'
-  return crumbs.slice(0, Math.min(folderLevel.value, crumbs.length)).join(' / ')
+  return crumbs.slice(0, Math.min(props.unitLevel, crumbs.length)).join(' / ')
 }
 
 /**
  * 分组显示名 = 第 N 层那一段目录名（不拼接父层）。
- * 例：crumbs = ['短剧A','第1集']、folderLevel = 2 → 显示「第1集」
+ * 例：crumbs = ['短剧A','第1集']、unitLevel = 2 → 显示「第1集」
  */
 function groupNameOf(crumbs: string[]): string {
-  if (folderLevel.value === 0) return '全部视频'
+  if (props.unitLevel === 0) return '全部视频'
   if (!crumbs || crumbs.length === 0) return ''
-  const idx = Math.min(folderLevel.value, crumbs.length) - 1
+  const idx = Math.min(props.unitLevel, crumbs.length) - 1
   return crumbs[idx] || ''
 }
 
-// 切换层级时清掉跳转筛选，避免 group key 变了导致过滤失效
-watch(folderLevel, () => {
-  jumpFilter.value = null
-})
-
 // ============ 跳转联动 ============
-/** 从其他视角跳进视频视角时的筛选条件 */
-const jumpFilter = ref<{ type: 'folder' | 'account'; value: string } | null>(null)
+/** 从文件夹为单位跳进视频为单位时的筛选条件 */
+const jumpFilter = ref<{ type: 'folder'; value: string } | null>(null)
 
-/** 视角切换（离开视频视角时清掉跳转筛选，避免下次进入被莫名过滤） */
+/** 单位切换（离开视频为单位时清掉跳转筛选，避免下次进入被莫名过滤） */
 function switchView(v: ViewMode) {
   viewMode.value = v
   if (v !== 'video') jumpFilter.value = null
 }
 
-/** 文件夹视角 → 视频视角（只看该文件夹的视频） */
+/** 文件夹为单位 → 视频为单位（只看该文件夹的视频） */
 function jumpToVideosByFolder(folderKey: string) {
   jumpFilter.value = { type: 'folder', value: folderKey }
-  viewMode.value = 'video'
-}
-
-/** 账号视角 → 视频视角（只看该账号负责的视频） */
-function jumpToVideosByAccount(accKey: string) {
-  jumpFilter.value = { type: 'account', value: accKey }
   viewMode.value = 'video'
 }
 
@@ -450,11 +313,8 @@ function clearJumpFilter() {
 const jumpLabel = computed(() => {
   const jf = jumpFilter.value
   if (!jf) return ''
-  if (jf.type === 'folder') {
-    const g = groups.value.find((x) => x.key === jf.value)
-    return g?.parentFolder || '未分组视频'
-  }
-  return `@${getAccountName(jf.value)}`
+  const g = groups.value.find((x) => x.key === jf.value)
+  return g?.parentFolder || '未分组视频'
 })
 
 // ============ 路径解析 ============
@@ -531,11 +391,6 @@ function removeAssign(mediaId: string, key: string) {
   delete cells[key]
   next[mediaId] = cells
   emit('update:matrixMap', next)
-}
-
-function clearAssign() {
-  emit('update:matrixMap', {})
-  autoMatchedIds.value = []
 }
 
 // 注意：已从工具栏移除入口 —— 按文件夹名匹配已并入「按顺序均分」的默认逻辑
@@ -616,14 +471,10 @@ const groups = computed<GroupRow[]>(() => {
   return Array.from(map.values())
 })
 
-// ============ 对应模式（默认：按顺序均分） ============
-type AssignMode = 'sequential' | 'manual'
-const assignMode = ref<AssignMode>('sequential')
-
 /**
- * 构建「分配单元」：
- * · 有子文件夹 → 以父文件夹为一个单元（同系列不拆散，整组给同一个账号）
- * · 无子文件夹 → 以单个视频为一个单元
+ * 分配单元跟随当前选择的分配单位：
+ * · 文件夹为单位 → 以「当前汇总层级的文件夹」为一个单元（整组给同一个账号）
+ * · 视频为单位   → 以「单个视频」为一个单元
  */
 function nameOfUnit(unitKey: string): string {
   if (unitKey === '__all__' || unitKey === '__ungrouped__') return ''
@@ -654,8 +505,8 @@ const assignHint = computed(() => {
 const pendingCount = computed(() => rows.value.length - assignedCount.value)
 
 /**
- * 按顺序均分：单元 i → 账号 (i % 账号数)
- * 只补齐「尚未分配」的视频，不覆盖用户的手动调整
+ * 自动分配：按当前分配单位（文件夹 / 单个视频）的顺序，把内容轮流配给已选账号。
+ * 只补齐「尚未分配」的视频，不覆盖用户的手动调整。
  */
 function applySequentialAssign() {
   const accounts = props.selectedAccounts
@@ -686,18 +537,24 @@ function applySequentialAssign() {
 // ---- 撤销快照 ----
 const assignSnapshot = ref<Record<string, Record<string, MatrixCellConfig>> | null>(null)
 
-/** 覆盖式重新应用（用户主动点击时使用，会重算全部） */
+/**
+ * 重置分配：把对应关系恢复为系统推荐的默认结果（按当前分配单位轮流分配）。
+ * 会覆盖所有现有手动调整。
+ */
 async function reapplyAssign() {
   const accounts = props.selectedAccounts
   if (accounts.length === 0) return
 
-  // 重新应用会按「当前汇总层级」重算分配，层级切错会导致分配全变，先确认
   const unitCount = buildAssignUnits().length
+  const isFolderMode = viewMode.value === 'folder' && props.mediaList.some((m) => (m.folderCrumbs || []).length > 0)
+  const unitDesc = isFolderMode
+    ? `文件夹（第 ${props.unitLevel === 0 ? '不分组' : props.unitLevel + ' 层'} · ${unitCount} 组）`
+    : `单个视频（共 ${unitCount} 条）`
   try {
     await ElMessageBox.confirm(
-      `将按当前层级（${folderLevel.value === 0 ? '不分组' : `第 ${folderLevel.value} 层`} · ${unitCount} 个分组）重新分配，覆盖现有对应关系。`,
-      '确认重新应用均分？',
-      { type: 'warning', confirmButtonText: '重新分配', cancelButtonText: '取消' }
+      `将按【${unitDesc}】为单位，把对应关系恢复为系统推荐的结果（会覆盖现有手动调整）。`,
+      '确认重置分配？',
+      { type: 'warning', confirmButtonText: '重置', cancelButtonText: '取消' }
     )
   } catch {
     return // 用户取消
@@ -752,9 +609,8 @@ function undoAssign() {
 
 // ---- 自动执行：出现「未分配的视频」时按默认模式补齐 ----
 watch(
-  [() => rows.value.length, () => props.selectedAccounts.length, assignMode],
+  [() => rows.value.length, () => props.selectedAccounts.length],
   () => {
-    if (assignMode.value !== 'sequential') return
     applySequentialAssign()
   },
   { immediate: true }
@@ -763,18 +619,16 @@ watch(
 // 搜索功能已下线；保留该 computed 以兼容模板引用
 const filteredGroups = computed<GroupRow[]>(() => groups.value)
 
-/** 视频视角的行数据：先叠加跳转筛选（文件夹 / 账号） */
+/** 视频为单位的行数据：先叠加跳转筛选（仅文件夹来源） */
 const filteredRowsForVideoView = computed(() => {
   let list = rows.value
 
-  // 跳转筛选（从文件夹/账号视角进来时）
+  // 跳转筛选（从文件夹为单位进来时）
   const jf = jumpFilter.value
   if (jf?.type === 'folder') {
     const g = groups.value.find((x) => x.key === jf.value)
     const ids = new Set(g ? g.videos.map((v) => v.id) : [])
     list = list.filter((r) => ids.has(r.id))
-  } else if (jf?.type === 'account') {
-    list = list.filter((r) => getAssigned(r.id).includes(jf.value))
   }
 
   return list
@@ -799,27 +653,6 @@ function isAutoMatchedGroup(g: GroupRow, accKey: string) {
 }
 
 // ============ 按账号视角 ============
-const accountRows = computed<AccountRow[]>(() => {
-  return props.selectedAccounts
-    .map((a) => {
-      const key = `${a.platform}:${a.account}`
-      const hit = rows.value.filter((r) => getAssigned(r.id).includes(key))
-      const m = new Map<string, number>()
-      hit.forEach((r) => {
-        const f = r.parentFolder || '未分组'
-        m.set(f, (m.get(f) || 0) + 1)
-      })
-      return {
-        key,
-        platform: a.platform,
-        name: a.nickname || a.account,
-        sources: Array.from(m.entries()).map(([folder, count]) => ({ folder, count })),
-        total: hit.length
-      }
-    })
-    .sort((a, b) => b.total - a.total)
-})
-
 // ============ 组级批量操作 ============
 /** 批量写入分配（组级操作：一次 emit，避免逐条触发） */
 function setAssignBatch(mediaIds: string[], keys: string[]) {
@@ -913,48 +746,6 @@ function confirmPicker() {
   gap: 4px;
   white-space: nowrap;
 }
-.summary b { color: var(--text-main); font-weight: 600; }
-.summary .is-warn { color: var(--status-warning, #f5a623); font-weight: 600; }
-.summary-note { margin-left: 6px; font-size: 11.5px; color: var(--status-warning, #f5a623); }
-
-/* 分配设置卡片 */
-.assign-card {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  margin-bottom: 10px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-subtle);
-  border-radius: 9px;
-}
-.assign-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.assign-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.assign-sub {
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.assign-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-.assign-hint {
-  font-size: 11.5px;
-  color: var(--status-warning, #f5a623);
-  white-space: nowrap;
-}
 
 /* 搜索框收窄，不再撑满 */
 
@@ -968,12 +759,9 @@ function confirmPicker() {
 .hint { font-size: 12px; color: var(--text-muted); }
 
 .table-wrap {
-  margin-top: 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 9px;
-  overflow: auto;
   flex: 1;
   min-height: 240px;
+  overflow: auto;
 }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th { position: sticky; top: 0; background: var(--bg-detail); padding: 9px 12px; text-align: left; font-weight: 600; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; z-index: 2; color: var(--text-main); }
@@ -1001,13 +789,73 @@ tbody tr.group-row:hover td { background: rgba(99, 102, 241, 0.07); }
 .picker-item.on { border-color: var(--primary-color); background: rgba(99, 102, 241, 0.1); }
 .picker-item .plat { font-size: 11px; color: var(--text-muted); }
 
-/* 视角 Tab（表格上方，与左侧步骤 Tab 区分：下划线样式） */
+/* 视角面板：页签 + 内容（同一外框） */
+.views-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.unit-desc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.unit-desc-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.reset-btn {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.reset-btn:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.level-badge {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 4px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  vertical-align: 1px;
+}
+
+/* 视角 Tab（页签贴合容器底边，视觉与内容区为一体） */
 .view-tabs {
   display: flex;
   align-items: center;
   gap: 2px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--border-subtle);
-  margin-bottom: 10px;
+  background: var(--bg-input);
+  flex-shrink: 0;
 }
 .view-tab {
   position: relative;
@@ -1029,7 +877,7 @@ tbody tr.group-row:hover td { background: rgba(99, 102, 241, 0.07); }
   bottom: -1px;
   height: 2px;
   background: var(--primary-color);
-  border-radius: 2px;
+  border-radius: 2px 2px 0 0;
 }
 
 /* 跳转筛选条 */
@@ -1078,7 +926,7 @@ tbody tr.group-row:hover td { background: rgba(99, 102, 241, 0.07); }
   color: var(--primary-color);
 }
 
-/* 视频视角：文件夹路径 */
+/* 视频为单位：文件夹路径 */
 .folder-path { font-size: 12px; color: var(--text-muted); }
 .folder-path .pf { color: var(--text-main); font-weight: 500; }
 .folder-path .cf { color: var(--text-muted); }
@@ -1122,18 +970,4 @@ tbody tr.group-row:hover td { background: rgba(99, 102, 241, 0.07); }
 .badge.ok { color: var(--status-success); background: rgba(52, 211, 153, 0.12); }
 .badge.warn { color: var(--status-warning, #f5a623); background: rgba(245, 166, 35, 0.14); }
 .badge.part { color: var(--primary-color); background: rgba(99, 102, 241, 0.12); }
-
-/* ===== 按账号看 ===== */
-.acct-cell { display: flex; align-items: center; gap: 9px; }
-.av.big { width: 24px; height: 24px; font-size: 11px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 600;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22); /* 深色主题：保证抖音黑色头像有可见轮廓 */
-}
-.acct-cell .aname { font-weight: 500; color: var(--text-main); }
-.acct-cell .aplat { font-size: 11px; color: var(--text-muted); }
-.src-chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.src { font-size: 11px; padding: 2px 9px; border-radius: 10px; background: var(--bg-input); border: 1px solid var(--border-subtle); color: var(--text-secondary); }
-.src b { color: var(--text-main); font-weight: 600; margin-left: 3px; }
-.total { font-size: 12px; color: var(--text-main); font-weight: 600; }
-.total.zero { color: var(--text-muted); font-weight: 400; }
-.none { font-size: 11px; color: var(--status-warning, #f5a623); }
 </style>

@@ -40,6 +40,21 @@
       <span v-if="hasMultiFolder" class="badge-folder">
         <span class="ic"><FolderIcon :size="13" /></span> 多层目录
       </span>
+      <!-- 以第几层为分配单位（素材有多层时才显示） -->
+      <span v-if="maxFolderDepth >= 1" class="badge-folder">
+        以
+        <span class="level-inline">
+          <select
+            :value="unitLevel"
+            class="level-select"
+            title="账号按这一层的文件夹顺序分配；改这里会影响对应表的分组与分配"
+            @change="e => emit('update:unitLevel', Number((e.target as HTMLSelectElement).value))"
+          >
+            <option v-for="n in maxFolderDepth" :key="n" :value="n">第{{ n }}层</option>
+          </select>
+        </span>
+        为单位
+      </span>
       <div class="quick-batch-ops">
         <el-tooltip content="清空已添加的全部视频" placement="top">
           <el-button size="small" link type="danger" @click="handleClearAll">
@@ -89,7 +104,7 @@
         <div class="folder-info">
           <div class="folder-name">
             {{ f.name }}
-            <span class="level-tag">第{{ f.level }}层</span>
+            <span class="level-tag" :class="{ 'is-unit': f.level === unitLevel }">第{{ f.level }}层</span>
           </div>
           <div class="folder-count">{{ f.count }} 个视频</div>
         </div>
@@ -210,11 +225,13 @@ import type { MediaItem } from '../../types/matrix'
 const props = defineProps<{
   mediaList: MediaItem[]
   selectedMediaIds: string[]
+  unitLevel: number
 }>()
 
 const emit = defineEmits<{
   (e: 'update:mediaList', list: MediaItem[]): void
   (e: 'update:selectedMediaIds', ids: string[]): void
+  (e: 'update:unitLevel', v: number): void
   (e: 'add-media', items: MediaItem[]): void
 }>()
 
@@ -294,14 +311,22 @@ onMounted(() => {
     }
 
     const merged = [...props.mediaList, ...newItems]
-    // 首次导入时自动进入第一层，让预览列表直接展示「第 2 层」内容
-    // （层级约定：第 1 层 = 父文件夹 / 被拖入的根，第 2 层 = 账号或分类目录）
+    // 首次导入时按「以第几层为单位」自动定位预览列表
     if (props.mediaList.length === 0 && newItems.length > 0) {
-      const levels = Array.from(
+      const roots = Array.from(
         new Set(newItems.map((i) => (i.folderCrumbs || [])[0]).filter(Boolean) as string[])
       )
-      // 只有一个根（第一层）时才自动进入；多个根时保持「全部」视图
-      browsePath.value = levels.length === 1 ? [levels[0]] : []
+      const lv = props.unitLevel
+      if (roots.length === 1 && lv >= 2) {
+        if (lv === 2) {
+          browsePath.value = [roots[0]]
+        } else {
+          const sample = (newItems.find((i) => (i.folderCrumbs || [])[0] === roots[0])?.folderCrumbs || []) as string[]
+          browsePath.value = sample.slice(0, Math.min(lv - 1, sample.length))
+        }
+      } else {
+        browsePath.value = []
+      }
     }
     emit('update:mediaList', merged)
     emit('update:selectedMediaIds', Array.from(new Set([...props.selectedMediaIds, ...newItems.map(i => i.id)])))
@@ -331,6 +356,18 @@ const hasMultiFolder = computed(() => {
   const crumbs = new Set(props.mediaList.map(m => JSON.stringify(m.folderCrumbs || [])))
   return crumbs.size > 1
 })
+
+/** 素材里实际存在的最深层级（决定「以第几层为单位」的可选项） */
+const maxFolderDepth = computed(() =>
+  props.mediaList.reduce((mx, m) => Math.max(mx, (m.folderCrumbs || []).length), 0)
+)
+
+// 素材层级不足当前设定时自动回退（不超过实际最大值，默认不高于第 2 层）
+watch(maxFolderDepth, (depth) => {
+  if (depth > 0 && props.unitLevel > depth) {
+    emit('update:unitLevel', Math.min(2, depth))
+  }
+}, { immediate: true })
 
 /** 素材的目录层数：0 = 平铺视频，1 = 一层文件夹，2 = 两层… */
 function maxDepthOf(list: Array<{ folderCrumbs?: string[]; folders?: string[] }>): number {
@@ -362,6 +399,38 @@ function checkStructureMatch(incoming: Array<{ folders?: string[] }>): string | 
 // ============ 预览区逐层浏览 ============
 // browsePath 表示当前所在层级（相对扫描根目录的目录名序列），[] = 根
 const browsePath = ref<string[]>([])
+
+/**
+ * 把「以第 N 层为单位」换算成预览列表要显示的路径：
+ * 显示第 N 层 = browsePath 停在前 N-1 层
+ * · N=1 → []（根层）
+ * · N=2 → [第一层名]
+ * · N>=3 → 取某个视频的前 N-1 段目录
+ * 若素材有多个根（第一层不唯一），无法确定唯一路径，回退到根层。
+ */
+function pathForUnitLevel(level: number): string[] {
+  const all = props.mediaList
+  if (level <= 1 || all.length === 0) return []
+
+  const roots = Array.from(
+    new Set(all.map((m) => (m.folderCrumbs || [])[0]).filter(Boolean) as string[])
+  )
+  if (roots.length !== 1) return []
+
+  if (level === 2) return [roots[0]]
+
+  const sample = all.find((m) => (m.folderCrumbs || [])[0] === roots[0])?.folderCrumbs || []
+  return sample.slice(0, Math.min(level - 1, sample.length))
+}
+
+// 用户切换「以第几层为单位」时，预览列表同步跳到该层，
+// 让用户当场确认"这一层具体是哪些文件夹"
+watch(
+  () => props.unitLevel,
+  (lv) => {
+    browsePath.value = pathForUnitLevel(lv)
+  }
+)
 
 /** 当前层级下的文件夹（含视频数）与视频（已应用搜索过滤） */
 const browseEntries = computed(() => {
@@ -570,14 +639,22 @@ const handleSelectFolder = async () => {
     })
 
     const merged = [...props.mediaList, ...newItems]
-    // 首次导入时自动进入第一层，让预览列表直接展示「第 2 层」内容
-    // （层级约定：第 1 层 = 父文件夹 / 被拖入的根，第 2 层 = 账号或分类目录）
+    // 首次导入时按「以第几层为单位」自动定位预览列表
     if (props.mediaList.length === 0 && newItems.length > 0) {
-      const levels = Array.from(
+      const roots = Array.from(
         new Set(newItems.map((i) => (i.folderCrumbs || [])[0]).filter(Boolean) as string[])
       )
-      // 只有一个根（第一层）时才自动进入；多个根时保持「全部」视图
-      browsePath.value = levels.length === 1 ? [levels[0]] : []
+      const lv = props.unitLevel
+      if (roots.length === 1 && lv >= 2) {
+        if (lv === 2) {
+          browsePath.value = [roots[0]]
+        } else {
+          const sample = (newItems.find((i) => (i.folderCrumbs || [])[0] === roots[0])?.folderCrumbs || []) as string[]
+          browsePath.value = sample.slice(0, Math.min(lv - 1, sample.length))
+        }
+      } else {
+        browsePath.value = []
+      }
     }
     emit('update:mediaList', merged)
     const newIds = newItems.map(i => i.id)
@@ -782,6 +859,34 @@ async function hydrateMediaMeta(targets: MediaItem[]) {
   border: 1px solid var(--border-subtle);
   border-radius: 20px;
   padding: 1px 8px;
+}
+
+.level-select {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0;
+  margin: 0;
+  border-radius: 6px;
+  line-height: 17px;
+  color: var(--primary-color);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  outline: none;
+}
+
+/* 与对应表说明行的 level-badge 同一套蓝底蓝框视觉 */
+.level-inline {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  vertical-align: 1px;
 }
 
 .badge-count { display: inline-flex; align-items: center; gap: 4px; }
@@ -1209,5 +1314,10 @@ async function hydrateMediaMeta(targets: MediaItem[]) {
   border: 1px solid var(--border-subtle);
   color: var(--text-muted);
   vertical-align: 1px;
+}
+.level-tag.is-unit {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+  font-weight: 600;
 }
 </style>
