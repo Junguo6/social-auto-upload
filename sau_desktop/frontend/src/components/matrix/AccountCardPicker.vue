@@ -336,8 +336,9 @@ const getPlatformColor = (pid: string) => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 10px;
-  flex: 1;
-  min-height: 260px;
+  flex: 1;                  /* 撑满卡片剩余高度 */
+  min-height: 220px;        /* 兜底：窗口极矮时不被压扁 */
+  align-content: start;     /* 卡片从顶部排列，不被行高拉伸 */
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -380,7 +381,9 @@ const getPlatformColor = (pid: string) => {
   font-size: 10px;
   font-weight: 700;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.22); /* 深色主题：保证抖音黑色头像有可见轮廓 */
 }
 
 .account-info {

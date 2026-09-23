@@ -82,6 +82,10 @@ export interface MediaItem {
   duration?: string
   format?: string
   parsedEpisode?: number
+  /** 从 filePath 解析出的文件夹层级（从上到下），如 ["素材库", "武侠剧", "第1集"] */
+  folderCrumbs?: string[]
+  /** 视频首帧缩略图（base64 dataURL，前端抓帧生成） */
+  thumbnail?: string
 }
 
 // 8. 矩阵单元格配置 (Matrix Cell Config)

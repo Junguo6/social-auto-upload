@@ -283,6 +283,10 @@ const appendTag = (t: string) => {
 
 <style scoped>
 .publish-rule-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;            /* 配合父级 flex 链 */
+  overflow-y: auto;         /* 表单内容长时自己滚动，不撑破容器 */
   padding: 18px 20px;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);

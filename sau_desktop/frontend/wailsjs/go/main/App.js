@@ -66,12 +66,20 @@ export function ResumeAccount(arg1, arg2) {
   return window['go']['main']['App']['ResumeAccount'](arg1, arg2);
 }
 
+export function ScanMediaFolder(arg1) {
+  return window['go']['main']['App']['ScanMediaFolder'](arg1);
+}
+
 export function SelectLocalFile(arg1, arg2) {
   return window['go']['main']['App']['SelectLocalFile'](arg1, arg2);
 }
 
 export function SelectLocalFiles(arg1, arg2) {
   return window['go']['main']['App']['SelectLocalFiles'](arg1, arg2);
+}
+
+export function SelectLocalFolder(arg1) {
+  return window['go']['main']['App']['SelectLocalFolder'](arg1);
 }
 
 export function SendBrowserInput(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {

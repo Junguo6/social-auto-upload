@@ -1,63 +1,80 @@
 <template>
   <div class="matrix-studio-workspace custom-scrollbar">
-    <!-- 1. 顶部操作栏与预设模板 -->
-    <StudioTopBar
-      :saved-templates="savedTemplates"
-      @template-command="handleTemplateCommand"
-      @reset-all="resetAllForm"
-    />
+    <!-- ===== 第一块：发布设置（3 个 Tab） ===== -->
+    <div class="config-block glass-card">
+      <div class="block-head">
+        <div class="block-title"><span class="idx">1</span>发布设置</div>
+        <div class="block-sub">按顺序配置三项，Tab 上会显示完成状态</div>
+      </div>
 
-    <!-- 步骤导航指示条 -->
-    <div class="step-guide-bar glass-card">
-      <div class="guide-step" :class="{ done: step1Done, active: !step1Done }">
-        <span class="step-num">{{ step1Done ? '✓' : '1' }}</span>
-        <span class="step-text">添加待发视频 ({{ mediaList.length }})</span>
+      <div class="config-tabs">
+        <!-- 第一步：上传视频（默认焦点） -->
+        <div
+          class="config-tab"
+          :class="{ active: activeTab === 'media', done: mediaList.length > 0 }"
+          @click="activeTab = 'media'"
+        >
+          <span class="tab-num">{{ mediaList.length > 0 ? '✓' : '1' }}</span>
+          <span>上传视频</span>
+          <span class="tab-cnt" v-if="mediaList.length > 0">{{ mediaList.length }}</span>
+        </div>
+        <!-- 第二步：选择账号 -->
+        <div
+          class="config-tab"
+          :class="{ active: activeTab === 'account', done: selectedAccountKeys.length > 0 }"
+          @click="activeTab = 'account'"
+        >
+          <span class="tab-num">{{ selectedAccountKeys.length > 0 ? '✓' : '2' }}</span>
+          <span>选择账号</span>
+          <span class="tab-cnt" v-if="selectedAccountKeys.length > 0">{{ selectedAccountKeys.length }}</span>
+        </div>
+        <!-- 第三步：发布信息 -->
+        <div
+          class="config-tab"
+          :class="{ active: activeTab === 'info' }"
+          @click="activeTab = 'info'"
+        >
+          <span class="tab-num">3</span>
+          <span>发布信息</span>
+          <span class="tab-dot" v-if="!masterForm.title"></span>
+        </div>
       </div>
-      <div class="guide-step" :class="{ done: step2Done, active: step1Done && !step2Done }">
-        <span class="step-num">{{ step2Done ? '✓' : '2' }}</span>
-        <span class="step-text">选择矩阵账号 ({{ selectedAccountKeys.length }})</span>
-      </div>
-      <div class="guide-step" :class="{ done: step3Done, active: step2Done && !step3Done }">
-        <span class="step-num">{{ step3Done ? '✓' : '3' }}</span>
-        <span class="step-text">规则与批量变量</span>
-      </div>
-      <div class="guide-step" :class="{ active: step3Done }">
-        <span class="step-num">4</span>
-        <span class="step-text">透视矩阵确认</span>
-      </div>
-    </div>
 
-    <!-- 2. 主体工作区 (四步线性与矩阵流) -->
-    <div class="studio-content-flow">
-      <!-- 上半区：步骤 1 与 步骤 2 (双列并排) -->
-      <div class="two-col-grid">
-        <!-- 步骤 1: 待发视频素材清单 -->
+      <div class="config-body">
+        <!-- 第一步：上传视频 -->
         <MediaListCard
+          v-show="activeTab === 'media'"
           v-model:media-list="mediaList"
           v-model:selected-media-ids="selectedMediaIds"
         />
-
-        <!-- 步骤 2: 目标矩阵账号选择 -->
+        <!-- 第二步：选择账号 -->
         <AccountCardPicker
+          v-show="activeTab === 'account'"
           v-model:selected-keys="selectedAccountKeys"
         />
+        <!-- 第三步：发布信息 -->
+        <PublishRuleForm
+          v-show="activeTab === 'info'"
+          v-model:master-form="masterForm"
+          v-model:rule-config="ruleConfig"
+          :media-list="activeMediaList"
+        />
+      </div>
+    </div>
+
+    <!-- ===== 第二块：账号 × 视频 对应关系 ===== -->
+    <div class="matrix-block glass-card">
+      <div class="block-head">
+        <div class="block-title"><span class="idx">2</span>内容与账号对应表</div>
+        <div class="block-sub">上传视频后按文件夹层级展示；可自动匹配或手动指定账号</div>
       </div>
 
-      <!-- 中间区：步骤 3 全局信息与批量变量规则 -->
-      <PublishRuleForm
-        v-model:master-form="masterForm"
-        v-model:rule-config="ruleConfig"
-        :media-list="activeMediaList"
-      />
-
-      <!-- 下半区：步骤 4 视频 × 账号双视角交叉透视矩阵 -->
-      <CrossPublishMatrix
+      <!-- 下半区：内容与账号对应表（层级表格） -->
+      <ContentAccountTable
         :media-list="activeMediaList"
         :selected-accounts="activeAccounts"
-        v-model:matrix-map="matrixMap"
-        :master-form="masterForm"
-        :rule-config="ruleConfig"
-        @open-sync="handleOpenSyncModal"
+        :matrix-map="matrixMap"
+        @update:matrix-map="onMatrixMapUpdate"
       />
     </div>
 
@@ -75,7 +92,7 @@
         <el-popover placement="top" :width="250" trigger="click">
           <template #reference>
             <el-button size="small" class="glass-btn">
-              高级设置 · 同时发布 {{ concurrency }} · {{ isHeadless ? '后台静默运行' : '前台可见运行' }}
+              高级设置 · 同时发布 {{ concurrency }} · {{ isHeadless ? '后台静默运行' : '显示浏览器' }}
             </el-button>
           </template>
           <div class="adv-row">
@@ -84,7 +101,9 @@
           </div>
           <div class="adv-row">
             <span class="adv-label">后台静默运行</span>
-            <el-switch v-model="isHeadless" />
+            <el-tooltip content="在后台静默运行，不弹出浏览器窗口（推荐）" placement="top">
+              <el-switch v-model="isHeadless" />
+            </el-tooltip>
           </div>
         </el-popover>
 
@@ -131,11 +150,11 @@ import type {
 } from '../types/matrix'
 
 // 子组件引入
-import StudioTopBar from '../components/matrix/StudioTopBar.vue'
 import MediaListCard from '../components/matrix/MediaListCard.vue'
 import AccountCardPicker from '../components/matrix/AccountCardPicker.vue'
 import PublishRuleForm from '../components/matrix/PublishRuleForm.vue'
 import CrossPublishMatrix from '../components/matrix/CrossPublishMatrix.vue'
+import ContentAccountTable from '../components/matrix/ContentAccountTable.vue'
 import SyncConfigModal from '../components/matrix/SyncConfigModal.vue'
 
 const router = useRouter()
@@ -151,6 +170,9 @@ const selectedMediaIds = ref<string[]>([])
 // 2. 目标矩阵账号 keys ("platform:account")
 const selectedAccountKeys = ref<string[]>([])
 
+// 发布设置当前 Tab：media=上传视频 / account=选择账号 / info=发布信息
+const activeTab = ref<'media' | 'account' | 'info'>('media')
+
 // 3. 通用基础主模板 (Master Form)
 const masterForm = reactive<MasterForm>({
   action: 'upload-video',
@@ -164,12 +186,13 @@ const masterForm = reactive<MasterForm>({
 })
 
 // 步骤完成状态统一计算源
-const step1Done = computed(() => mediaList.value.length > 0)
-const step2Done = computed(() => step1Done.value && selectedAccountKeys.value.length > 0)
+const step1Done = computed(() => selectedAccountKeys.value.length > 0)
+const step2Done = computed(() => step1Done.value && mediaList.value.length > 0)
 const step3Done = computed(() => step2Done.value && !!masterForm.title.trim())
 
 // 预设模板（必须在 masterForm 之后创建，否则 TDZ 运行时崩溃）
-const { savedTemplates, loadTemplatesFromStorage, handleTemplateCommand } = useMatrixPresets(masterForm, {}, {})
+// 顶栏预设模板 UI 已下线；仅保留历史模板的加载（onMounted 调用，避免残留数据引发的状态不一致）
+const { loadTemplatesFromStorage } = useMatrixPresets(masterForm, {}, {})
 
 // 批量排期与变量规则配置
 const ruleConfig = reactive<BatchRuleConfig>({
@@ -185,6 +208,17 @@ const ruleConfig = reactive<BatchRuleConfig>({
 
 // 4. 视频 × 账号 交叉透视矩阵字典: mediaId -> "platform:account" -> CellConfig
 const matrixMap = reactive<Record<string, Record<string, MatrixCellConfig>>>({})
+
+/**
+ * 对应表回传整份分配表时，保持 matrixMap 的 reactive 引用不被替换。
+ * 直接 matrixMap = newMap 会断开响应式（且 const 变量赋值会报错），
+ * 导致子组件再次收到 props.matrixMap 时拿不到更新，界面表现为"第一次分配不显示"。
+ */
+function onMatrixMapUpdate(map: Record<string, Record<string, MatrixCellConfig>>) {
+  // 先清空旧 key，再合并新内容（原地更新，引用不变）
+  Object.keys(matrixMap).forEach((k) => delete matrixMap[k])
+  Object.assign(matrixMap, map)
+}
 
 // 底部调度控制
 const concurrency = ref(settingsStore.settings.concurrency || 3)
@@ -236,7 +270,7 @@ const totalActivatedTaskCount = computed(() => {
   return count
 })
 
-// 一键重置
+// 一键重置（当前 UI 已无入口，保留函数以便后续挂到执行栏）
 const resetAllForm = () => {
   mediaList.value = []
   selectedMediaIds.value = []
@@ -363,107 +397,176 @@ const handleStartPublish = async () => {
 onMounted(() => {
   // 加载预设模板
   loadTemplatesFromStorage()
-  // 仅做提示，不预选账号（避免误发风险）
-  if (accountStore.accounts.length > 0) {
-    const valids = accountStore.accounts.filter(a => a.isValid).length
-    if (valids > 0) {
-      ElMessage.info(`检测到 ${valids} 个可用账号，请在步骤 ② 自行勾选要发布的账号`)
-    }
-  }
 })
 </script>
 
 <style scoped>
 .matrix-studio-workspace {
   display: flex;
-  flex-direction: column;
-  gap: 24px;
+  flex-direction: row;      /* 左：发布设置 / 右：内容与账号对应表 */
+  align-items: stretch;
+  gap: 20px;
   height: calc(100vh - 64px);
-  overflow-y: auto;
-  padding: 20px 24px 96px;
+  overflow: hidden;         /* 由左右两个区块各自内部滚动 */
+  padding: 20px 24px 96px;  /* 底部 96px 避开固定执行栏 */
   box-sizing: border-box;
 }
 
-/* 步骤指示条 */
-.step-guide-bar {
+/* ===== 两大块（左右并排） ===== */
+.config-block,
+.matrix-block {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 20px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
+  flex-direction: column;
+  overflow-y: auto;         /* 各自内部滚动 */
+  min-width: 0;             /* 防止 flex 子项被内容撑破 */
+}
+
+/* 左侧：发布设置（窄一些，表单够用即可） */
+.config-block {
+  flex: 0 0 45%;
+  max-width: 860px;         /* 超宽屏时不让左侧无限变宽 */
+}
+
+/* 右侧：内容与账号对应表（占满剩余空间） */
+.matrix-block {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 左右并排时兜底圆角，避免窄宽度下被裁切 */
+.config-block,
+.matrix-block {
   border-radius: 12px;
 }
 
-.guide-step {
+.block-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-muted);
-  transition: all 0.25s ease;
-  flex: 1;
-  justify-content: center;
+  justify-content: space-between;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
-.guide-step.active {
-  color: var(--text-main);
+.block-title {
+  font-size: 15px;
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-main);
 }
 
-.guide-step.done {
-  color: var(--status-success);
-}
-
-.step-num {
+.block-title .idx {
   width: 22px;
   height: 22px;
-  border-radius: 50%;
-  background: var(--bg-input);
-  border: 1.5px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--primary-gradient);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
+  color: #fff;
+}
+
+.block-sub {
+  font-size: 12px;
   color: var(--text-muted);
 }
 
-.guide-step.active .step-num {
-  background: var(--primary-gradient);
-  border-color: transparent;
+/* ===== Tab ===== */
+.config-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 18px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.config-tab {
+  font-size: 13px;
+  padding: 9px 18px;
+  border-radius: 9px 9px 0 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-bottom: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  top: 1px;
+  transition: all 0.2s ease;
+}
+
+.config-tab:hover {
+  color: var(--text-main);
+}
+
+.config-tab.active {
+  background: var(--bg-detail);
+  color: var(--text-main);
+  font-weight: 700;
+  border-color: var(--border-subtle);
+  border-bottom: 1px solid var(--bg-detail);
+}
+
+.tab-num {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #39404f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
   color: #fff;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
 }
 
-.guide-step.done .step-num {
-  background: rgba(16, 185, 129, 0.15);
-  border-color: var(--status-success);
-  color: var(--status-success);
+.config-tab.active .tab-num {
+  background: var(--primary-gradient);
 }
 
+.config-tab.done .tab-num {
+  background: var(--status-success);
+}
 
-/* 四步流布局 */
-.studio-content-flow {
+.tab-cnt {
+  font-size: 11px;
+  background: rgba(99, 102, 241, 0.16);
+  color: var(--primary-color);
+  padding: 0 6px;
+  border-radius: 9px;
+  font-weight: 600;
+}
+
+.tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-danger);
+}
+
+.config-body {
+  flex: 1 1 auto;           /* 吃掉 config-block 的剩余高度 */
+  min-height: 360px;        /* 兜底：内容区至少这么高，避免整块塌陷不可见 */
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  padding: 16px 18px 18px;
 }
 
-.two-col-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
+/* 三个 Tab 组件（v-show 切换，同时只有一个可见）撑满这份高度 */
+.config-body > * {
+  flex: 1 1 auto;
+  min-height: 320px;   /* 兜底：避免 flex-basis:0 在高度不确定时被压成 0，导致内容整块不可见 */
 }
 
-.two-col-grid > * {
-  min-width: 0;
-}
-
-@media (max-width: 1080px) {
-  .two-col-grid {
-    grid-template-columns: 1fr;
-  }
+/* Tab 内组件自带 glass-card 边框，去掉重复外框避免"卡片套卡片" */
+.config-body :deep(.glass-card) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
 }
 
 /* 底部执行 Dock */

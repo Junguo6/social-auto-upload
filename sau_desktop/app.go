@@ -39,6 +39,12 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// 注册原生文件/文件夹拖拽回调（Wails v2.10+）：
+	// 拖入窗口后拿到真实绝对路径，解析文件夹结构并通过事件推送给前端
+	go runtime.OnFileDrop(ctx, func(x, y int, paths []string) {
+		a.handleNativeFileDrop(paths)
+	})
 }
 
 // GetAuthOverview 获取机器识别码与授权状态概览
@@ -365,5 +371,25 @@ func (a *App) SelectLocalFiles(title string, filterPatterns []string) ([]string,
 		return nil, err
 	}
 	return filePaths, nil
+}
+
+// SelectLocalFolder 打开原生文件夹选择对话框，调用 ScanFolderStructure 进行结构扫描，
+// 返回完整的扫描结果（含 valid/message/warnings），前端可据此判断是否合规。
+func (a *App) SelectLocalFolder(title string) (*FolderScanResult, error) {
+	folderPath, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: title,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if folderPath == "" {
+		return &FolderScanResult{Root: "", Valid: true, Message: "未选择文件夹", Items: []ScannedMediaItem{}}, nil
+	}
+
+	res, scanErr := ScanFolderStructure(folderPath)
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	return res, nil
 }
 

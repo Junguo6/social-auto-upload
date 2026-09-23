@@ -131,7 +131,7 @@
           </div>
           <el-input v-model="masterForm.thumbnail" placeholder="选填：通用封面图片路径" clearable class="stylish-input">
             <template #append>
-              <el-button @click="chooseMasterCover"><el-icon><FolderOpened /></el-icon></el-button>
+              <el-button @click="chooseMasterCover" title="选择文件夹"><FolderIcon :size="16" /></el-button>
             </template>
           </el-input>
         </div>
@@ -156,6 +156,7 @@
 
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
+import FolderIcon from '../common/FolderIcon.vue'
 import { SelectLocalFile } from '../../../wailsjs/go/main/App'
 import type { MasterForm } from '../../types/matrix'
 
