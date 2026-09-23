@@ -41,18 +41,10 @@ fi
 
 echo "✅ 基础环境检测通过: Go, Node.js, npm, $PYTHON_CMD, Git"
 
-# 2. 检查并确保 Wails CLI 脚手架 (完全尊重用户系统已有版本，绝不擅自全局升级)
-GOPATH_BIN="$(go env GOPATH)/bin"
-export PATH="$GOPATH_BIN:$PATH"
-
-if ! command -v wails &> /dev/null; then
-    echo "📦 检测到未安装 Wails CLI，正在协助安装 (v2.8.2)..."
-    go install github.com/wailsapp/wails/v2/cmd/wails@v2.8.2
-    echo "✅ Wails CLI 安装完成！"
-else
-    WAILS_RAW=$(wails version 2>/dev/null | head -n 1)
-    echo "✅ Wails CLI 已就绪 ($WAILS_RAW)"
-fi
+# 2. Wails CLI：通过 go run 调用项目锁定版本，不依赖也不影响全局安装的 wails
+#    ⚠️ 全局 wails（当前 v2.8.2）被小映批量助手等其他项目使用，绝不能升级
+WAILS_CLI_VERSION="v2.10.2"
+echo "✅ Wails CLI 使用项目锁定版本: $WAILS_CLI_VERSION（go run 调用，不影响全局 CLI）"
 
 # 3. 配置文件初始化
 if [ ! -f "conf.py" ]; then
@@ -112,12 +104,5 @@ echo "========================================================"
 
 cd "$ROOT_DIR/sau_desktop"
 
-# 如果当前是 Wails 2.8.x，自动加上 -skipbindings 跳过生成器错误
-DEV_FLAGS=""
-WAILS_RAW=$(wails version 2>/dev/null | head -n 1)
-if echo "$WAILS_RAW" | grep -qE "v2\.[0-8]\."; then
-    echo "💡 检测到 Wails 2.8.x，已自动启用 -skipbindings 兼容模式..."
-    DEV_FLAGS="-skipbindings"
-fi
-
-wails dev $DEV_FLAGS
+echo "💡 使用 Wails $WAILS_CLI_VERSION 启动调试服务..."
+go run "github.com/wailsapp/wails/v2/cmd/wails@${WAILS_CLI_VERSION}" dev
