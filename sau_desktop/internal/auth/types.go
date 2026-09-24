@@ -43,8 +43,16 @@ type AuthOverview struct {
 	AgentNotice    string     `json:"agent_notice"`
 	AgentWebsite   string     `json:"agent_website"`
 	M100Activated  bool       `json:"m100_activated"`
-	M122Activated  bool       `json:"m122_activated"`
-	LastCheckTime  time.Time  `json:"last_check_time"`
+	M122Activated   bool       `json:"m122_activated"`
+	M122TrialTimes  int        `json:"m122_trial_times"` // 剩余试用次数（0 = 已用尽）
+	LastCheckTime   time.Time  `json:"last_check_time"`
+}
+
+// TrialConsumeResult 试用次数消费结果（供前端决定 放行 / 引导激活）
+type TrialConsumeResult struct {
+	OK       bool          `json:"ok"`       // 是否允许本次使用
+	Message  string        `json:"message"`  // 拒绝原因（服务端原文透传给用户）
+	Overview *AuthOverview `json:"overview"` // 消费后的最新授权状态
 }
 
 // ServerResponse 服务端统一响应结构

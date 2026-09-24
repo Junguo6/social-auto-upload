@@ -71,6 +71,14 @@ func (a *App) GetDeviceID() string {
 	return a.authMgr.GetDeviceID()
 }
 
+// ConsumeTrial 消费一次试用配额（未授权用户执行发布前调用）
+func (a *App) ConsumeTrial() *auth.TrialConsumeResult {
+	if a.authMgr == nil {
+		return &auth.TrialConsumeResult{OK: false, Message: "鉴权服务未初始化"}
+	}
+	return a.authMgr.ConsumeTrial()
+}
+
 // PublishMedia 单账号媒体发布接口
 func (a *App) PublishMedia(param engine.PublishParam) (string, error) {
 	if a.authMgr != nil {

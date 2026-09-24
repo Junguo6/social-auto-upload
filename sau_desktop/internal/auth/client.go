@@ -17,6 +17,10 @@ const (
 	ToolIdentifier    = "zidongfabu"
 	MainModuleID      = 122
 	MainFunctionID    = 81
+	// TrialFunctionID 试用扣次用的 function id
+	// 注意：服务端按 function 表查 module（jym_function.id=81 → module_id=122），
+	// 传模块号 122 会返回「功能不存在」
+	TrialFunctionID   = 81
 	CurrentAppVersion = "1.2.0"
 )
 
@@ -103,16 +107,28 @@ func (c *Client) FetchOverview(identity *DeviceIdentity, activeCode string) (*Au
 		overview.M100Activated = toBool(val)
 	}
 
+	// 服务端只返回 m122_deadline（Ymd），不返回 m122_day，剩余天数需自行计算
 	if dl, ok := res["m122_deadline"]; ok {
 		overview.Deadline = fmt.Sprintf("%v", dl)
-	}
-	if day, ok := res["m122_day"]; ok {
-		overview.DaysRemaining = toInt(day)
+		if t, err := time.ParseInLocation("20060102", overview.Deadline, time.Local); err == nil {
+			overview.DaysRemaining = int(time.Until(t).Hours() / 24)
+			if overview.DaysRemaining < 0 {
+				overview.DaysRemaining = 0
+			}
+		}
 	}
 
-	// 综合判断是否激活且有效
-	overview.IsActivated = overview.M100Activated || overview.M122Activated || overview.DaysRemaining > 0
-	overview.IsExpired = overview.IsActivated && overview.DaysRemaining <= 0 && overview.Deadline != ""
+	// 剩余试用次数（服务端返回 m122_trial_times；未返回时保持 0）
+	if tt, ok := res["m122_trial_times"]; ok && tt != nil {
+		switch v := tt.(type) {
+		case float64:
+			overview.M122TrialTimes = int(v)
+		case string:
+			if n, err := strconv.Atoi(v); err == nil {
+				overview.M122TrialTimes = n
+			}
+		}
+	}
 
 	// 解析公告与帮助
 	if notice, ok := res["announcement"]; ok && notice != nil {
@@ -188,12 +204,15 @@ func (c *Client) ApplyActiveCode(identity *DeviceIdentity, code, userId string) 
 }
 
 // IncTrialTimes 请求 /jym/inc-trail-times 接口，扣减试用次数
+// 注意：必须带 tool_id —— 服务端默认值是 "xiaoying"，不传会把本工具的试用扣次记到小映批量助手头上，
+// 或者因按 xiaoying 查不到用户而静默失败（表现为试用次数永不递减 = 无限试用）。
 func (c *Client) IncTrialTimes(userId string, functionId int) error {
 	apiURL := ServerHost + "/jym/inc-trail-times"
 	params := url.Values{}
 	params.Add("id", userId)
 	params.Add("function_id", strconv.Itoa(functionId))
 	params.Add("version", CurrentAppVersion)
+	params.Add("tool_id", ToolIdentifier)
 
 	req, err := http.NewRequest(http.MethodGet, apiURL+"?"+params.Encode(), nil)
 	if err != nil {
@@ -205,6 +224,24 @@ func (c *Client) IncTrialTimes(userId string, functionId int) error {
 		return err
 	}
 	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("读取试用扣次响应失败: %w", err)
+	}
+
+	var sResp ServerResponse
+	if err := json.Unmarshal(body, &sResp); err != nil {
+		return fmt.Errorf("解析试用扣次响应异常: %w", err)
+	}
+
+	if sResp.Code != 200 {
+		errMsg := sResp.Message
+		if errMsg == "" {
+			errMsg = sResp.Msg
+		}
+		return fmt.Errorf("%s", errMsg)
+	}
 
 	return nil
 }

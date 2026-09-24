@@ -10,6 +10,8 @@ export function BatchPublishMedia(arg1:engine.BatchPublishParam):Promise<Array<e
 
 export function CheckAccountStatus(arg1:string,arg2:string):Promise<engine.AccountStatus>;
 
+export function ConsumeTrial():Promise<auth.TrialConsumeResult>;
+
 export function DeleteAccountCredential(arg1:string,arg2:string):Promise<void>;
 
 export function DetectBrowserStatus():Promise<engine.BrowserEnvironmentInfo>;

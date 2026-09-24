@@ -137,6 +137,46 @@ func (m *AuthManager) RequirePublishAuth() error {
 	return fmt.Errorf("当前软件尚未激活或授权已到期，请在软件界面右上角点击【激活】或将设备识别码 (%s) 发送给管理员开通", overview.NewSN)
 }
 
+// ConsumeTrial 消费一次试用配额。
+// · 已授权 → 直接放行（不扣次）
+// · 未授权 → 请求服务端扣次：成功放行，失败/次数用尽 → 拒绝并透传服务端原因
+// · 网络异常 → 保守拒绝（不降级放行，避免断网绕过授权）
+func (m *AuthManager) ConsumeTrial() *TrialConsumeResult {
+	m.mu.RLock()
+	overview := m.cachedOverview
+	m.mu.RUnlock()
+
+	// 已授权 → 直接放行（不扣次）
+	if overview != nil &&
+		(overview.M100Activated || overview.M122Activated || overview.DaysRemaining > 0) {
+		return &TrialConsumeResult{OK: true, Overview: overview}
+	}
+
+	// 未取到 userId → 设备尚未注册
+	userId := ""
+	if overview != nil {
+		userId = overview.UserId
+	}
+	if userId == "" {
+		return &TrialConsumeResult{OK: false, Message: "设备尚未完成注册，请稍后重试"}
+	}
+
+	// 请求服务端扣次
+	if err := m.client.IncTrialTimes(userId, TrialFunctionID); err != nil {
+		return &TrialConsumeResult{OK: false, Message: err.Error()}
+	}
+
+	// 扣次成功后刷新一次授权状态，带回最新剩余次数
+	if ov, err := m.RefreshOverview(); err == nil && ov != nil {
+		return &TrialConsumeResult{OK: true, Overview: ov}
+	}
+	// 刷新失败时也放行（扣次已成功），用缓存状态兜底
+	m.mu.RLock()
+	cached := m.cachedOverview
+	m.mu.RUnlock()
+	return &TrialConsumeResult{OK: true, Overview: cached}
+}
+
 // ReportError 上报错误日志
 func (m *AuthManager) ReportError(errMsg string) {
 	if m.identity != nil {

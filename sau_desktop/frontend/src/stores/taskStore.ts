@@ -593,10 +593,10 @@ export const useTaskStore = defineStore('task', () => {
       return
     }
 
-    // 前置鉴权检查：未激活直接拦截并引导
+    // 前置鉴权检查：未激活直接拦截并引导（只做校验与引导，不在此处扣次——试用次数已在用户发起发布的入口消费）
     const authStore = useAuthStore()
     if (!authStore.isAuthorized) {
-      authStore.ensurePublishAuth('任务并发调度')
+      authStore.ensurePublishAuth('任务并发调度', false)
       return
     }
 
