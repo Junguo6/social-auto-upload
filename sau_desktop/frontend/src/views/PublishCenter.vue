@@ -3,7 +3,7 @@
     <!-- ===== 第一块：发布设置（3 个 Tab） ===== -->
     <div class="config-block glass-card">
       <div class="block-head">
-        <div class="block-title"><span class="idx">1</span>发布设置</div>
+        <div class="block-title"><span class="idx">一、</span>发布设置</div>
       </div>
 
       <div class="config-tabs">
@@ -65,7 +65,7 @@
     <!-- ===== 第二块：账号 × 视频 对应关系 ===== -->
     <div class="matrix-block glass-card">
       <div class="block-head">
-        <div class="block-title"><span class="idx">2</span>内容与账号对应表</div>
+        <div class="block-title"><span class="idx">二、</span>内容与账号对应表</div>
       </div>
 
       <!-- 下半区：内容与账号对应表（层级表格） -->
@@ -467,17 +467,12 @@ onMounted(() => {
   color: var(--text-main);
 }
 
+/* 区块编号：中文编号形态（章节），刻意不用圆形徽标 ——
+   与「发布设置」里页签的圆形数字徽标（步骤）形成形态区分 */
 .block-title .idx {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: var(--primary-gradient);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 700;
-  color: #fff;
+  color: var(--primary-color);
 }
 
 /* ===== Tab ===== */
@@ -491,7 +486,7 @@ onMounted(() => {
 .config-tab {
   font-size: 13px;
   padding: 9px 18px;
-  border-radius: 9px 9px 0 0;
+  border-radius: 10px 10px 0 0;
   cursor: pointer;
   color: var(--text-muted);
   border: 1px solid transparent;
@@ -520,17 +515,17 @@ onMounted(() => {
   width: 17px;
   height: 17px;
   border-radius: 50%;
-  background: #39404f;
+  background: var(--bg-input);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 10px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-muted);
 }
 
 .config-tab.active .tab-num {
-  background: var(--primary-gradient);
+  background: var(--primary-color);
 }
 
 .config-tab.done .tab-num {
