@@ -87,23 +87,30 @@
           @click="jumpTo(i + 1)"
         >{{ seg }}</span>
       </template>
-      <span class="crumb-count">本层 {{ browseEntries.videos.length }} 个视频</span>
+      <span v-if="!isUnitLevelView" class="crumb-count">本层 {{ browseEntries.videos.length }} 个视频</span>
+      <span v-else class="crumb-count">共 {{ browseEntries.folders.length }} 个文件夹</span>
     </div>
 
     <!-- 视频清单列表（按层级拆分：文件夹行 + 视频行） -->
     <div v-if="mediaList.length > 0" class="video-list custom-scrollbar">
       <!-- 文件夹行：点击进入 -->
       <div
-        v-for="f in browseEntries.folders"
-        :key="'folder:' + browsePath.join('/') + '/' + f.name"
+        v-for="f in browseEntries.foldersWithIndex"
+        :key="'folder:' + f.path.join('/')"
         class="folder-row-item"
-        :title="`点击进入「${f.name}」`"
-        @click="enterFolder(f.name)"
+        :title="`点击进入「${f.path.join(' / ')}」`"
+        @click="isUnitLevelView ? enterFolderByPath(f.path) : enterFolder(f.name)"
       >
+        <!-- 内容组序号（仅当浏览层 = 分配单位层级时显示） -->
+        <span v-if="showOrderBadge" class="order-badge">{{ f.index }}</span>
         <div class="folder-icon"><FolderIcon :size="24" /></div>
         <div class="folder-info">
           <div class="folder-name">
-            {{ f.name }}
+            <!-- 汇总视图下显示父路径前缀（跳过根名），避免多个分支的同名文件夹混淆 -->
+            <span v-if="isUnitLevelView && f.path.length > 2" class="path-prefix">
+              {{ f.path.slice(1, -1).join(' / ') }} /
+            </span>
+            <span class="name-text">{{ f.name }}</span>
             <span class="level-tag" :class="{ 'is-unit': f.level === unitLevel }">第{{ f.level }}层</span>
           </div>
           <div class="folder-count">{{ f.count }} 个视频</div>
@@ -432,35 +439,80 @@ watch(
   }
 )
 
+/** 当前浏览到第几层（browsePath 为空 = 显示第 1 层） */
+const currentBrowseLevel = computed(() => browsePath.value.length + 1)
+
+/** 序号只在【浏览层 = 分配单位层级】时显示；
+ *  其他层的"第几个"与对应表的行号含义不同，显示了反而误导 */
+const showOrderBadge = computed(() => currentBrowseLevel.value === props.unitLevel)
+
+/** 当前浏览层级 == 分配单位层级 → 进入"汇总视图"：
+ *  跨分支列出该层全部文件夹（而不是只显示当前进入的那一支） */
+const isUnitLevelView = computed(
+  () => props.unitLevel > 0 && currentBrowseLevel.value === props.unitLevel
+)
+
 /** 当前层级下的文件夹（含视频数）与视频（已应用搜索过滤） */
 const browseEntries = computed(() => {
-  const folders = new Map<string, { name: string; count: number; level: number }>()
+  const folders = new Map<string, { name: string; count: number; level: number; path: string[] }>()
   const videos: MediaItem[] = []
   const cur = browsePath.value
 
-  props.mediaList.forEach((m) => {
-    const crumbs = m.folderCrumbs || []
+  // 汇总模式：收集「所有」深度等于单位层级的文件夹（跨分支）
+  if (isUnitLevelView.value) {
+    props.mediaList.forEach((m) => {
+      const crumbs = m.folderCrumbs || []
+      if (crumbs.length < props.unitLevel) return
 
-    // 必须落在当前路径下（crumbs 前缀必须匹配 browsePath）
-    for (let i = 0; i < cur.length; i++) {
-      if (crumbs[i] !== cur[i]) return
-    }
+      // 汇总视图只列「内容组」（第 unitLevel 层的文件夹），不显示视频：
+      // 视频的 folderCrumbs 只含文件夹部分，crumbs.length === unitLevel 恰好说明
+      // 它躺在第 unitLevel 层的文件夹里，并不是"本层的散装视频"。
+      const path = crumbs.slice(0, props.unitLevel)
+      const key = path.join('/')
+      const hit = folders.get(key) || {
+        name: path[props.unitLevel - 1],
+        count: 0,
+        level: props.unitLevel,
+        path
+      }
+      hit.count += 1
+      folders.set(key, hit)
+    })
+  } else {
+    // 常规逐层浏览（原逻辑不变）
+    props.mediaList.forEach((m) => {
+      const crumbs = m.folderCrumbs || []
 
-    // 视频正好在当前层（散装视频 crumbs 为空数组，只在根层出现）
-    if (crumbs.length === cur.length) {
-      videos.push(m)
-      return
-    }
+      // 必须落在当前路径下（crumbs 前缀必须匹配 browsePath）
+      for (let i = 0; i < cur.length; i++) {
+        if (crumbs[i] !== cur[i]) return
+      }
 
-    // 统计子文件夹内的视频数
-    const name = crumbs[cur.length]
-    const hit = folders.get(name) || { name, count: 0, level: cur.length + 1 }
-    hit.count += 1
-    folders.set(name, hit)
-  })
+      // 视频正好在当前层（散装视频 crumbs 为空数组，只在根层出现）
+      if (crumbs.length === cur.length) {
+        videos.push(m)
+        return
+      }
+
+      // 统计子文件夹内的视频数
+      const name = crumbs[cur.length]
+      const path = crumbs.slice(0, cur.length + 1)
+      const hit = folders.get(name) || { name, count: 0, level: cur.length + 1, path }
+      hit.count += 1
+      folders.set(name, hit)
+    })
+  }
+
+  // 与对应表的分组排序保持一致：按完整路径数字感知排序
+  // 这样汇总视图下「帐号1/短剧1」排在「帐号2/短剧1」之前，与对应表行序完全对应
+  const sorted = Array.from(folders.values()).sort((a, b) =>
+    a.path.join('/').localeCompare(b.path.join('/'), 'zh', { numeric: true })
+  )
 
   return {
-    folders: Array.from(folders.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh')),
+    folders: sorted,
+    // 带序号（仅在浏览层 = 分配单位层级时有意义）
+    foldersWithIndex: sorted.map((f, i) => ({ ...f, index: i + 1 })),
     videos
   }
 })
@@ -469,6 +521,11 @@ const hasSubFolders = computed(() => browseEntries.value.folders.length > 0)
 
 function enterFolder(name: string) {
   browsePath.value = [...browsePath.value, name]
+}
+
+/** 进入指定完整路径的文件夹（汇总视图下用，可跨分支跳转） */
+function enterFolderByPath(path: string[]) {
+  browsePath.value = [...path]
 }
 
 /** 返回上一级（根层时无操作） */
@@ -1297,6 +1354,14 @@ async function hydrateMediaMeta(targets: MediaItem[]) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 汇总视图下的父路径前缀（帮助区分跨分支的同名文件夹） */
+.path-prefix {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-right: 2px;
+}
 .folder-count {
   font-size: 11px;
   color: var(--text-muted);
@@ -1314,6 +1379,23 @@ async function hydrateMediaMeta(targets: MediaItem[]) {
   border: 1px solid var(--border-subtle);
   color: var(--text-muted);
   vertical-align: 1px;
+}
+
+/* 内容组序号：圆形徽标（与 level-tag 的胶囊形状刻意不同，避免混淆） */
+.order-badge {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  margin-right: 8px;
 }
 .level-tag.is-unit {
   color: var(--primary-color);

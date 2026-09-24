@@ -32,15 +32,19 @@
         <table>
           <thead>
             <tr>
-            <th>内容</th>
-            <th style="width: 300px">发布账号</th>
-            <th style="width: 92px">状态</th>
-            <th style="width: 78px"></th>
-          </tr>
-        </thead>
+              <th style="width: 44px">#</th>
+              <th>内容</th>
+              <th style="width: 300px">发布账号</th>
+              <th style="width: 92px">状态</th>
+              <th style="width: 78px"></th>
+            </tr>
+          </thead>
         <tbody>
           <tr v-for="g in filteredGroups" :key="g.key" class="group-row" :class="{ 'no-assign': g.assigned === 0 }">
-              <td class="col-content">
+            <td class="col-order">
+              <span class="order-badge">{{ groupOrder(g.key) }}</span>
+            </td>
+            <td class="col-content">
                 <div class="folder" :title="g.fullPath || g.parentFolder">
                   <FolderIcon v-if="g.parentFolder" :size="15" />
                   <span v-else class="ic">🎬</span>
@@ -51,7 +55,7 @@
               <td class="col-accts" @click.stop>
                 <div class="chips">
                   <span
-                    v-for="acc in visibleAccountsOf(g)"
+                    v-for="{ acc, order } in visibleAccountsOfWithIndex(g)"
                     :key="acc.key"
                     class="acct"
                     :class="{ auto: isAutoMatchedGroup(g, acc.key) }"
@@ -60,7 +64,8 @@
                   >
                     <span class="av" :style="{ background: platformMeta(acc.platform).color }">
                       {{ platformMeta(acc.platform).short }}
-                    </span>{{ acc.name }}
+                    </span>
+                    <span class="chip-order">{{ order }}</span>{{ acc.name }}
                   </span>
                   <span v-if="g.accountList.length > MAX_VISIBLE_ACCTS" class="acct more">
                     +{{ g.accountList.length - MAX_VISIBLE_ACCTS }}
@@ -100,6 +105,7 @@
         <table>
           <thead>
             <tr>
+              <th style="width: 44px">#</th>
               <th>视频文件名</th>
               <th style="width: 220px">所属文件夹</th>
               <th style="width: 280px">发布账号</th>
@@ -108,6 +114,9 @@
           </thead>
           <tbody>
             <tr v-for="r in filteredRowsForVideoView" :key="r.id" class="video-row">
+              <td class="col-order">
+                <span class="order-badge">{{ videoOrder(r.id) }}</span>
+              </td>
               <td class="col-content">
                 <div class="vid">
                   <span class="vname">{{ r.fileName }}</span>
@@ -145,7 +154,7 @@
               </td>
             </tr>
             <tr v-if="filteredRowsForVideoView.length === 0">
-              <td colspan="4" class="empty-row">没有匹配的视频</td>
+              <td colspan="5" class="empty-row">没有匹配的视频</td>
             </tr>
           </tbody>
         </table>
@@ -468,7 +477,11 @@ const groups = computed<GroupRow[]>(() => {
     g.accountKeys = g.accountList.map((a) => a.key)
   })
 
-  return Array.from(map.values())
+  // 与上传视频区的文件夹排序保持一致（数字感知的本地化排序），
+  // 否则左侧预览的序号与这里的分组行序会对不上
+  return Array.from(map.values()).sort((a, b) =>
+    (a.fullPath || '').localeCompare(b.fullPath || '', 'zh', { numeric: true })
+  )
 })
 
 /**
@@ -616,6 +629,26 @@ watch(
   { immediate: true }
 )
 
+/**
+ * 取分组的内容序号。
+ * 必须基于 groups（全量）而非 filteredGroups —— 否则切换"只看未分配"等筛选后，
+ * 序号会跟着变，与左侧预览的序号就对不上了。
+ */
+function groupOrder(key: string): number {
+  return groups.value.findIndex((g) => g.key === key) + 1
+}
+
+/** 取视频的全局序号（视频视角用，与上传视频区的顺序一致） */
+function videoOrder(id: string): number {
+  return rows.value.findIndex((r) => r.id === id) + 1
+}
+
+/** 取账号序号（与"选择账号"里的选择顺序一致） */
+function accountOrder(key: string): number {
+  const idx = props.selectedAccounts.findIndex((a) => `${a.platform}:${a.account}` === key)
+  return idx >= 0 ? idx + 1 : 0
+}
+
 // 搜索功能已下线；保留该 computed 以兼容模板引用
 const filteredGroups = computed<GroupRow[]>(() => groups.value)
 
@@ -642,9 +675,26 @@ const coveredAccountCount = computed(() => {
   return set.size
 })
 
-/** 组行上平铺展示的账号（超出部分折叠） */
+/** 组行上平铺展示的账号（超出部分折叠）；顺序与 selectedAccounts 一致，序号才能对上） */
 function visibleAccountsOf(g: GroupRow) {
-  return g.accountList.slice(0, MAX_VISIBLE_ACCTS)
+  const groupKeys = new Set(g.accountKeys)
+  return props.selectedAccounts
+    .map((a) => `${a.platform}:${a.account}`)
+    .filter((key) => groupKeys.has(key))
+    .map((key) => g.accountList.find((a) => a.key === key)!)
+    .filter(Boolean)
+    .slice(0, MAX_VISIBLE_ACCTS)
+}
+
+/** 同上，返回原始 index（用于渲染账号序号） */
+function visibleAccountsOfWithIndex(g: GroupRow): Array<{ acc: GroupAccount; order: number }> {
+  const groupKeys = new Set(g.accountKeys)
+  return props.selectedAccounts
+    .map((a, i) => ({ key: `${a.platform}:${a.account}`, order: i + 1 }))
+    .filter(({ key }) => groupKeys.has(key))
+    .map(({ key, order }) => ({ acc: g.accountList.find((a) => a.key === key)!, order }))
+    .filter(({ acc }) => acc != null)
+    .slice(0, MAX_VISIBLE_ACCTS)
 }
 
 /** 组内某账号是否来自"自动匹配" */
@@ -970,4 +1020,41 @@ tbody tr.group-row:hover td { background: rgba(99, 102, 241, 0.07); }
 .badge.ok { color: var(--status-success); background: rgba(52, 211, 153, 0.12); }
 .badge.warn { color: var(--status-warning, #f5a623); background: rgba(245, 166, 35, 0.14); }
 .badge.part { color: var(--primary-color); background: rgba(99, 102, 241, 0.12); }
+
+/* ===== 序号列 ===== */
+/* 内容组/视频序号：与上传视频区的 .order-badge 保持同一套视觉 */
+.order-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+}
+
+.col-order {
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* 账号序号：比内容序号更小一号，避免和内容序号抢视觉 */
+.chip-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  margin-right: 4px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.08);
+}
 </style>
