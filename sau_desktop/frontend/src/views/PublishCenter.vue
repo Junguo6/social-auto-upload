@@ -170,6 +170,14 @@ const selectedMediaIds = ref<string[]>([])
 /** 分配/汇总的单位层级（由上传区设定，对应表据此汇总与分配） */
 const unitLevel = ref(2)
 
+/** 素材被清空时，「以第几层为单位」回归默认（第 2 层），
+ *  避免上一批素材的层级选择残留到下一批 */
+watch(mediaList, (list) => {
+  if (list.length === 0) {
+    unitLevel.value = 2
+  }
+})
+
 // 2. 目标矩阵账号 keys ("platform:account")
 const selectedAccountKeys = ref<string[]>([])
 

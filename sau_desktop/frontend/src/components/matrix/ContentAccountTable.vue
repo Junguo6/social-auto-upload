@@ -1,20 +1,14 @@
 <template>
   <div class="content-account-table">
     <!-- 1. 分配设置（先配置，再查看） -->
-    <!-- 视角面板：页签 + 内容（同一外框，视觉上为一体） -->
+    <!-- 分配单位由上传区的层级选择器控制（unitLevel），此处只显示说明 -->
     <div v-if="rows.length > 0" class="views-panel">
-      <div class="view-tabs">
-        <button class="view-tab" :class="{ on: viewMode === 'folder' }" @click="switchView('folder')" title="一个文件夹里的内容整体发给同一个账号">
-          {{ maxFolderDepth >= 1 ? '文件夹为单位' : '文件夹为单位' }}
-        </button>
-        <button class="view-tab" :class="{ on: viewMode === 'video' }" @click="switchView('video')" title="每条视频单独分配账号">视频为单位</button>
-      </div>
 
       <!-- 说明行：单位说明 + 异常提示 + 重置入口 -->
       <div class="unit-desc">
         <span class="unit-desc-text">
-          <template v-if="viewMode === 'folder'">
-            <span v-if="maxFolderDepth >= 1" class="level-badge">第 {{ unitLevel }} 层</span>
+          <template v-if="isFolderMode">
+            <span class="level-badge">第 {{ unitLevel }} 层</span>
             文件夹里的内容整体发给同一个账号
           </template>
           <template v-else>
@@ -22,13 +16,17 @@
           </template>
         </span>
 
-        <span v-if="assignHint" class="assign-hint">{{ assignHint }}</span>
+        <span v-if="selectedAccounts.length === 0" class="assign-hint">
+          尚未选择账号 —— 请在「② 选择账号」中勾选
+        </span>
+        <span v-else-if="assignHint" class="assign-hint">{{ assignHint }}</span>
 
-        <button class="reset-btn" @click="reapplyAssign">重置分配</button>
+        <button class="reset-btn" @click="applyLoopAssign">循环分配</button>
       </div>
 
-      <!-- 文件夹为单位 -->
-      <div v-if="viewMode === 'folder'" class="table-wrap">
+      <!-- 内容表始终显示（无账号时账号列为空，便于先核对内容组与序号） -->
+      <!-- 文件夹分组视图（unitLevel > 0 时显示） -->
+      <div v-if="isFolderMode" class="table-wrap">
         <table>
           <thead>
             <tr>
@@ -36,7 +34,6 @@
               <th>内容</th>
               <th style="width: 300px">发布账号</th>
               <th style="width: 92px">状态</th>
-              <th style="width: 78px"></th>
             </tr>
           </thead>
         <tbody>
@@ -80,16 +77,13 @@
                 <span v-else-if="g.assigned < g.videos.length" class="badge part">部分分配</span>
                 <span v-else class="badge ok">已分配</span>
               </td>
-              <td>
-                <button class="jump-btn" @click.stop="jumpToVideosByFolder(g.key)">明细 ›</button>
-              </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <!-- 视频为单位 -->
-    <div v-else>
+    <!-- 视频列表视图（unitLevel === 0 时显示） -->
+    <div v-if="!isFolderMode">
       <!-- 视频为单位：跳转筛选条 -->
       <div v-if="jumpFilter" class="jump-bar">
         <span class="jump-label">仅显示：</span>
@@ -120,7 +114,6 @@
               <td class="col-content">
                 <div class="vid">
                   <span class="vname">{{ r.fileName }}</span>
-                  <span v-if="r.parsedEpisode" class="cp">第{{ r.parsedEpisode }}集</span>
                 </div>
               </td>
               <td>
@@ -160,6 +153,7 @@
         </table>
       </div><!-- /.table-wrap -->
     </div><!-- /video section -->
+
     </div><!-- /views-panel -->
 
     <!-- 指定账号弹窗 -->
@@ -185,8 +179,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, h } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, computed, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Close } from '@element-plus/icons-vue'
 import FolderIcon from '../common/FolderIcon.vue'
 import type { MediaItem, MatrixCellConfig } from '../../types/matrix'
@@ -251,25 +245,12 @@ const emit = defineEmits<{
 
 // ============ 状态 ============
 
-
 const autoMatchedIds = ref<string[]>([])
 
-type ViewMode = 'folder' | 'video'
-const viewMode = ref<ViewMode>('folder')
+/** 是否按文件夹（组）展示：unitLevel > 0 时按组，= 0 时按视频 */
+const isFolderMode = computed(() => props.unitLevel > 0)
 
-/**
- * 默认分配单位：
- * · 素材里存在子文件夹（有分组结构）→ 文件夹为单位
- * · 素材全是平铺视频（无子文件夹）  → 视频为单位
- */
-const defaultViewMode = computed<ViewMode>(() =>
-  props.mediaList.some((m) => (m.folderCrumbs || []).length > 0) ? 'folder' : 'video'
-)
-
-// 仅在「素材结构」变化时重置单位选择；用户手动切换后，只要媒体结构没变，watch 不会再触发
-watch(defaultViewMode, (v) => { viewMode.value = v }, { immediate: true })
-
-// ============ 文件夹为单位：汇总层级（由上传区控制） ============
+// ============ 文件夹分组：层级控制 ============
 /** 素材里实际存在的最深目录层级 */
 const maxFolderDepth = computed(() =>
   props.mediaList.reduce((mx, m) => Math.max(mx, (m.folderCrumbs || []).length), 0)
@@ -302,16 +283,9 @@ function groupNameOf(crumbs: string[]): string {
 /** 从文件夹为单位跳进视频为单位时的筛选条件 */
 const jumpFilter = ref<{ type: 'folder'; value: string } | null>(null)
 
-/** 单位切换（离开视频为单位时清掉跳转筛选，避免下次进入被莫名过滤） */
-function switchView(v: ViewMode) {
-  viewMode.value = v
-  if (v !== 'video') jumpFilter.value = null
-}
-
-/** 文件夹为单位 → 视频为单位（只看该文件夹的视频） */
+/** 从文件夹分组跳进视频列表（只看该组的视频）—— 仅用于筛选，不切视图 */
 function jumpToVideosByFolder(folderKey: string) {
   jumpFilter.value = { type: 'folder', value: folderKey }
-  viewMode.value = 'video'
 }
 
 function clearJumpFilter() {
@@ -496,10 +470,11 @@ function nameOfUnit(unitKey: string): string {
 }
 
 function buildAssignUnits(): Array<{ key: string; mediaIds: string[] }> {
-  const hasFolders = groups.value.some((g) => !!g.parentFolder)
-  if (!hasFolders) {
+  if (!isFolderMode.value) {
+    // 每条视频为单位：不分组
     return rows.value.map((r) => ({ key: r.id, mediaIds: [r.id] }))
   }
+  // 按第 unitLevel 层的文件夹分组
   return groups.value.map((g) => ({ key: g.key, mediaIds: g.videos.map((v) => v.id) }))
 }
 
@@ -518,7 +493,8 @@ const assignHint = computed(() => {
 const pendingCount = computed(() => rows.value.length - assignedCount.value)
 
 /**
- * 自动分配：按当前分配单位（文件夹 / 单个视频）的顺序，把内容轮流配给已选账号。
+ * 默认分配（一对一）：按当前分配单位的顺序，第 i 组配给第 i 个账号；
+ * 内容组数多于账号数时，多出来的先留空，由用户点「循环分配」补全。
  * 只补齐「尚未分配」的视频，不覆盖用户的手动调整。
  */
 function applySequentialAssign() {
@@ -529,13 +505,18 @@ function applySequentialAssign() {
   let changed = 0
 
   buildAssignUnits().forEach((unit, i) => {
-    // 优先按文件夹名精确匹配账号；匹配不到再回退到按顺序轮转
+    // 优先按文件夹名精确匹配账号
     const unitName = nameOfUnit(unit.key)
     const byName = accounts.find((a) => {
       const n = String(a.nickname || a.account || '').trim().toLowerCase()
       return n !== '' && n === unitName.trim().toLowerCase()
     })
-    const acc = byName || accounts[i % accounts.length]
+
+    // 默认「一对一」：名字匹配不上、且序号已超出账号数量的单元，先留空不分配。
+    // 想补全剩余内容 → 用户点「循环分配」。
+    if (!byName && i >= accounts.length) return
+
+    const acc = byName || accounts[i]
     const accKey = `${acc.platform}:${acc.account}`
     unit.mediaIds.forEach((id) => {
       if (next[id] && Object.keys(next[id]).length > 0) return // 已有分配 → 跳过
@@ -547,37 +528,18 @@ function applySequentialAssign() {
   if (changed > 0) emit('update:matrixMap', next)
 }
 
-// ---- 撤销快照 ----
-const assignSnapshot = ref<Record<string, Record<string, MatrixCellConfig>> | null>(null)
-
 /**
- * 重置分配：把对应关系恢复为系统推荐的默认结果（按当前分配单位轮流分配）。
- * 会覆盖所有现有手动调整。
+ * 循环分配：把尚未分配的内容，按账号顺序循环补上（不覆盖已有分配）。
+ * 与「默认一对一」的区别是这里用 i % accounts.length，内容会重复落到账号上。
  */
-async function reapplyAssign() {
+function applyLoopAssign() {
   const accounts = props.selectedAccounts
-  if (accounts.length === 0) return
+  if (accounts.length === 0 || rows.value.length === 0) return
 
-  const unitCount = buildAssignUnits().length
-  const isFolderMode = viewMode.value === 'folder' && props.mediaList.some((m) => (m.folderCrumbs || []).length > 0)
-  const unitDesc = isFolderMode
-    ? `文件夹（第 ${props.unitLevel === 0 ? '不分组' : props.unitLevel + ' 层'} · ${unitCount} 组）`
-    : `单个视频（共 ${unitCount} 条）`
-  try {
-    await ElMessageBox.confirm(
-      `将按【${unitDesc}】为单位，把对应关系恢复为系统推荐的结果（会覆盖现有手动调整）。`,
-      '确认重置分配？',
-      { type: 'warning', confirmButtonText: '重置', cancelButtonText: '取消' }
-    )
-  } catch {
-    return // 用户取消
-  }
+  const next = { ...props.matrixMap }
+  let changed = 0
 
-  assignSnapshot.value = JSON.parse(JSON.stringify(props.matrixMap))
-
-  const next: Record<string, Record<string, MatrixCellConfig>> = {}
   buildAssignUnits().forEach((unit, i) => {
-    // 优先按文件夹名精确匹配账号；匹配不到再回退到按顺序轮转
     const unitName = nameOfUnit(unit.key)
     const byName = accounts.find((a) => {
       const n = String(a.nickname || a.account || '').trim().toLowerCase()
@@ -585,39 +547,20 @@ async function reapplyAssign() {
     })
     const acc = byName || accounts[i % accounts.length]
     const accKey = `${acc.platform}:${acc.account}`
+
     unit.mediaIds.forEach((id) => {
-      next[id] = { [accKey]: defaultCell() }
+      if (next[id] && Object.keys(next[id]).length > 0) return // 已有分配 → 跳过
+      next[id] = { ...(next[id] || {}), [accKey]: defaultCell() }
+      changed += 1
     })
   })
 
-  emit('update:matrixMap', next)
-
-  const count = Object.keys(next).length
-  ElMessage({
-    type: 'success',
-    duration: 5000,
-    message: h('span', { style: 'display:inline-flex;align-items:center;gap:8px' }, [
-      h('span', null, `已按顺序均分生成 ${count} 条对应关系`),
-      h(
-        'a',
-        {
-          style: 'color: var(--primary-color); cursor: pointer; font-weight: 600',
-          onClick: () => undoAssign()
-        },
-        '撤销'
-      )
-    ])
-  })
-
-  // 5 秒后快照失效（撤销入口随之消失）
-  window.setTimeout(() => { assignSnapshot.value = null }, 5000)
-}
-
-function undoAssign() {
-  if (!assignSnapshot.value) return
-  emit('update:matrixMap', assignSnapshot.value)
-  assignSnapshot.value = null
-  ElMessage.success('已撤销上一次分配')
+  if (changed > 0) {
+    emit('update:matrixMap', next)
+    ElMessage.success(`已循环补全 ${changed} 条内容的分配`)
+  } else {
+    ElMessage.info('所有内容都已分配，无需补全')
+  }
 }
 
 // ---- 自动执行：出现「未分配的视频」时按默认模式补齐 ----
@@ -825,7 +768,6 @@ tbody tr.group-row:hover td { background: rgba(99, 102, 241, 0.07); }
 .ic { font-size: 13px; }
 .merged { color: transparent; }
 .vid { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); }
-.cp { font-size: 10px; color: var(--text-muted); background: var(--bg-input); padding: 1px 6px; border-radius: 8px; }
 .sub-path { font-size: 10px; color: var(--text-muted); background: var(--bg-input); padding: 1px 6px; border-radius: 8px; }
 
 .acct { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 9px; border-radius: 12px; border: 1px solid var(--border-subtle); background: var(--bg-input); margin-right: 5px; cursor: pointer; color: var(--text-main); }

@@ -37,11 +37,9 @@
     <!-- 搜索与快捷操作条 -->
     <div class="media-toolbar" v-if="mediaList.length > 0">
       <span class="badge-count">已添加 {{ mediaList.length }} 个</span>
-      <span v-if="hasMultiFolder" class="badge-folder">
-        <span class="ic"><FolderIcon :size="13" /></span> 多层目录
-      </span>
-      <!-- 以第几层为分配单位（素材有多层时才显示） -->
-      <span v-if="maxFolderDepth >= 1" class="badge-folder">
+      <!-- 以第几层为分配单位；图标即"按目录分组"的语义，单层/多层由选项数量体现 -->
+      <span class="badge-folder">
+        <span class="ic"><FolderIcon :size="13" /></span>
         以
         <span class="level-inline">
           <select
@@ -50,10 +48,12 @@
             title="账号按这一层的文件夹顺序分配；改这里会影响对应表的分组与分配"
             @change="e => emit('update:unitLevel', Number((e.target as HTMLSelectElement).value))"
           >
-            <option v-for="n in maxFolderDepth" :key="n" :value="n">第{{ n }}层</option>
+            <option v-for="n in maxFolderDepth" :key="n" :value="n">
+              按第{{ n }}层目录（{{ folderCountAtLevel(n) }} 个）
+            </option>
+            <option :value="0">按每条视频（{{ mediaList.length }} 个）</option>
           </select>
         </span>
-        为单位
       </span>
       <div class="quick-batch-ops">
         <el-tooltip content="清空已添加的全部视频" placement="top">
@@ -64,9 +64,9 @@
       </div>
     </div>
 
-    <!-- 面包屑（仅当存在子文件夹或已进入子层时显示） -->
+    <!-- 面包屑（仅当存在子文件夹或已进入子层时显示；每条视频模式无层级可回，隐藏） -->
     <div
-      v-if="mediaList.length > 0 && (browsePath.length > 0 || hasSubFolders)"
+      v-if="!isAllVideoView && mediaList.length > 0 && (browsePath.length > 0 || hasSubFolders)"
       class="crumb-bar"
     >
       <!-- 返回上一级（仅在已进入子文件夹时显示） -->
@@ -87,7 +87,8 @@
           @click="jumpTo(i + 1)"
         >{{ seg }}</span>
       </template>
-      <span v-if="!isUnitLevelView" class="crumb-count">本层 {{ browseEntries.videos.length }} 个视频</span>
+      <span v-if="isAllVideoView" class="crumb-count">共 {{ browseEntries.videos.length }} 个视频</span>
+      <span v-else-if="!isUnitLevelView" class="crumb-count">本层 {{ browseEntries.videos.length }} 个视频</span>
       <span v-else class="crumb-count">共 {{ browseEntries.folders.length }} 个文件夹</span>
     </div>
 
@@ -138,12 +139,20 @@
             <span class="video-idx">#{{ globalIndex(item.id) }}</span>
             <span class="name-text">{{ item.fileName }}</span>
           </div>
-          <!-- 父文件夹路径（只显示最外层） -->
+          <!-- 所属目录路径（isAllVideoView 时显示完整路径，其他模式只显示最外层） -->
           <div v-if="item.folderCrumbs && item.folderCrumbs.length > 0" class="folder-crumbs">
-            <span class="crumb">
-              <span class="crumb-ic"><FolderIcon :size="13" /></span>
-              <span class="crumb-name">{{ item.folderCrumbs[0] }}</span>
-            </span>
+            <template v-if="isAllVideoView">
+              <span class="crumb">
+                <span class="crumb-ic"><FolderIcon :size="13" /></span>
+                <span class="crumb-name video-full-path">{{ item.folderCrumbs.join(' / ') }}</span>
+              </span>
+            </template>
+            <template v-else>
+              <span class="crumb">
+                <span class="crumb-ic"><FolderIcon :size="13" /></span>
+                <span class="crumb-name">{{ item.folderCrumbs[0] }}</span>
+              </span>
+            </template>
           </div>
           <div class="video-meta">
             <el-popover placement="top" :width="180" trigger="click">
@@ -358,12 +367,6 @@ function extractFolderCrumbs(filePath: string): string[] {
   return parts
 }
 
-const hasMultiFolder = computed(() => {
-  if (props.mediaList.length <= 1) return false
-  const crumbs = new Set(props.mediaList.map(m => JSON.stringify(m.folderCrumbs || [])))
-  return crumbs.size > 1
-})
-
 /** 素材里实际存在的最深层级（决定「以第几层为单位」的可选项） */
 const maxFolderDepth = computed(() =>
   props.mediaList.reduce((mx, m) => Math.max(mx, (m.folderCrumbs || []).length), 0)
@@ -375,6 +378,19 @@ watch(maxFolderDepth, (depth) => {
     emit('update:unitLevel', Math.min(2, depth))
   }
 }, { immediate: true })
+
+// 新一批素材导入时（上一次为空、这次非空）重置为单位层级默认值，
+// 确保每次导入都从"第 2 层"这个约定起点开始
+let prevMediaCount = 0
+watch(
+  () => props.mediaList.length,
+  (len, oldLen) => {
+    const wasEmpty = !oldLen || oldLen === 0
+    if (wasEmpty && len > 0) {
+      emit('update:unitLevel', Math.min(2, maxFolderDepth.value))
+    }
+  }
+)
 
 /** 素材的目录层数：0 = 平铺视频，1 = 一层文件夹，2 = 两层… */
 function maxDepthOf(list: Array<{ folderCrumbs?: string[]; folders?: string[] }>): number {
@@ -452,8 +468,33 @@ const isUnitLevelView = computed(
   () => props.unitLevel > 0 && currentBrowseLevel.value === props.unitLevel
 )
 
+/** 以「每条视频」为单位：上传区直接平铺全部视频（跨分支），不再逐层浏览 */
+const isAllVideoView = computed(() => props.unitLevel === 0)
+
+/** 第 n 层共有多少个文件夹（用于选项上标注数量） */
+function folderCountAtLevel(n: number): number {
+  const set = new Set<string>()
+  props.mediaList.forEach((m) => {
+    const crumbs = m.folderCrumbs || []
+    if (crumbs.length >= n) set.add(crumbs.slice(0, n).join('/'))
+  })
+  return set.size
+}
+
 /** 当前层级下的文件夹（含视频数）与视频（已应用搜索过滤） */
 const browseEntries = computed(() => {
+  // 「每条视频」为单位：平铺全部视频（与对应表的视频列表一一对应）
+  if (isAllVideoView.value) {
+    const videos = [...props.mediaList].sort((a, b) =>
+      (a.filePath || '').localeCompare(b.filePath || '', 'zh', { numeric: true })
+    )
+    return {
+      folders: [] as Array<{ name: string; count: number; level: number; path: string[] }>,
+      foldersWithIndex: [] as Array<{ name: string; count: number; level: number; path: string[]; index: number }>,
+      videos
+    }
+  }
+
   const folders = new Map<string, { name: string; count: number; level: number; path: string[] }>()
   const videos: MediaItem[] = []
   const cur = browsePath.value
@@ -1216,6 +1257,16 @@ async function hydrateMediaMeta(targets: MediaItem[]) {
 .crumb-name {
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+.video-full-path {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  display: inline-block;
 }
 
 .crumb-sep {

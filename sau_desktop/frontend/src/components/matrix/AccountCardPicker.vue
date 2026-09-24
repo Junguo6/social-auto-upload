@@ -14,17 +14,25 @@
         <el-button size="small" link type="primary" @click="selectAllValid">
           <el-icon><Check /></el-icon> 全选有效账号
         </el-button>
-        <el-tooltip content="取消全选" placement="top">
-          <el-button size="small" link @click="clearSelection">
-            <el-icon><Close /></el-icon>
-          </el-button>
-        </el-tooltip>
+        <!-- 仅在已选账号时显示：无选中时清空无意义，也避免误点 -->
+        <el-button
+          v-if="selectedKeys.length > 0"
+          size="small"
+          link
+          type="danger"
+          @click="clearSelection"
+        >
+          <el-icon><Delete /></el-icon> 清空
+        </el-button>
       </div>
     </div>
 
     <!-- 分组过滤栏与搜索 -->
     <div class="filter-toolbar">
-      <span class="badge-count" v-if="selectedKeys.length > 0">已选 {{ selectedKeys.length }} 个账号 · 覆盖 {{ activePlatformCount }} 个平台</span>
+      <span class="badge-count" v-if="selectedKeys.length > 0">
+        已选 {{ selectedKeys.length }} 个账号 · 覆盖 {{ activePlatformCount }} 个平台
+        <span class="hint-clear">（点「清空」可重新选择，对应表会重新分配）</span>
+      </span>
       <div class="group-tabs">
         <button
           v-for="grp in allGroups"
@@ -76,9 +84,17 @@
           </div>
         </div>
 
-        <!-- 选中角标 -->
-        <div class="select-indicator" :class="{ active: isSelected(acc) }">
-          <el-icon v-if="isSelected(acc)"><Check /></el-icon>
+        <!-- 选中角标：显示分配顺序序号；点击可把该账号提到最前 -->
+        <div
+          class="select-indicator"
+          :class="{
+            active: isSelected(acc),
+            adjustable: isSelected(acc) && accountOrder(acc) > 1
+          }"
+          :title="isSelected(acc) && accountOrder(acc) > 1 ? '点击提到最前（调整分配顺序）' : ''"
+          @click.stop="promoteAccount(acc)"
+        >
+          <span v-if="isSelected(acc)" class="order-num">{{ accountOrder(acc) }}</span>
         </div>
       </div>
     </div>
@@ -105,6 +121,7 @@ import { ref, computed } from 'vue'
 import { useAccountStore } from '../../stores/accountStore'
 import { PLATFORMS, getPlatformConfig } from '../../config/platforms'
 import type { SelectedTargetAccount } from '../../types/matrix'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const props = defineProps<{
   selectedKeys: string[] // 格式: "platform:account"
@@ -158,6 +175,29 @@ const isSelected = (acc: any) => {
   return props.selectedKeys.includes(`${acc.platform}:${acc.account}`)
 }
 
+/**
+ * 账号在已选列表中的序号（1 起）。
+ * 这个顺序就是分配顺序 —— 第 1 个被选中的账号会拿到第 1 组内容，
+ * 与「内容与账号对应表」里的账号序号必须一致。
+ */
+function accountOrder(acc: any): number {
+  return props.selectedKeys.indexOf(`${acc.platform}:${acc.account}`) + 1
+}
+
+/**
+ * 把某个已选账号提到最前（= 调整为第 1 个拿内容）。
+ * 序号即分配顺序，想改顺序时不必全清重选，点它的序号角标即可。
+ */
+function promoteAccount(acc: any) {
+  const key = `${acc.platform}:${acc.account}`
+  const idx = props.selectedKeys.indexOf(key)
+  if (idx <= 0) return // 未选中或已在最前，无操作
+
+  const rest = props.selectedKeys.filter((k) => k !== key)
+  emit('update:selectedKeys', [key, ...rest])
+  ElMessage.info(`已将「${acc.nickname || acc.account}」调整为第 1 个`)
+}
+
 // 切换单账号
 const toggleAccount = (acc: any) => {
   const key = `${acc.platform}:${acc.account}`
@@ -180,8 +220,18 @@ const selectAllValid = () => {
   emit('update:selectedKeys', merged)
 }
 
-// 清空所选
-const clearSelection = () => {
+// 清空所选（会一并清掉对应表里的分配，故加确认）
+const clearSelection = async () => {
+  if (props.selectedKeys.length === 0) return
+  try {
+    await ElMessageBox.confirm(
+      `将取消已选的 ${props.selectedKeys.length} 个账号，对应表中的分配也会一并清空。`,
+      '确认清空账号？',
+      { type: 'warning', confirmButtonText: '清空', cancelButtonText: '取消' }
+    )
+  } catch {
+    return // 用户取消
+  }
   emit('update:selectedKeys', [])
 }
 
@@ -251,6 +301,11 @@ const getPlatformColor = (pid: string) => {
   border-radius: 20px;
   padding: 1px 9px;
   font-weight: 600;
+}
+
+.hint-clear {
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
 .header-actions {
@@ -428,16 +483,16 @@ const getPlatformColor = (pid: string) => {
 }
 
 .select-indicator {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;              /* 圆形，与上传区的 .order-badge 视觉统一 */
   border: 1.5px solid var(--border-highlight);
   background: var(--bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: #fff;
+  font-weight: 700;
   flex-shrink: 0;
   transition: all 0.2s ease;
 }
@@ -445,6 +500,25 @@ const getPlatformColor = (pid: string) => {
 .select-indicator.active {
   background: var(--primary-color);
   border-color: var(--primary-color);
+  color: #fff;
+}
+
+.select-indicator.adjustable {
+  cursor: pointer;
+}
+
+.select-indicator.adjustable:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+.select-indicator.active:not(.adjustable) {
+  cursor: default;
+}
+
+.order-num {
+  line-height: 1;
+  color: inherit;
 }
 
 .empty-account-box {
