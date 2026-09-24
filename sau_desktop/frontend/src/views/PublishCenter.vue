@@ -535,17 +535,20 @@ onMounted(() => {
   color: var(--text-muted);
 }
 
+/* 选中 / 完成态：徽标底色变深 → 数字必须转白，否则灰字在主色/绿底上看不清 */
 .config-tab.active .tab-num {
   background: var(--primary-color);
+  color: #fff;
 }
 
 .config-tab.done .tab-num {
   background: var(--status-success);
+  color: #fff;
 }
 
 .tab-cnt {
   font-size: 11px;
-  background: rgba(99, 102, 241, 0.16);
+  background: rgba(79, 70, 229, 0.16);
   color: var(--primary-color);
   padding: 0 6px;
   border-radius: 9px;
