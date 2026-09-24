@@ -130,6 +130,21 @@ func (c *Client) FetchOverview(identity *DeviceIdentity, activeCode string) (*Au
 		}
 	}
 
+	// 各档套餐价格（服务端以字符串返回，如 "9999.00"；
+	// 不解析的话前端会当成 0 → 全部档位被判为不可购买，弹窗只剩「立即开通」按钮）
+	if v, ok := res["m122_month_price"]; ok && v != nil {
+		overview.M122MonthPrice = fmt.Sprintf("%v", v)
+	}
+	if v, ok := res["m122_season_price"]; ok && v != nil {
+		overview.M122SeasonPrice = fmt.Sprintf("%v", v)
+	}
+	if v, ok := res["m122_year_price"]; ok && v != nil {
+		overview.M122YearPrice = fmt.Sprintf("%v", v)
+	}
+	if v, ok := res["m122_permanent_price"]; ok && v != nil {
+		overview.M122PermanentPrice = fmt.Sprintf("%v", v)
+	}
+
 	// 解析公告与帮助
 	if notice, ok := res["announcement"]; ok && notice != nil {
 		overview.Announcement = fmt.Sprintf("%v", notice)
