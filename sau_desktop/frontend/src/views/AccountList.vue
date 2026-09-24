@@ -1150,7 +1150,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
 }
 
 .add-account-gradient-btn {
-  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%) !important;
+  background: var(--primary-color) !important;
   border: none !important;
   font-weight: 700;
 }
@@ -1605,7 +1605,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
 }
 
 .relogin-toolbar-btn {
-  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%) !important;
+  background: var(--status-warning) !important;
   border: none !important;
   font-weight: 700;
   color: #fff !important;
@@ -1776,7 +1776,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
 
 .focus-window-btn {
   flex: 1;
-  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%) !important;
+  background: var(--primary-color) !important;
   border: none !important;
   font-weight: 700;
   box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
@@ -1883,7 +1883,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
 
 .launch-stream-large-btn {
   width: 100%;
-  background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%) !important;
+  background: var(--primary-color) !important;
   border: none !important;
   font-weight: 800;
   box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);

@@ -230,7 +230,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
   flex-shrink: 0;
 }
 
@@ -328,15 +327,15 @@ onMounted(() => {
 }
 
 .nav-link:hover {
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(79, 70, 229, 0.08);
   color: var(--primary-color);
 }
 
 .nav-link.active {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+  background: rgba(79, 70, 229, 0.10);
   color: var(--primary-color);
   font-weight: 700;
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  border: 1px solid rgba(79, 70, 229, 0.3);
 }
 
 .sidebar-footer {
@@ -366,7 +365,7 @@ onMounted(() => {
 }
 
 .collapse-toggle-btn:hover {
-  background: rgba(99, 102, 241, 0.1);
+  background: rgba(79, 70, 229, 0.1);
   border-color: var(--primary-light);
   color: var(--primary-light);
 }

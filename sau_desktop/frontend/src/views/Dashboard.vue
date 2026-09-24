@@ -195,18 +195,18 @@ const successRate = computed(() => {
 }
 
 .metric-icon.purple {
-  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+  background: var(--primary-color);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.3);
 }
 
 .metric-icon.green {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: var(--status-success);
   box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
 }
 
 .metric-icon.blue {
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
-  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+  background: var(--primary-color);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.3);
 }
 
 .metric-icon.orange {

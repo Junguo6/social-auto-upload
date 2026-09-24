@@ -55,7 +55,7 @@ html.dark {
 
   --border-subtle: rgba(255, 255, 255, 0.10);
   --border-highlight: rgba(255, 255, 255, 0.16);
-  --border-focus: rgba(99, 102, 241, 0.5);
+  --border-focus: rgba(79, 70, 229, 0.5);
 
   --text-main: #f8fafc;
   --text-secondary: #94a3b8;
@@ -86,7 +86,7 @@ html.light, :root:not(.dark) {
 
   --border-subtle: #e8ebf0;
   --border-highlight: #d8dee8;
-  --border-focus: #6366f1;
+  --border-focus: var(--primary-color);
 
   --text-main: #0f172a;
   --text-secondary: #475569;
@@ -136,13 +136,11 @@ body {
   letter-spacing: 0.3px;
   border-radius: 8px !important;
   padding: 10px 22px !important;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3) !important;
   transition: all 0.2s ease !important;
 }
 
 .gradient-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 22px rgba(168, 85, 247, 0.45) !important;
 }
 
 /* Element Plus 深度暗亮色适配 */
