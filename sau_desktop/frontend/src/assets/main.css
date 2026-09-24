@@ -275,3 +275,30 @@ html.dark .step-connector { background: rgba(255, 255, 255, 0.22) !important; }
 /* ── 精简：去掉纯装饰的圆点与胶囊图标 ── */
 .summary-dot { display: none !important; }
 .top-task-pill .el-icon, .auth-status-pill .el-icon { display: none !important; }
+
+/* ==========================================================================
+   Element Plus 主色对齐：EP 默认蓝 #409EFF → 应用主色 #4f46e5
+   说明：EP 的浅色阶（light-3/5/7/8/9）用于 plain 按钮底色、hover、禁用等状态，
+   必须与主色一起覆盖，否则会出现"按钮变紫、描边还是蓝"的错配。
+   暗色模式必须写在 html.dark 里并加 !important —— EP 自带的暗色变量规则特异性更高，
+   只写在 :root 里会被它盖掉（这一点已实测验证）。
+   ========================================================================== */
+:root {
+  --el-color-primary: var(--primary-color);
+  --el-color-primary-dark-2: #3f38b7;
+  --el-color-primary-light-3: #847eed;
+  --el-color-primary-light-5: #a7a3f2;
+  --el-color-primary-light-7: #cac8f7;
+  --el-color-primary-light-8: #dcdafa;
+  --el-color-primary-light-9: #ededfc;
+}
+
+html.dark {
+  --el-color-primary: var(--primary-color) !important;
+  --el-color-primary-dark-2: #3f38b7 !important;
+  --el-color-primary-light-3: rgba(79, 70, 229, 0.75);
+  --el-color-primary-light-5: rgba(79, 70, 229, 0.55);
+  --el-color-primary-light-7: rgba(79, 70, 229, 0.35);
+  --el-color-primary-light-8: rgba(79, 70, 229, 0.24);
+  --el-color-primary-light-9: rgba(79, 70, 229, 0.16);
+}
