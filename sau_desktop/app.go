@@ -79,6 +79,30 @@ func (a *App) ConsumeTrial() *auth.TrialConsumeResult {
 	return a.authMgr.ConsumeTrial()
 }
 
+// GetOrderPackages 获取可购买的套餐列表（含价格）
+func (a *App) GetOrderPackages() []auth.OrderPackage {
+	if a.authMgr == nil {
+		return nil
+	}
+	return a.authMgr.OrderPackages()
+}
+
+// CreateOrder 创建开通订单，返回微信支付二维码链接
+func (a *App) CreateOrder(packageType string) *auth.OrderCreateResult {
+	if a.authMgr == nil {
+		return &auth.OrderCreateResult{Success: false, Message: "鉴权服务未初始化"}
+	}
+	return a.authMgr.CreateOrder(packageType)
+}
+
+// QueryOrder 查询订单支付状态
+func (a *App) QueryOrder(outTradeNo string) *auth.OrderQueryResult {
+	if a.authMgr == nil {
+		return &auth.OrderQueryResult{Success: false, TradeState: "NOTFOUND"}
+	}
+	return a.authMgr.QueryOrder(outTradeNo)
+}
+
 // PublishMedia 单账号媒体发布接口
 func (a *App) PublishMedia(param engine.PublishParam) (string, error) {
 	if a.authMgr != nil {

@@ -12,6 +12,8 @@ export function CheckAccountStatus(arg1:string,arg2:string):Promise<engine.Accou
 
 export function ConsumeTrial():Promise<auth.TrialConsumeResult>;
 
+export function CreateOrder(arg1:string):Promise<auth.OrderCreateResult>;
+
 export function DeleteAccountCredential(arg1:string,arg2:string):Promise<void>;
 
 export function DetectBrowserStatus():Promise<engine.BrowserEnvironmentInfo>;
@@ -21,6 +23,8 @@ export function GetAccountRiskStatus(arg1:string,arg2:string):Promise<engine.Ris
 export function GetAuthOverview():Promise<auth.AuthOverview>;
 
 export function GetDeviceID():Promise<string>;
+
+export function GetOrderPackages():Promise<Array<auth.OrderPackage>>;
 
 export function GetRiskOverview():Promise<Array<engine.RiskState>>;
 
@@ -35,6 +39,8 @@ export function MatrixPublishMedia(arg1:engine.MatrixPublishParam):Promise<Array
 export function PipelinePublishMedia(arg1:engine.PipelinePublishParam):Promise<Array<engine.AccountPublishResult>>;
 
 export function PublishMedia(arg1:engine.PublishParam):Promise<string>;
+
+export function QueryOrder(arg1:string):Promise<auth.OrderQueryResult>;
 
 export function ResumeAccount(arg1:string,arg2:string):Promise<boolean>;
 

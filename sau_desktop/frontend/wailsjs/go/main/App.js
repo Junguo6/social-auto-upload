@@ -18,6 +18,10 @@ export function ConsumeTrial() {
   return window['go']['main']['App']['ConsumeTrial']();
 }
 
+export function CreateOrder(arg1) {
+  return window['go']['main']['App']['CreateOrder'](arg1);
+}
+
 export function DeleteAccountCredential(arg1, arg2) {
   return window['go']['main']['App']['DeleteAccountCredential'](arg1, arg2);
 }
@@ -36,6 +40,10 @@ export function GetAuthOverview() {
 
 export function GetDeviceID() {
   return window['go']['main']['App']['GetDeviceID']();
+}
+
+export function GetOrderPackages() {
+  return window['go']['main']['App']['GetOrderPackages']();
 }
 
 export function GetRiskOverview() {
@@ -64,6 +72,10 @@ export function PipelinePublishMedia(arg1) {
 
 export function PublishMedia(arg1) {
   return window['go']['main']['App']['PublishMedia'](arg1);
+}
+
+export function QueryOrder(arg1) {
+  return window['go']['main']['App']['QueryOrder'](arg1);
 }
 
 export function ResumeAccount(arg1, arg2) {

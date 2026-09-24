@@ -2,6 +2,9 @@ package auth
 
 import (
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -182,4 +185,91 @@ func (m *AuthManager) ReportError(errMsg string) {
 	if m.identity != nil {
 		m.client.FeedbackError(m.identity.NewSN, errMsg, "error")
 	}
+}
+
+// OrderPackages 返回各档套餐（价格来自 overview；服务端未配价时标记为不可购买）
+func (m *AuthManager) OrderPackages() []OrderPackage {
+	m.mu.RLock()
+	ov := m.cachedOverview
+	m.mu.RUnlock()
+
+	if ov == nil {
+		return nil
+	}
+
+	parse := func(s string) float64 {
+		v, _ := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		return v
+	}
+	mk := func(ptype, label, priceStr string) OrderPackage {
+		y := parse(priceStr)
+		return OrderPackage{
+			PackageType: ptype,
+			Label:       label,
+			PriceYuan:   y,
+			AmountCent:  int(math.Round(y * 100)),
+			Purchasable: y > 0,
+		}
+	}
+
+	return []OrderPackage{
+		mk("monthly", "月度", ov.M122MonthPrice),
+		mk("seasonal", "季度", ov.M122SeasonPrice),
+		mk("yearly", "年度", ov.M122YearPrice),
+		mk("permanent", "永久", ov.M122PermanentPrice),
+	}
+}
+
+// CreateOrder 按套餐类型下单（金额由本地按 overview 价格换算成"分"传给服务端）
+func (m *AuthManager) CreateOrder(packageType string) *OrderCreateResult {
+	m.mu.RLock()
+	ov := m.cachedOverview
+	m.mu.RUnlock()
+
+	if ov == nil || ov.NewSN == "" {
+		return &OrderCreateResult{Success: false, Message: "授权信息未就绪，请稍后重试"}
+	}
+
+	var target *OrderPackage
+	for _, p := range m.OrderPackages() {
+		if p.PackageType == packageType {
+			cp := p
+			target = &cp
+			break
+		}
+	}
+	if target == nil || !target.Purchasable {
+		return &OrderCreateResult{Success: false, Message: "该套餐暂不可购买"}
+	}
+
+	res, err := m.client.CreateOrder(ov.NewSN, target.AmountCent, packageType)
+	if err != nil {
+		return &OrderCreateResult{Success: false, Message: err.Error()}
+	}
+	if res == nil {
+		return &OrderCreateResult{Success: false, Message: "下单失败，请稍后重试"}
+	}
+	return res
+}
+
+// QueryOrder 查询支付状态；支付成功后顺带刷新一次授权状态
+func (m *AuthManager) QueryOrder(outTradeNo string) *OrderQueryResult {
+	m.mu.RLock()
+	ov := m.cachedOverview
+	m.mu.RUnlock()
+
+	if ov == nil || ov.NewSN == "" {
+		return &OrderQueryResult{Success: false, TradeState: "NOTFOUND", TradeStateDesc: "授权信息未就绪"}
+	}
+
+	res, err := m.client.QueryOrder(outTradeNo, ov.NewSN)
+	if err != nil {
+		return &OrderQueryResult{Success: false, TradeState: "ERROR", TradeStateDesc: err.Error()}
+	}
+
+	if res != nil && res.TradeState == "SUCCESS" {
+		// 支付成功 → 刷新授权状态，让界面立刻显示已开通
+		_, _ = m.RefreshOverview()
+	}
+	return res
 }

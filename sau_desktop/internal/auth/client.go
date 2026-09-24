@@ -246,6 +246,99 @@ func (c *Client) IncTrialTimes(userId string, functionId int) error {
 	return nil
 }
 
+// CreateOrder 创建开通订单（微信 Native 支付），返回 code_url 供前端生成二维码。
+// 金额由服务端按 module_id + package_type 校验，客户端传值必须与配置一致，否则返回「金额不匹配」。
+func (c *Client) CreateOrder(newSn string, amountCent int, packageType string) (*OrderCreateResult, error) {
+	apiURL := ServerHost + "/jym/create_order"
+	form := url.Values{}
+	form.Add("new_sn", newSn)
+	form.Add("amount", strconv.Itoa(amountCent))
+	form.Add("package_type", packageType)
+	form.Add("module_id", strconv.Itoa(MainModuleID))
+	form.Add("function_id", strconv.Itoa(MainFunctionID))
+	form.Add("version", CurrentAppVersion)
+	form.Add("tool_id", ToolIdentifier)
+	form.Add("agent_id", "0")
+
+	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("下单请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取下单响应失败: %w", err)
+	}
+
+	var result OrderCreateResult
+	c.decodeOrderResult(body, &result)
+	if !result.Success {
+		if result.Message == "" {
+			result.Message = "下单失败，请稍后重试"
+		}
+	}
+	return &result, nil
+}
+
+// QueryOrder 查询订单支付状态（前端下单后轮询用）
+func (c *Client) QueryOrder(outTradeNo, newSn string) (*OrderQueryResult, error) {
+	apiURL := ServerHost + "/jym/query_order"
+	params := url.Values{}
+	params.Add("out_trade_no", outTradeNo)
+	params.Add("new_sn", newSn)
+	params.Add("tool_id", ToolIdentifier)
+
+	req, err := http.NewRequest(http.MethodGet, apiURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("查询订单失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取订单响应失败: %w", err)
+	}
+
+	var result OrderQueryResult
+	c.decodeOrderResult(body, &result)
+	return &result, nil
+}
+
+// decodeOrderResult 解析订单类接口响应。
+// 服务端有两种返回形态：① 直接是业务对象 ② 包在 {code, message, result} 里 —— 都兼容。
+func (c *Client) decodeOrderResult(body []byte, out interface{}) {
+	if err := json.Unmarshal(body, out); err != nil {
+		return
+	}
+	// 判断是否已经是业务对象：成功字段已解析出来就不用再解包
+	probe := map[string]interface{}{}
+	if json.Unmarshal(body, &probe) == nil {
+		if _, ok := probe["out_trade_no"]; ok {
+			return
+		}
+		if _, ok := probe["trade_state"]; ok {
+			return
+		}
+	}
+	var sResp ServerResponse
+	if err := json.Unmarshal(body, &sResp); err == nil && sResp.Result != nil {
+		if b, err := json.Marshal(sResp.Result); err == nil {
+			_ = json.Unmarshal(b, &out)
+		}
+	}
+}
+
 // FeedbackError 上报错误日志到服务器
 func (c *Client) FeedbackError(newSN, errMsg, level string) {
 	apiURL := ServerHost + "/jym/feedback/error"

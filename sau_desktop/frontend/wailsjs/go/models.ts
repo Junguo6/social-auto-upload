@@ -16,6 +16,10 @@ export namespace auth {
 	    m100_activated: boolean;
 	    m122_activated: boolean;
 	    m122_trial_times: number;
+	    m122_month_price: string;
+	    m122_season_price: string;
+	    m122_year_price: string;
+	    m122_permanent_price: string;
 	    // Go type: time
 	    last_check_time: any;
 	
@@ -40,6 +44,10 @@ export namespace auth {
 	        this.m100_activated = source["m100_activated"];
 	        this.m122_activated = source["m122_activated"];
 	        this.m122_trial_times = source["m122_trial_times"];
+	        this.m122_month_price = source["m122_month_price"];
+	        this.m122_season_price = source["m122_season_price"];
+	        this.m122_year_price = source["m122_year_price"];
+	        this.m122_permanent_price = source["m122_permanent_price"];
 	        this.last_check_time = this.convertValues(source["last_check_time"], null);
 	    }
 	
@@ -60,6 +68,60 @@ export namespace auth {
 		    }
 		    return a;
 		}
+	}
+	export class OrderCreateResult {
+	    success: boolean;
+	    out_trade_no: string;
+	    code_url: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OrderCreateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.out_trade_no = source["out_trade_no"];
+	        this.code_url = source["code_url"];
+	        this.message = source["message"];
+	    }
+	}
+	export class OrderPackage {
+	    package_type: string;
+	    label: string;
+	    price_yuan: number;
+	    amount_cent: number;
+	    purchasable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OrderPackage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.package_type = source["package_type"];
+	        this.label = source["label"];
+	        this.price_yuan = source["price_yuan"];
+	        this.amount_cent = source["amount_cent"];
+	        this.purchasable = source["purchasable"];
+	    }
+	}
+	export class OrderQueryResult {
+	    success: boolean;
+	    trade_state: string;
+	    trade_state_desc: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OrderQueryResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.trade_state = source["trade_state"];
+	        this.trade_state_desc = source["trade_state_desc"];
+	    }
 	}
 	export class TrialConsumeResult {
 	    ok: boolean;
