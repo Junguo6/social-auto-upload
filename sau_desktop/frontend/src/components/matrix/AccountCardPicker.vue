@@ -485,22 +485,23 @@ const getPlatformColor = (pid: string) => {
 .select-indicator {
   width: 20px;
   height: 20px;
-  border-radius: 50%;              /* 圆形，与上传区的 .order-badge 视觉统一 */
-  border: 1.5px solid var(--border-highlight);
-  background: var(--bg-card);
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
   font-weight: 700;
+  color: var(--text-muted);
   flex-shrink: 0;
   transition: all 0.2s ease;
 }
 
 .select-indicator.active {
-  background: var(--primary-color);
-  border-color: var(--primary-color);
-  color: #fff;
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: var(--primary-color);
 }
 
 .select-indicator.adjustable {

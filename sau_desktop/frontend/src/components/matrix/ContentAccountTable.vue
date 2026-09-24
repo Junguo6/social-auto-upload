@@ -984,7 +984,7 @@ tbody tr.group-row:hover td { background: rgba(99, 102, 241, 0.07); }
   vertical-align: middle;
 }
 
-/* 账号序号：比内容序号更小一号，避免和内容序号抢视觉 */
+  /* 迷你序号：配色与 .order-badge 完全一致，仅尺寸小一号（嵌在账号 chip 内） */
 .chip-order {
   display: inline-flex;
   align-items: center;
@@ -997,6 +997,7 @@ tbody tr.group-row:hover td { background: rgba(99, 102, 241, 0.07); }
   font-size: 10px;
   font-weight: 700;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
 }
 </style>
