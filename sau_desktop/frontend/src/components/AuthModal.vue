@@ -1,64 +1,63 @@
 <template>
+  <!-- ① 主弹窗：授权与开通（一屏到底） -->
   <el-dialog
     v-model="authStore.authModalVisible"
-    title="软件授权与激活管理"
-    width="540px"
+    title="软件授权"
+    width="600px"
     destroy-on-close
     align-center
-    class="auth-dialog glass-dialog"
+    class="auth-dialog"
   >
     <div class="auth-modal-content">
-      <!-- 1. 顶部状态横幅 -->
-      <div class="auth-status-banner" :class="authStore.overview.is_activated ? 'status-active' : 'status-inactive'">
-        <div class="status-icon-wrap">
-          <el-icon v-if="authStore.overview.is_activated" :size="28"><Medal /></el-icon>
-          <el-icon v-else :size="28"><Lock /></el-icon>
-        </div>
-        <div class="status-info">
+      <!-- 1. 状态：3px 竖条 + 右侧常驻试用余额 -->
+      <div class="auth-status" :class="authStore.overview.is_activated ? 'is-active' : 'is-inactive'">
+        <div class="status-text">
           <div class="status-title">
-            {{ authStore.overview.is_activated ? '正式授权版 (PRO EDITION)' : '未激活 / 试用模式' }}
+            {{
+              authStore.overview.is_activated
+                ? '已授权 · 正式版'
+                : (authStore.trialRemaining > 0 ? '未激活' : '试用次数已用尽')
+            }}
           </div>
           <div class="status-desc">
             <template v-if="authStore.overview.is_activated">
-              <span>到期时间：{{ authStore.overview.deadline || '永久有效' }}</span>
-              <span v-if="authStore.overview.days_remaining > 0" class="days-badge">
-                (剩余 {{ authStore.overview.days_remaining }} 天)
-              </span>
+              有效期至 {{ authStore.overview.deadline || '永久有效' }}
+            </template>
+            <template v-else-if="authStore.trialRemaining > 0">
+              当前为试用模式，开通后可长期使用
             </template>
             <template v-else>
-              <span>未开通全功能授权，发布矩阵任务受限，请激活解锁</span>
+              开通后可继续发布任务
             </template>
           </div>
         </div>
+
+        <span
+          v-if="authStore.overview.is_activated && authStore.overview.days_remaining > 0"
+          class="status-side"
+          :class="{ warn: authStore.overview.days_remaining <= 30 }"
+        >
+          剩余 {{ authStore.overview.days_remaining }} 天
+        </span>
+        <span
+          v-else-if="!authStore.overview.is_activated && authStore.trialRemaining > 0"
+          class="trial-chip"
+        >
+          可试用 {{ authStore.trialRemaining }} 次
+        </span>
       </div>
 
-      <!-- 2. 本机设备识别码卡片 (NewSN) -->
-      <div class="device-sn-card">
-        <div class="card-label-row">
-          <span class="card-label">本机设备识别码 (用于开通与绑定)：</span>
-          <el-tag size="small" type="info" effect="plain">NewSN 标准码</el-tag>
-        </div>
-        <div class="sn-display-box">
-          <code class="sn-code">{{ authStore.overview.new_sn || '正在生成识别码...' }}</code>
-          <el-button 
-            type="primary" 
-            size="small" 
-            class="copy-btn"
-            @click="copySN"
-            :disabled="!authStore.overview.new_sn"
-          >
-            <el-icon><CopyDocument /></el-icon>
-            <span>复制识别码</span>
-          </el-button>
-        </div>
-        <div class="sn-tip">
-          💡 请将上方 16 位识别码发送给管理员或代理商，开通对应的矩阵发布授权。
-        </div>
+      <!-- 2. 已激活：续期 / 换设备 -->
+      <div v-if="authStore.overview.is_activated" class="renew-row">
+        <span class="renew-label">本机已绑定授权</span>
+        <el-button size="small" plain @click="showRenew = !showRenew">
+          {{ showRenew ? '收起' : '续期 / 换设备' }}
+        </el-button>
       </div>
 
-      <!-- 3. 在线开通（未激活时显示；价格与可购性来自服务端配置） -->
-      <div v-if="!authStore.overview.is_activated" class="online-order-section">
-        <div class="section-title">在线开通：</div>
+      <!-- 3. 未激活：微信扫码开通（主路径） -->
+      <template v-if="!authStore.overview.is_activated">
+        <div class="sec-title">微信扫码开通</div>
 
         <div class="package-grid">
           <div
@@ -69,9 +68,7 @@
             @click="selectedPackage = p.package_type"
           >
             <div class="pkg-label">{{ p.label }}</div>
-            <div class="pkg-price">
-              <span class="pkg-unit">¥</span>{{ p.price_yuan }}
-            </div>
+            <div class="pkg-price"><span class="pkg-unit">¥</span>{{ p.price_yuan }}</div>
           </div>
         </div>
 
@@ -83,40 +80,55 @@
           :loading="ordering"
           @click="handleCreateOrder"
         >
-          <span>立即开通</span>
+          <span>{{ selectedPrice > 0 ? `微信扫码开通 · ¥${selectedPrice}` : '立即开通' }}</span>
         </el-button>
+      </template>
 
-        <div class="order-tip">微信扫码支付，支付成功后自动开通，无需等待管理员</div>
-      </div>
-
-      <!-- 4. 激活码输入与兑换 -->
-      <div class="activation-action-section">
-        <div class="section-title">输入授权卡密 / 激活码：</div>
+      <!-- 4. 激活码 + 设备识别码（未激活时展示；已激活时点开续期才展示） -->
+      <template v-if="!authStore.overview.is_activated || showRenew">
+        <div class="sec-title">
+          {{ authStore.overview.is_activated ? '输入续期卡密' : '已有激活码 / 兑换卡' }}
+        </div>
         <div class="code-input-row">
           <el-input
             v-model="activationCode"
-            placeholder="粘贴您的授权激活码..."
+            placeholder="粘贴授权激活码"
             size="large"
             clearable
-            :prefix-icon="Key"
+            @input="activateError = ''"
             @keyup.enter="handleActivate"
           />
-          <el-button 
-            type="success" 
-            size="large" 
+          <el-button
+            plain
+            size="large"
             class="activate-btn"
             :loading="authStore.loading"
             @click="handleActivate"
           >
-            <span>立即激活</span>
+            <span>{{ authStore.overview.is_activated ? '续期' : '兑换' }}</span>
           </el-button>
         </div>
-      </div>
+        <div v-if="activateError" class="err-line">{{ activateError }}</div>
 
-      <!-- 5. 公告与客服支持 -->
+        <div class="sn-row">
+          <span class="sn-label">设备识别码</span>
+          <code class="sn-code">{{ authStore.overview.new_sn || '正在生成…' }}</code>
+          <el-button
+            size="small"
+            plain
+            :disabled="!authStore.overview.new_sn"
+            @click="copySN"
+          >
+            {{ copied ? '已复制' : '复制' }}
+          </el-button>
+        </div>
+        <div class="sn-note">需要人工开通时，把识别码发给管理员即可</div>
+      </template>
+
+      <!-- 5. 公告 -->
       <div v-if="authStore.overview.announcement" class="announcement-box">
         <el-alert
-          :title="'系统公告：' + authStore.overview.announcement"
+          :title="authStore.overview.announcement"
           type="warning"
           :closable="false"
           show-icon
@@ -126,51 +138,79 @@
 
     <template #footer>
       <div class="dialog-footer">
-        <el-button @click="authStore.refreshAuth" :loading="authStore.loading" plain size="default">
-          <el-icon><Refresh /></el-icon>
-          <span>刷新授权状态</span>
-        </el-button>
-        <el-button type="primary" plain @click="authStore.closeAuthModal" size="default">
-          <span>完成 / 关闭</span>
-        </el-button>
+        <a class="foot-link" @click="showHelp">开通遇到问题？</a>
+        <div class="foot-actions">
+          <el-button @click="authStore.refreshAuth" :loading="authStore.loading" plain size="default">
+            刷新状态
+          </el-button>
+          <el-button text size="default" @click="authStore.closeAuthModal">
+            关闭
+          </el-button>
+        </div>
       </div>
     </template>
   </el-dialog>
 
-  <!-- 支付二维码弹窗 -->
+  <!-- ② 支付二维码 -->
   <el-dialog
     v-model="payVisible"
     title="微信扫码支付"
-    width="360px"
+    width="380px"
     append-to-body
     align-center
     :close-on-click-modal="false"
     @closed="stopPolling"
   >
     <div class="pay-qr-wrap">
-      <QrcodeVue v-if="codeUrl" :value="codeUrl" :size="220" level="M" />
-      <div class="pay-amount">应付：<b>¥{{ payAmount }}</b></div>
-      <div class="pay-hint">请使用微信「扫一扫」完成支付</div>
-      <div class="pay-status" :class="{ ok: paySuccess }">{{ payStatusText }}</div>
+      <QrcodeVue v-if="codeUrl" :value="codeUrl" :size="190" level="M" />
+      <div class="pay-amount"><span class="pay-unit">¥</span>{{ payAmount }}</div>
+      <div class="pay-plan">{{ payPlanLabel }}</div>
+      <div class="pay-status" :class="{ ok: paySuccess }">
+        <span v-if="!paySuccess" class="pulse-dot"></span>{{ payStatusText }}
+      </div>
     </div>
+
+    <template #footer>
+      <div class="dialog-footer">
+        <span class="order-no">订单号 {{ outTradeNo || '—' }}</span>
+        <div class="foot-actions">
+          <el-button plain size="small" @click="showHelp">遇到问题</el-button>
+          <el-button text size="small" @click="payVisible = false">取消订单</el-button>
+        </div>
+      </div>
+    </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Medal, Lock, CopyDocument, Key, Refresh } from '@element-plus/icons-vue'
 import QrcodeVue from 'qrcode.vue'
 import { GetOrderPackages, CreateOrder, QueryOrder } from '../../wailsjs/go/main/App'
 import { useAuthStore } from '../stores/authStore'
 
 const authStore = useAuthStore()
 const activationCode = ref('')
+const showRenew = ref(false)
+const activateError = ref('')
+const copied = ref(false)
 
 // ---- 在线开通 ----
 const packages = ref<any[]>([])
 const selectedPackage = ref('')
 const ordering = ref(false)
+
+/** 当前选中档位的价格（用于主按钮文案，0 表示未选中） */
+const selectedPrice = computed(() => {
+  const hit = packages.value.find((x: any) => x.package_type === selectedPackage.value)
+  return hit?.price_yuan ?? 0
+})
+
+/** 支付弹窗里的套餐名 */
+const payPlanLabel = computed(() => {
+  const hit = packages.value.find((x: any) => x.package_type === selectedPackage.value)
+  return hit ? `${hit.label}` : ''
+})
 
 const payVisible = ref(false)
 const codeUrl = ref('')
@@ -215,7 +255,7 @@ async function handleCreateOrder() {
     codeUrl.value = res.code_url
     const p = packages.value.find((x: any) => x.package_type === selectedPackage.value)
     payAmount.value = p?.price_yuan ?? 0
-    payStatusText.value = '等待扫码支付…'
+    payStatusText.value = '等待支付 · 剩余 03:00'
     paySuccess.value = false
     payVisible.value = true
     startPolling()
@@ -232,6 +272,8 @@ function startPolling() {
   let elapsed = 0
   pollTimer = window.setInterval(async () => {
     elapsed += 2500
+
+    payStatusText.value = `等待支付 · 剩余 ${String(Math.floor(Math.max(0, 180 - elapsed / 1000) / 60)).padStart(2, '0')}:${String(Math.floor(Math.max(0, 180 - elapsed / 1000)) % 60).padStart(2, '0')}`
 
     if (elapsed > 3 * 60 * 1000) {
       stopPolling()
@@ -294,7 +336,9 @@ const copySN = async () => {
       document.execCommand('copy')
       document.body.removeChild(ta)
     }
-    ElMessage.success('🎉 设备识别码已复制到剪贴板！')
+    ElMessage.success('设备识别码已复制')
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 1600)
   } catch (err) {
     ElMessage.warning('复制失败，请手动划选复制：' + sn)
   }
@@ -303,17 +347,24 @@ const copySN = async () => {
 const handleActivate = async () => {
   const code = activationCode.value.trim()
   if (!code) {
-    ElMessage.warning('请输入有效的激活码')
+    activateError.value = '请输入有效的激活码'
     return
   }
-
+  activateError.value = ''
   const res = await authStore.activate(code)
   if (res.success) {
     ElMessage.success(res.msg)
     activationCode.value = ''
+    showRenew.value = false
   } else {
-    ElMessage.error(res.msg)
+    activateError.value = res.msg
   }
+}
+
+/** 底部帮助入口：不引入新的网络依赖，直接把识别码与说明复制给用户 */
+function showHelp() {
+  const sn = authStore.overview.new_sn || '（识别码尚未生成）'
+  ElMessage.info(`如需人工开通，请把设备识别码 ${sn} 发送给管理员`)
 }
 </script>
 
@@ -321,136 +372,213 @@ const handleActivate = async () => {
 .auth-modal-content {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 4px 0;
-}
-
-.auth-status-banner {
-  display: flex;
-  align-items: center;
   gap: 16px;
-  padding: 16px 20px;
-  border-radius: 12px;
-  transition: all 0.3s ease;
+  padding: 2px 0;
 }
 
-.status-active {
-  background: rgba(16, 185, 129, 0.10);
-  border: 1px solid rgba(16, 185, 129, 0.28);
-  color: var(--status-success);
-}
-
-.status-inactive {
-  background: rgba(239, 68, 68, 0.10);
-  border: 1px solid rgba(239, 68, 68, 0.28);
-  color: var(--status-danger);
-}
-
-.status-icon-wrap {
+/* ---- 状态：3px 竖条，无底色无边框 ---- */
+.auth-status {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
+  gap: 13px;
+  padding-left: 13px;
+  position: relative;
 }
 
-.status-info {
+.auth-status::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--status-warning);
+}
+
+.auth-status.is-active::before {
+  background: var(--status-success);
+}
+
+.status-text {
   flex: 1;
+  min-width: 0;
 }
 
 .status-title {
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text-main);
 }
 
 .status-desc {
   font-size: 12px;
   color: var(--text-muted);
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
-.days-badge {
-  color: var(--status-success);
-  font-weight: bold;
-  margin-left: 6px;
+.status-side {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.device-sn-card {
-  background: var(--bg-detail, rgba(30, 41, 59, 0.5));
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-  border-radius: 12px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.status-side.warn {
+  color: var(--status-warning);
 }
 
-.card-label-row {
+.trial-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: rgba(79, 70, 229, 0.10);
+  white-space: nowrap;
+}
+
+/* ---- 已激活折叠行 ---- */
+.renew-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-main);
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--bg-detail);
+  border: 1px solid var(--border-subtle);
 }
 
-.sn-display-box {
+.renew-label {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+/* ---- 区块标题（右侧带一条淡分隔线）---- */
+.sec-title {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--border-highlight, rgba(99, 102, 241, 0.4));
-  border-radius: 8px;
-  padding: 8px 12px;
-}
-
-.sn-code {
-  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: var(--status-info);
-}
-
-.copy-btn {
+  gap: 8px;
+  font-size: 12.5px;
   font-weight: 600;
+  color: var(--text-secondary);
 }
 
-.sn-tip {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.4;
+.sec-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
 }
 
-.activation-action-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+/* ---- 套餐卡：选中态用主色 ---- */
+.package-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
-.section-title {
-  font-size: 13px;
+.package-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--bg-detail);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.package-card:hover {
+  border-color: var(--border-highlight);
+}
+
+.package-card.on {
+  border-color: var(--primary-color);
+  background: rgba(79, 70, 229, 0.06);
+}
+
+.pkg-label {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.pkg-price {
+  font-size: 22px;
   font-weight: 700;
+  margin-top: 6px;
+  letter-spacing: -0.5px;
   color: var(--text-main);
 }
 
+.pkg-unit {
+  font-size: 13px;
+  font-weight: 600;
+  margin-right: 2px;
+}
+
+.order-btn {
+  width: 100%;
+  height: 42px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ---- 激活码行 ---- */
 .code-input-row {
   display: flex;
   gap: 10px;
 }
 
 .activate-btn {
-  padding: 0 24px;
-  font-weight: 700;
+  padding: 0 20px;
+  font-weight: 600;
+}
+
+.err-line {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--status-danger);
+}
+
+/* ---- 设备识别码：压缩成一行弱信息 ---- */
+.sn-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--bg-detail);
+  border: 1px solid var(--border-subtle);
+}
+
+.sn-label {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sn-code {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--text-main);
+}
+
+.sn-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: -8px;
 }
 
 .announcement-box {
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
+/* ---- 底部 ---- */
 .dialog-footer {
   display: flex;
   align-items: center;
@@ -458,85 +586,74 @@ const handleActivate = async () => {
   width: 100%;
 }
 
-/* ---- 在线开通 ---- */
-.online-order-section {
-  margin-bottom: 18px;
+.foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.package-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.package-card {
-  border: 1.5px solid var(--border-subtle);
-  border-radius: 10px;
-  padding: 10px 8px;
-  text-align: center;
+.foot-link {
+  font-size: 12.5px;
+  color: var(--primary-color);
   cursor: pointer;
-  transition: all 0.2s;
-  background: var(--bg-input);
-}
-
-.package-card.on {
-  border-color: var(--primary-color);
-  background: rgba(99, 102, 241, 0.12);
-}
-
-.pkg-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 4px;
-}
-
-.pkg-price {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.pkg-unit {
-  font-size: 12px;
-  margin-right: 1px;
-}
-
-.order-btn {
-  width: 100%;
-}
-
-.order-tip {
-  margin-top: 8px;
-  font-size: 11.5px;
-  color: var(--text-muted);
-  text-align: center;
 }
 
 /* ---- 支付二维码 ---- */
 .pay-qr-wrap {
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
 }
 
 .pay-amount {
-  margin: 10px 0 4px;
-  font-size: 14px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
   color: var(--text-main);
 }
 
-.pay-hint {
+.pay-unit {
+  font-size: 14px;
+  font-weight: 600;
+  margin-right: 3px;
+}
+
+.pay-plan {
   font-size: 12px;
   color: var(--text-muted);
+  margin-top: -6px;
 }
 
 .pay-status {
-  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 12.5px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .pay-status.ok {
   color: var(--status-success);
-  font-weight: 600;
+}
+
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-warning);
+  animation: pulse-fade 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-fade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.order-no {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
 }
 </style>
