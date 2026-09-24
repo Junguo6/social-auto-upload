@@ -66,6 +66,10 @@ export function MatrixPublishMedia(arg1) {
   return window['go']['main']['App']['MatrixPublishMedia'](arg1);
 }
 
+export function PanicRecover(arg1, arg2) {
+  return window['go']['main']['App']['PanicRecover'](arg1, arg2);
+}
+
 export function PipelinePublishMedia(arg1) {
   return window['go']['main']['App']['PipelinePublishMedia'](arg1);
 }

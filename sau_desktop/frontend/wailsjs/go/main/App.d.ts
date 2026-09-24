@@ -36,6 +36,8 @@ export function LoginAccountWithScreencast(arg1:string,arg2:string):Promise<engi
 
 export function MatrixPublishMedia(arg1:engine.MatrixPublishParam):Promise<Array<engine.AccountPublishResult>>;
 
+export function PanicRecover(arg1:string,arg2:any):Promise<void>;
+
 export function PipelinePublishMedia(arg1:engine.PipelinePublishParam):Promise<Array<engine.AccountPublishResult>>;
 
 export function PublishMedia(arg1:engine.PublishParam):Promise<string>;
