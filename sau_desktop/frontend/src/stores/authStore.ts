@@ -27,21 +27,22 @@ export const useAuthStore = defineStore('auth', () => {
   const loading = ref(false)
   const authModalVisible = ref(false)
 
-  // ============ 试用次数：本地累计（对齐批量助手 ExportSubtitle.vue）============
-  // 服务端 m122_trial_times 返回的是【额度上限】，剩余次数必须前端自己算
+  // ============ 试用次数：以服务端权威值（对齐批量助手 ExportSubtitle.vue）============
+  // 服务端 m122_trial_times 返回的是【已用次数】（来自 quota 表 used_count），不是额度。
+  // 判断剩余一律用 "上限 3 − 已用"（与服务端 jym_module.trial_limit_default 保持一致）。
   let consumingTrial = false
 
-  /** 本地已用试用次数 */
-  const trialUsed = ref(0)
+  /** 免费试用上限常量 */
+  const TRIAL_LIMIT = 3
 
-  /** 试用额度：取服务端返回的额度上限，拿不到时回退 3 */
-  const trialLimit = computed(() => {
+  /** 已用次数（来自 overview，服务端权威值）。注意：不要与 trialLimit 混淆。 */
+  const trialUsed = computed(() => {
     const n = (overview.value as any)?.m122_trial_times
-    return typeof n === 'number' && n > 0 ? n : 3
+    return typeof n === 'number' && n >= 0 ? n : 0
   })
 
-  /** 剩余试用次数 */
-  const trialRemaining = computed(() => Math.max(0, trialLimit.value - trialUsed.value))
+  /** 剩余试用次数 = 上限 − 已用 */
+  const trialRemaining = computed(() => Math.max(0, TRIAL_LIMIT - trialUsed.value))
 
   // ============ 授权状态 ============
   const isAuthorized = computed(() => {
@@ -100,10 +101,12 @@ export const useAuthStore = defineStore('auth', () => {
     consumingTrial = true
     try {
       const res = await ConsumeTrial()
+      // 扣次接口返回的 overview 已带最新已用次数 → 直接覆盖，不做本地加减
       if (res?.overview) overview.value = res.overview as any
 
+      console.log('[试用诊断] overview.m122_trial_times =', (res?.overview as any)?.m122_trial_times)
+
       if (res?.ok) {
-        trialUsed.value += 1
         const left = trialRemaining.value
         if (left > 0) {
           ElMessage.info(`试用中，本次已消耗 1 次，剩余 ${left} 次`)
@@ -113,8 +116,6 @@ export const useAuthStore = defineStore('auth', () => {
         return true
       }
 
-      // 服务端拒绝（次数用尽 / 后台关闭试用 / 未注册）
-      trialUsed.value = trialLimit.value // 标记为已用尽
       return promptActivate(actionDesc, res?.message || '试用机会已用尽')
     } catch (e: any) {
       // 保守拦截：网络异常不放行
@@ -153,8 +154,8 @@ export const useAuthStore = defineStore('auth', () => {
       const res = await ApplyActiveCode(code)
       if (res && res.is_activated) {
         overview.value = res
-        // 激活成功 → 本地试用计数归零（后续 isAuthorized 为 true，不再走试用分支）
-        trialUsed.value = 0
+        // 激活成功后不再走试用分支（isAuthorized 为 true）；
+        // trialUsed 现在是从 overview 派生的 computed，无需手动清零
         return { success: true, msg: '🎉 激活成功！授权已生效' }
       } else {
         return { success: false, msg: '激活失败：未能获取到有效授权，请检查卡密是否正确' }

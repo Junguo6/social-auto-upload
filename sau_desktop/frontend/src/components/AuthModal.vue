@@ -140,9 +140,6 @@
       <div class="dialog-footer">
         <a class="foot-link" @click="showHelp">开通遇到问题？</a>
         <div class="foot-actions">
-          <el-button @click="authStore.refreshAuth" :loading="authStore.loading" plain size="default">
-            刷新状态
-          </el-button>
           <el-button text size="default" @click="authStore.closeAuthModal">
             关闭
           </el-button>
@@ -233,12 +230,10 @@ let pollTimer: number | null = null
  * 加载套餐。
  * 只展示「可购买」的档位 —— 服务端把不卖的档价格置 0 → purchasable=false，
  * 因此季卡/永久档会被自动过滤，前端不写死白名单（以后加回档位只改服务端价格）。
+ * 注意：授权信息已在 watch 里统一刷新，这里只拉套餐列表。
  */
 async function loadPackages() {
   try {
-    // 先刷新授权信息拿最新价格（本组件常驻，不能只靠启动时那一次）
-    await authStore.refreshAuth()
-
     const list = await GetOrderPackages()
     packages.value = (list || []).filter((p: any) => p.purchasable)
 
@@ -359,12 +354,14 @@ async function handlePayDialogClosed() {
   }
 }
 
-// 每次打开授权弹窗都重新拉一次套餐。
+// 每次打开授权弹窗都重新拉一次授权信息（无论支付开关是否开启）。
 // ⚠️ 本组件常驻在 App 上，onMounted 只在应用启动时跑一次，不能依赖它。
 watch(
   () => authStore.authModalVisible,
-  (visible) => {
+  async (visible) => {
     if (!visible) return
+    // 始终刷新授权状态，对齐小映"进入激活页自动 getOverview"的做法
+    await authStore.refreshAuth()
     if (!ENABLE_ONLINE_PAY) return
     if (!authStore.overview.is_activated) {
       loadPackages()
