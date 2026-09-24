@@ -330,6 +330,43 @@ func (c *Client) QueryOrder(outTradeNo, newSn string) (*OrderQueryResult, error)
 	return &result, nil
 }
 
+// CloseOrder 关闭待支付订单（用户主动取消支付时调用）。
+// 服务端按订单自身的 tool_id 校验归属，无需传 tool_id。
+// 注意：只有待支付(status=0)的订单能关，已支付的会返回「只有待支付的订单才能关闭」。
+func (c *Client) CloseOrder(outTradeNo, newSn string) (*OrderQueryResult, error) {
+	apiURL := ServerHost + "/jym/pay-order/close"
+	params := url.Values{}
+	params.Add("out_trade_no", outTradeNo)
+	params.Add("new_sn", newSn)
+
+	req, err := http.NewRequest(http.MethodGet, apiURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("关闭订单失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取关闭订单响应失败: %w", err)
+	}
+
+	// 该接口成功走 result，失败走顶层 message + code 500，两种都解析一下
+	var result OrderQueryResult
+	c.decodeOrderResult(body, &result)
+
+	if !result.Success {
+		var sResp ServerResponse
+		if json.Unmarshal(body, &sResp) == nil && sResp.Message != "" {
+			result.TradeStateDesc = sResp.Message
+		}
+	}
+	return &result, nil
+}
+
 // decodeOrderResult 解析订单类接口响应。
 // 服务端有两种返回形态：① 直接是业务对象 ② 包在 {code, message, result} 里 —— 都兼容。
 func (c *Client) decodeOrderResult(body []byte, out interface{}) {

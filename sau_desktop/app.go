@@ -129,6 +129,15 @@ func (a *App) QueryOrder(outTradeNo string) *auth.OrderQueryResult {
 	return a.authMgr.QueryOrder(outTradeNo)
 }
 
+// CloseOrder 关闭待支付订单（用户取消支付时调用）
+func (a *App) CloseOrder(outTradeNo string) *auth.OrderQueryResult {
+	defer a.PanicRecover("CloseOrder", map[string]interface{}{"outTradeNo": outTradeNo})
+	if a.authMgr == nil {
+		return &auth.OrderQueryResult{Success: false, TradeState: "NOTFOUND"}
+	}
+	return a.authMgr.CloseOrder(outTradeNo)
+}
+
 // PublishMedia 单账号媒体发布接口
 func (a *App) PublishMedia(param engine.PublishParam) (string, error) {
 	defer a.PanicRecover("PublishMedia", map[string]interface{}{"param": param})

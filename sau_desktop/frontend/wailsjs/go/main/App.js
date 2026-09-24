@@ -14,6 +14,10 @@ export function CheckAccountStatus(arg1, arg2) {
   return window['go']['main']['App']['CheckAccountStatus'](arg1, arg2);
 }
 
+export function CloseOrder(arg1) {
+  return window['go']['main']['App']['CloseOrder'](arg1);
+}
+
 export function ConsumeTrial() {
   return window['go']['main']['App']['ConsumeTrial']();
 }

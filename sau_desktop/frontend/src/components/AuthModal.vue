@@ -159,7 +159,7 @@
     append-to-body
     align-center
     :close-on-click-modal="false"
-    @closed="stopPolling"
+    @closed="handlePayDialogClosed"
   >
     <div class="pay-qr-wrap">
       <QrcodeVue v-if="codeUrl" :value="codeUrl" :size="190" level="M" />
@@ -186,7 +186,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import QrcodeVue from 'qrcode.vue'
-import { GetOrderPackages, CreateOrder, QueryOrder } from '../../wailsjs/go/main/App'
+import { GetOrderPackages, CreateOrder, QueryOrder, CloseOrder } from '../../wailsjs/go/main/App'
 import { useAuthStore } from '../stores/authStore'
 
 const authStore = useAuthStore()
@@ -218,6 +218,7 @@ const outTradeNo = ref('')
 const payAmount = ref(0)
 const payStatusText = ref('等待扫码支付…')
 const paySuccess = ref(false)
+const closedByRemote = ref(false)
 let pollTimer: number | null = null
 
 /**
@@ -287,6 +288,7 @@ function startPolling() {
       if (res?.trade_state === 'SUCCESS') {
         stopPolling()
         paySuccess.value = true
+        closedByRemote.value = false
         payStatusText.value = '支付成功，正在开通…'
         ElMessage.success('支付成功，授权已开通')
         await authStore.refreshAuth()
@@ -295,11 +297,13 @@ function startPolling() {
       } else if (res?.trade_state === 'CLOSED') {
         // 订单已被微信侧关闭 → 立即停轮询，不必空等到 3 分钟超时
         stopPolling()
+        closedByRemote.value = true
         payStatusText.value = '订单已关闭，请关闭本窗口后重新下单'
         ElMessage.warning('订单已关闭，请重新下单')
       } else if (res?.trade_state === 'REVOKED' || res?.trade_state === 'PAYERROR') {
         // 支付失败类终态 → 同样停止轮询
         stopPolling()
+        closedByRemote.value = true
         payStatusText.value = res?.trade_state_desc || '支付失败，请重新下单'
         ElMessage.warning(payStatusText.value)
       }
@@ -314,6 +318,36 @@ function stopPolling() {
   if (pollTimer !== null) {
     clearInterval(pollTimer)
     pollTimer = null
+  }
+}
+
+/**
+ * 关闭支付弹窗时调用：
+ * · 若订单还在等支付 → 主动关闭微信订单，避免残留 pending 单
+ * · 已支付成功 / 已过期 / 已关闭 → 无需再关
+ */
+async function handlePayDialogClosed() {
+  stopPolling()
+
+  const no = outTradeNo.value
+  const needClose = !!no && !paySuccess.value && !closedByRemote.value
+
+  // 先清 UI 状态，别让用户等着
+  payVisible.value = false
+  codeUrl.value = ''
+  outTradeNo.value = ''
+  payStatusText.value = '等待扫码支付…'
+
+  if (!needClose) return
+
+  try {
+    // 尽力关单，失败不打扰用户（服务端下次下单也会自动关旧单）
+    const res = await CloseOrder(no)
+    if (!res?.success) {
+      console.warn('[支付] 关闭订单未成功:', res?.trade_state_desc)
+    }
+  } catch (e) {
+    console.warn('[支付] 关闭订单异常:', e)
   }
 }
 

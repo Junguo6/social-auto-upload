@@ -273,3 +273,21 @@ func (m *AuthManager) QueryOrder(outTradeNo string) *OrderQueryResult {
 	}
 	return res
 }
+
+// CloseOrder 关闭待支付订单（用户取消支付时调用）。
+// 失败不抛错——对调用方来说只是"尽力关单"，不影响用户继续操作。
+func (m *AuthManager) CloseOrder(outTradeNo string) *OrderQueryResult {
+	m.mu.RLock()
+	ov := m.cachedOverview
+	m.mu.RUnlock()
+
+	if ov == nil || ov.NewSN == "" || outTradeNo == "" {
+		return &OrderQueryResult{Success: false, TradeState: "NOTFOUND", TradeStateDesc: "参数不完整"}
+	}
+
+	res, err := m.client.CloseOrder(outTradeNo, ov.NewSN)
+	if err != nil {
+		return &OrderQueryResult{Success: false, TradeState: "ERROR", TradeStateDesc: err.Error()}
+	}
+	return res
+}
