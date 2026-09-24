@@ -3,7 +3,7 @@
     <!-- ===== 第一块：发布设置（3 个 Tab） ===== -->
     <div class="config-block glass-card">
       <div class="block-head">
-        <div class="block-title"><span class="idx">一、</span>发布设置</div>
+        <div class="block-title"><span class="idx">1</span>发布设置</div>
       </div>
 
       <div class="config-tabs">
@@ -65,7 +65,7 @@
     <!-- ===== 第二块：账号 × 视频 对应关系 ===== -->
     <div class="matrix-block glass-card">
       <div class="block-head">
-        <div class="block-title"><span class="idx">二、</span>内容与账号对应表</div>
+        <div class="block-title"><span class="idx">2</span>内容与账号对应表</div>
       </div>
 
       <!-- 下半区：内容与账号对应表（层级表格） -->
@@ -467,12 +467,23 @@ onMounted(() => {
   color: var(--text-main);
 }
 
-/* 区块编号：中文编号形态（章节），刻意不用圆形徽标 ——
-   与「发布设置」里页签的圆形数字徽标（步骤）形成形态区分 */
+/* 区块编号：方形小标（圆角 6px）。
+   刻意与「发布设置」页签里的圆形数字徽标（.tab-num，radius 50%）区分：
+   同一屏里出现两种数字时，靠「方 vs 圆」+ 颜色层次就能分清谁是章节、谁是步骤 */
 .block-title .idx {
-  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 7px;
+  border-radius: 6px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--primary-color);
+  background: rgba(79, 70, 229, 0.10);
+  border: 1px solid rgba(79, 70, 229, 0.28);
+  vertical-align: -2px;
 }
 
 /* ===== Tab ===== */
