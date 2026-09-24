@@ -55,8 +55,8 @@
         </el-button>
       </div>
 
-      <!-- 3. 未激活：微信扫码开通（主路径） -->
-      <template v-if="!authStore.overview.is_activated">
+      <!-- 3. 未激活：微信扫码开通（主路径），内测阶段隐藏（ENABLE_ONLINE_PAY=false） -->
+      <template v-if="ENABLE_ONLINE_PAY && !authStore.overview.is_activated">
         <div class="sec-title">微信扫码开通</div>
 
         <div class="package-grid">
@@ -153,6 +153,7 @@
 
   <!-- ② 支付二维码 -->
   <el-dialog
+    v-if="ENABLE_ONLINE_PAY"
     v-model="payVisible"
     title="微信扫码支付"
     width="380px"
@@ -196,6 +197,13 @@ const activateError = ref('')
 const copied = ref(false)
 
 // ---- 在线开通 ----
+/**
+ * 在线支付入口开关。
+ * 内测阶段关闭（隐藏套餐卡片与二维码弹窗），保留全部实现代码；
+ * 正式开放支付时改为 true 即可恢复，无需改其他任何地方。
+ */
+const ENABLE_ONLINE_PAY = false
+
 const packages = ref<any[]>([])
 const selectedPackage = ref('')
 const ordering = ref(false)
@@ -357,6 +365,7 @@ watch(
   () => authStore.authModalVisible,
   (visible) => {
     if (!visible) return
+    if (!ENABLE_ONLINE_PAY) return
     if (!authStore.overview.is_activated) {
       loadPackages()
     } else {
