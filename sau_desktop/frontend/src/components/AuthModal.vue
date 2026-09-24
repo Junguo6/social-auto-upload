@@ -283,6 +283,7 @@ function startPolling() {
 
     try {
       const res = await QueryOrder(outTradeNo.value)
+
       if (res?.trade_state === 'SUCCESS') {
         stopPolling()
         paySuccess.value = true
@@ -291,7 +292,18 @@ function startPolling() {
         await authStore.refreshAuth()
         await loadPackages()
         setTimeout(() => { payVisible.value = false }, 1200)
+      } else if (res?.trade_state === 'CLOSED') {
+        // 订单已被微信侧关闭 → 立即停轮询，不必空等到 3 分钟超时
+        stopPolling()
+        payStatusText.value = '订单已关闭，请关闭本窗口后重新下单'
+        ElMessage.warning('订单已关闭，请重新下单')
+      } else if (res?.trade_state === 'REVOKED' || res?.trade_state === 'PAYERROR') {
+        // 支付失败类终态 → 同样停止轮询
+        stopPolling()
+        payStatusText.value = res?.trade_state_desc || '支付失败，请重新下单'
+        ElMessage.warning(payStatusText.value)
       }
+      // NOTPAY / USERPAYING 等 → 保持沉默，继续轮询
     } catch (e) {
       // 单次查询失败不中断轮询
     }
