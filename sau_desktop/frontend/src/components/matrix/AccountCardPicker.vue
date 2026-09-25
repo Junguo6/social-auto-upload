@@ -35,18 +35,52 @@
           （试用版上限 {{ authStore.TRIAL_ACCOUNT_LIMIT }} 个）
         </span>
         <span class="hint-clear">（点「清空」可重新选择，对应表会重新分配）</span>
+        <span v-if="pickedGroups.length > 0" class="picked-group-hint">
+          （已按 {{ pickedGroups.length }} 个分组批量选中）
+        </span>
       </span>
-      <div class="group-tabs">
-        <button
-          v-for="grp in allGroups"
+
+      <!-- 按分组选择（点整行 = 选中整组） -->
+      <div class="group-folder-list" v-if="accountStore.groups.length > 0">
+        <div
+          v-for="grp in accountStore.groups"
           :key="grp"
-          class="group-tab-btn"
-          :class="{ active: currentGroup === grp }"
-          @click="currentGroup = grp"
+          class="pick-folder"
+          :class="{ all: isGroupFullyPicked(grp) }"
         >
-          <span>{{ grp }}</span>
-          <span class="grp-count">{{ getGroupCount(grp) }}</span>
-        </button>
+          <div class="pf-head" @click="toggleGroupPick(grp)">
+            <span class="pf-check" :class="{ on: isGroupFullyPicked(grp), partial: isGroupPartiallyPicked(grp) }">
+              <el-icon v-if="isGroupFullyPicked(grp)"><Check /></el-icon>
+              <span v-else-if="isGroupPartiallyPicked(grp)" class="pf-dash">—</span>
+            </span>
+
+            <FolderIcon :size="16" />
+            <span class="pf-name">{{ grp }}</span>
+            <span class="pf-count">{{ pickedCountIn(grp) }}/{{ groupKeys(grp).length }}</span>
+
+            <span class="pf-arrow" :class="{ open: expandedGroups.includes(grp) }" @click.stop="toggleGroupExpand(grp)">
+              <el-icon><ArrowRight /></el-icon>
+            </span>
+          </div>
+
+          <!-- 展开成员 -->
+          <div class="pf-members" v-if="expandedGroups.includes(grp)">
+            <div
+              v-for="m in groupMembers(grp)"
+              :key="`${m.platform}:${m.account}`"
+              class="pf-member"
+              :class="{ on: isSelected(m) }"
+              @click="toggleAccount(m)"
+            >
+              <span class="pfm-plat">{{ getPlatformName(m.platform) }}</span>
+              <span class="pfm-nick">{{ m.nickname || m.account }}</span>
+              <span class="pfm-status" :class="m.isValid ? 'ok' : (m.checked ? 'bad' : '')">
+                {{ m.isValid ? '✅' : (m.checked ? '⚠️' : '') }}
+              </span>
+            </div>
+            <div class="pfm-empty" v-if="groupMembers(grp).length === 0">该分组暂无账号</div>
+          </div>
+        </div>
       </div>
 
       <el-input
@@ -80,6 +114,12 @@
         <div class="account-info">
           <div class="account-name" :title="acc.nickname || acc.account">
             {{ acc.nickname || acc.account }}
+          </div>
+          <!-- 所属分组标签（点标签也能快速切分组） -->
+          <div class="acc-tags" v-if="acc.groups && acc.groups.length">
+            <span v-for="g in acc.groups" :key="g" class="acc-tag" @click.stop="toggleGroupPick(g)">
+              #{{ g }}
+            </span>
           </div>
           <div class="account-meta">
             <span class="status-dot" :class="{ online: acc.isValid }"></span>
@@ -120,12 +160,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useAccountStore } from '../../stores/accountStore'
 import { useAuthStore } from '../../stores/authStore'
 import { PLATFORMS, getPlatformConfig } from '../../config/platforms'
 import type { SelectedTargetAccount } from '../../types/matrix'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
+import FolderIcon from '../common/FolderIcon.vue'
+import { Check, ArrowRight } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   selectedKeys: string[] // 格式: "platform:account"
@@ -137,27 +179,75 @@ const emit = defineEmits<{
 
 const accountStore = useAccountStore()
 const authStore = useAuthStore()
-const currentGroup = ref('全部')
 const accountSearch = ref('')
 
-// 分组清单
-const allGroups = computed(() => {
-  return ['全部', ...accountStore.groups]
-})
+/* ───────── 分组一键选中 ───────── */
+const pickedGroups = ref<string[]>([])
+const expandedGroups = ref<string[]>([])
 
-// 各分组数量统计
-const getGroupCount = (grp: string) => {
-  if (grp === '全部') return accountStore.accounts.length
-  return accountStore.accounts.filter(a => a.groups?.includes(grp)).length
+/** 某分组内全部账号的 key */
+function groupKeys(grp: string): string[] {
+  return accountStore.accounts
+    .filter(a => a.groups?.includes(grp))
+    .map(a => `${a.platform}:${a.account}`)
 }
 
-// 过滤后的账号列表
+/** 某分组内的账号对象 */
+function groupMembers(grp: string) {
+  return accountStore.accounts.filter(a => a.groups?.includes(grp))
+}
+
+/** 该组已选中的数量 */
+function pickedCountIn(grp: string): number {
+  return groupKeys(grp).filter(k => props.selectedKeys.includes(k)).length
+}
+
+/** 该组是否全选 */
+function isGroupFullyPicked(grp: string): boolean {
+  const keys = groupKeys(grp)
+  return keys.length > 0 && keys.every(k => props.selectedKeys.includes(k))
+}
+
+/** 该组是否部分选中 */
+function isGroupPartiallyPicked(grp: string): boolean {
+  const n = pickedCountIn(grp)
+  return n > 0 && n < groupKeys(grp).length
+}
+
+/** 点分组整行 → 选中/取消整组（自动去重） */
+function toggleGroupPick(grp: string) {
+  const idx = pickedGroups.value.indexOf(grp)
+  const keys = groupKeys(grp)
+
+  if (idx >= 0) {
+    // 取消该组：只移除"不再被任何已选分组覆盖"的账号
+    pickedGroups.value.splice(idx, 1)
+    const stillCovered = new Set<string>()
+    pickedGroups.value.forEach(g => groupKeys(g).forEach(k => stillCovered.add(k)))
+
+    const toRemove = keys.filter(k => !stillCovered.has(k))
+    emit('update:selectedKeys', props.selectedKeys.filter(k => !toRemove.includes(k)))
+  } else {
+    // 选中该组：整组并入（Set 自动去重）
+    pickedGroups.value.push(grp)
+    emit('update:selectedKeys', Array.from(new Set([...props.selectedKeys, ...keys])))
+  }
+}
+
+function toggleGroupExpand(grp: string) {
+  const i = expandedGroups.value.indexOf(grp)
+  if (i >= 0) expandedGroups.value.splice(i, 1)
+  else expandedGroups.value.push(grp)
+}
+
+/** 父组件清空选择时，同步清掉分组勾选态 */
+watch(() => props.selectedKeys.length, (n) => {
+  if (n === 0) pickedGroups.value = []
+})
+
+// 过滤后的账号列表（只按搜索过滤，分组由文件夹负责）
 const filteredAccounts = computed(() => {
   return accountStore.accounts.filter(acc => {
-    // 分组过滤
-    if (currentGroup.value !== '全部' && !acc.groups?.includes(currentGroup.value)) {
-      return false
-    }
     // 搜索过滤
     if (accountSearch.value.trim()) {
       const q = accountSearch.value.toLowerCase()
@@ -257,6 +347,7 @@ const clearSelection = async () => {
     return // 用户取消
   }
   emit('update:selectedKeys', [])
+  pickedGroups.value = []
 }
 
 // 平台辅助方法
@@ -374,53 +465,122 @@ const getPlatformColor = (pid: string) => {
   white-space: nowrap;
 }
 
-.group-tabs {
+
+
+/* ── 分组文件夹列表 ── */
+.group-folder-list {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
+  margin-bottom: 12px;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
-.group-tab-btn {
-  background: var(--bg-input);
+.pick-folder {
   border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  padding: 5px 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  cursor: pointer;
+  border-radius: 9px;
+  overflow: hidden;
+  transition: border-color .15s, background-color .15s;
+}
+.pick-folder.all {
+  border-color: rgba(79, 70, 229, .38);
+  background: rgba(79, 70, 229, .04);
+}
+
+.pf-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  transition: all 0.2s ease;
+  gap: 8px;
+  padding: 8px 11px;
+  cursor: pointer;
+}
+.pf-head:hover { background: rgba(79, 70, 229, .05); }
+
+.pf-check {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-strong, #9ca3af);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 10px;
+  transition: all .15s;
+}
+.pf-check.on {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #fff;
+}
+.pf-check.partial {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+.pf-dash { font-weight: 700; line-height: 1; }
+
+.pf-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.group-tab-btn:hover {
-  border-color: var(--primary-color);
-  color: var(--text-main);
+.pf-count {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: rgba(79, 70, 229, .10);
+  color: var(--primary-color);
+  white-space: nowrap;
 }
-
-.group-tab-btn.active {
-  background: var(--primary-gradient);
-  border-color: transparent;
-  color: #fff;
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+.pf-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--text-muted);
+  opacity: .55;
+  transition: transform .18s;
+  flex-shrink: 0;
 }
+.pf-arrow.open { transform: rotate(90deg); }
 
-.grp-count {
-  font-size: 11px;
-  opacity: 0.8;
-  background: rgba(0, 0, 0, 0.15);
-  padding: 0 5px;
-  border-radius: 10px;
+.pf-members { border-top: 1px solid var(--border-subtle); padding: 4px 6px; }
+.pf-member {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  cursor: pointer;
 }
+.pf-member:hover { background: rgba(79, 70, 229, .06); }
+.pf-member.on { background: rgba(79, 70, 229, .10); }
+.pfm-plat { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,.06); }
+.pfm-nick { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pfm-status { margin-left: auto; font-size: 11px; }
+.pfm-empty { padding: 9px; font-size: 11px; color: var(--text-muted); text-align: center; }
 
-.search-box {
-  max-width: 220px;
+/* 账号卡片上的分组标签 */
+.acc-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.acc-tag {
+  font-size: 9.5px;
+  padding: 1px 6px;
+  border-radius: 20px;
+  background: rgba(79, 70, 229, .09);
+  color: var(--primary-color);
+  cursor: pointer;
 }
+.acc-tag:hover { background: rgba(79, 70, 229, .18); }
+
+.picked-group-hint { font-size: 11px; color: var(--text-muted); opacity: .8; margin-left: 4px; }
 
 /* 账号卡片网格 */
 .account-grid {
