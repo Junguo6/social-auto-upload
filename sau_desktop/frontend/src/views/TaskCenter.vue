@@ -9,7 +9,7 @@
         </div>
         <div class="stat-card running-card">
           <div class="stat-num">{{ taskStore.runningTasksCount }}</div>
-          <div class="stat-label">并发执行中</div>
+          <div class="stat-label">正在发布</div>
         </div>
         <div class="stat-card queued-card">
           <div class="stat-num">{{ taskStore.queuedTasksCount }}</div>
@@ -47,11 +47,11 @@
           @click="taskStore.triggerMultiLaneExecution"
         >
           <el-icon><Promotion /></el-icon>
-          <span>启动多线程并发调度 ({{ taskStore.lanes.length }} 线程)</span>
+          <span>开始批量发布 ({{ taskStore.lanes.length }} 个通道)</span>
         </el-button>
 
         <el-tooltip 
-          :content="taskStore.canAddLane ? '新建一个独立的并发线程通道' : `已达系统设置的最大并发限制 (${taskStore.maxConcurrency} 个线程)，可前往「系统设置」调整`" 
+          :content="taskStore.canAddLane ? '新建一个独立的发布通道' : `已达系统设置的最大通道数 (${taskStore.maxConcurrency} 个)，可前往「系统设置」调整`" 
           placement="top"
         >
           <el-button 
@@ -60,24 +60,24 @@
             :disabled="!taskStore.canAddLane"
             @click="taskStore.addLane"
           >
-            <el-icon><Plus /></el-icon> 新增线程通道
+            <el-icon><Plus /></el-icon> 新增发布通道
           </el-button>
         </el-tooltip>
 
         <el-dropdown trigger="click" @command="handleAutoDistribute">
           <el-button size="small" plain>
-            <el-icon><MagicStick /></el-icon> 智能分流
+            <el-icon><MagicStick /></el-icon> 分配方式
             <el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="anti-risk">🛡️ 智能防风控均分 (同平台串行，跨平台并发)</el-dropdown-item>
-              <el-dropdown-item divided command="1">单线程串行执行 (1个线程处理全部)</el-dropdown-item>
-              <el-dropdown-item command="2" v-if="taskStore.maxConcurrency >= 2">双线程并发分流 (2个线程并发)</el-dropdown-item>
-              <el-dropdown-item command="3" v-if="taskStore.maxConcurrency >= 3">3线程高并发 (推荐)</el-dropdown-item>
-              <el-dropdown-item command="4" v-if="taskStore.maxConcurrency >= 4">4线程极速分发</el-dropdown-item>
-              <el-dropdown-item command="5" v-if="taskStore.maxConcurrency >= 5">5线程全负荷并发</el-dropdown-item>
-              <el-dropdown-item divided command="max">极致全并发 (按最大并发限制 {{ taskStore.maxConcurrency }} 均分)</el-dropdown-item>
+              <el-dropdown-item command="anti-risk">🛡️ 按平台自动分配（同平台排队，不同平台同时）</el-dropdown-item>
+              <el-dropdown-item divided command="1" v-if="taskStore.maxConcurrency >= 1">1 个通道（全部依次发布）</el-dropdown-item>
+              <el-dropdown-item command="2" v-if="taskStore.maxConcurrency >= 2">2 个通道（同时发布）</el-dropdown-item>
+              <el-dropdown-item command="3" v-if="taskStore.maxConcurrency >= 3">3 个通道（推荐）</el-dropdown-item>
+              <el-dropdown-item command="4" v-if="taskStore.maxConcurrency >= 4">4 个通道</el-dropdown-item>
+              <el-dropdown-item command="5" v-if="taskStore.maxConcurrency >= 5">5 个通道</el-dropdown-item>
+              <el-dropdown-item divided command="max">全部通道同时（按上限 {{ taskStore.maxConcurrency }} 个）</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -97,7 +97,7 @@
     <div class="batch-filter-bar glass-card" v-if="taskStore.batches.length > 0">
       <div class="batch-filter-left">
         <el-icon><CollectionTag /></el-icon>
-        <span class="filter-label">批次聚焦:</span>
+        <span class="filter-label">按批次查看:</span>
         <div class="batch-pills-scroll custom-scrollbar">
           <span 
             class="batch-pill" 
@@ -129,7 +129,7 @@
       <div class="risk-alert-box" v-if="taskStore.platformConflicts.length > 0">
         <el-icon class="risk-icon"><WarningFilled /></el-icon>
         <span class="risk-text">
-          检测到 <strong>{{ taskStore.platformConflicts.map(p => getPlatformStyle(p).name).join('、') }}</strong> 任务分布在多个并发通道中，可能增加 IP 频次风控风险
+          检测到 <strong>{{ taskStore.platformConflicts.map(p => getPlatformStyle(p).name).join('、') }}</strong> 的任务分散在多个通道里同时发布，可能触发平台频次风控
         </span>
         <el-button size="small" type="warning" plain @click="taskStore.autoDistributeTasksToLanes()">
           一键优化防风控
@@ -141,14 +141,14 @@
     <div class="workflow-canvas-panel glass-card">
       <div class="canvas-header">
         <div class="header-left">
-          <span class="canvas-tag">WORKFLOW STUDIO</span>
-          <span class="canvas-title">多协程任务工作流编排画板</span>
-          <span class="canvas-hint">通道间并行并发 (Go Goroutines)，通道内按卡片箭头串行顺序执行，支持跨通道自由拖拽</span>
+          <span class="canvas-tag">TASK WORKBENCH</span>
+          <span class="canvas-title">发布任务工作台</span>
+          <span class="canvas-hint">通道之间同时发布，通道内按顺序依次执行；卡片可自由拖到其他通道调整顺序</span>
         </div>
 
         <div class="header-right">
           <span class="lane-counter">
-            当前激活 <strong>{{ taskStore.lanes.length }}</strong> / {{ taskStore.maxConcurrency }} 个并发线程通道
+            当前激活 <strong>{{ taskStore.lanes.length }}</strong> / {{ taskStore.maxConcurrency }} 个发布通道
             <router-link to="/settings" class="settings-link" title="前往系统设置修改最大并发数">
               <el-icon><Setting /></el-icon> 配置上限
             </router-link>
@@ -169,7 +169,7 @@
           <!-- 泳道头部控制栏 -->
           <div class="lane-header">
             <div class="lane-title-meta">
-              <span class="lane-index-pill">Goroutine #{{ laneIdx + 1 }}</span>
+              <span class="lane-index-pill">通道 {{ laneIdx + 1 }}</span>
               <span class="lane-name">{{ lane.name }}</span>
               <span class="lane-status-badge" :class="lane.status">
                 <el-icon v-if="lane.status === 'running'" class="is-loading"><Loading /></el-icon>
@@ -200,7 +200,7 @@
                 size="small" 
                 type="danger" 
                 link 
-                title="删除该线程通道 (任务将退回待分配池)"
+                title="删除该通道（其中任务将退回待分配区）"
                 @click="taskStore.removeLane(lane.id)"
               >
                 <el-icon><Close /></el-icon>
@@ -230,7 +230,7 @@
                 @dragend="handleDragEnd"
               >
                 <!-- 卡片顶部标识栏 -->
-                <div class="card-drag-bar" :title="task.status === 'running' ? '当前任务正在并发执行中，锁定禁止拖拽。可先点击「中止」后再拖拽调整。' : '按住拖拽以移动卡片或调序'">
+                <div class="card-drag-bar" :title="task.status === 'running' ? '该任务正在发布中，暂时锁定。可先点「中止」再拖拽调整。' : '按住拖拽以移动卡片或调序'">
                   <div class="drag-bar-left">
                     <el-icon v-if="task.status === 'running'" class="is-loading"><Loading /></el-icon>
                     <el-icon v-else><Rank /></el-icon>
@@ -359,7 +359,7 @@
               :class="{ 'is-drag-target': isDragging && draggingFromLaneId !== lane.id }"
             >
               <el-icon><Plus /></el-icon>
-              <span>{{ lane.tasks.length === 0 ? '将任务拖拽至此处放入该线程' : '拖入任务追加至末尾' }}</span>
+              <span>{{ lane.tasks.length === 0 ? '把任务拖到这里，放入该通道' : '拖入任务会追加到末尾' }}</span>
             </div>
           </div>
         </div>
@@ -377,11 +377,11 @@
         <div class="title-left">
           <el-icon><Box /></el-icon>
           <span class="title-text">待分配任务池 ({{ taskStore.unassignedTasks.length }})</span>
-          <span class="title-sub">可将上方线程通道中的卡片拖拽回此处暂存，或点击「智能分流」一键自动排布</span>
+          <span class="title-sub">可把上方通道里的任务拖回这里暂存，或点「分配方式」自动排布</span>
         </div>
         <div class="title-right" v-if="taskStore.unassignedTasks.length > 0">
           <el-button size="small" type="primary" link @click="taskStore.autoDistributeTasksToLanes()">
-            一键智能按平台防风控分流
+            按平台自动分配（防风控）
           </el-button>
         </div>
       </div>
@@ -420,7 +420,7 @@
       </div>
 
       <div class="dock-empty-hint" v-else>
-        <span>全部任务已装载至上方线程通道中。若需暂存某个任务，可直接按住卡片拖拽放置到此处。</span>
+        <span>全部任务都已在通道中。想暂存某个任务，把卡片拖到这里即可。</span>
       </div>
     </div>
 
@@ -471,7 +471,7 @@ const getStatusText = (status: TaskStatus) => {
 
 const getLaneStatusText = (status: string) => {
   switch (status) {
-    case 'running': return '多协程并发中'
+    case 'running': return '正在发布'
     case 'completed': return '全部执行完成'
     case 'failed': return '存在异常'
     default: return '空闲待命'
@@ -525,15 +525,15 @@ const resetStepDelay = (task: PublishTask, lane: any) => {
 const handleAutoDistribute = (cmd: string) => {
   if (cmd === 'anti-risk') {
     taskStore.autoDistributeTasksToLanes()
-    ElMessage.success('已应用智能防风控分流（同平台串行，跨平台并发）')
+    ElMessage.success('已按平台分配：同平台排队，不同平台同时发布')
   } else if (cmd === 'max') {
     taskStore.autoDistributeTasksToLanes(undefined, taskStore.maxConcurrency)
-    ElMessage.success(`已按系统最大并发限制 (${taskStore.maxConcurrency} 线程) 智能均分`)
+    ElMessage.success(`已按通道上限（${taskStore.maxConcurrency} 个）平均分配`)
   } else {
     const num = parseInt(cmd, 10)
     if (!isNaN(num)) {
       taskStore.autoDistributeTasksToLanes(undefined, num)
-      ElMessage.success(`已均分到 ${num} 个并发线程`)
+      ElMessage.success(`已平均分配到 ${num} 个通道`)
     }
   }
 }

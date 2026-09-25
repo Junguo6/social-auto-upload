@@ -2,7 +2,7 @@
   <div class="studio-bottom-dock glass-card">
     <div class="dock-left-settings">
       <div class="dock-setting-item">
-        <span class="label">并发调度池:</span>
+        <span class="label">待分配任务:</span>
         <el-input-number 
           :model-value="concurrency" 
           :min="1" 

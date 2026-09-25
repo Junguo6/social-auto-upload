@@ -112,7 +112,7 @@
           </div>
           <div class="arch-item">
             <div class="arch-key">并发调度能力</div>
-            <div class="arch-val">多通道独立流水线 (支持 1~5 线程)</div>
+            <div class="arch-val">多通道独立流水线 (支持 1~5 个通道)</div>
           </div>
           <div class="arch-item">
             <div class="arch-key">发布执行模式</div>

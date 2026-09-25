@@ -504,7 +504,7 @@ export const useTaskStore = defineStore('task', () => {
   // 3. 泳道管理：新增发布通道 (上限保护)
   const addLane = () => {
     if (!canAddLane.value) {
-      ElMessage.warning(`已达到系统设置的最大并发限制 (${maxConcurrency.value} 个线程)，如需增加请前往「系统设置」调整`)
+      ElMessage.warning(`已达系统设置的最大通道数 (${maxConcurrency.value} 个)，如需增加请前往「系统设置」调整`)
       return
     }
     const nextIdx = lanes.value.length + 1

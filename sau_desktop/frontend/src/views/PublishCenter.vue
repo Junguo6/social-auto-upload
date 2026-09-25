@@ -107,15 +107,17 @@
           </div>
         </el-popover>
 
-        <el-button
-          type="primary"
-          class="gradient-btn-lg publish-submit-btn"
-          :disabled="activeMediaList.length === 0 || activeAccounts.length === 0 || totalActivatedTaskCount === 0"
-          @click="handleStartPublish"
-        >
-          <el-icon><Promotion /></el-icon>
-          <span>立即执行矩阵发布 ({{ totalActivatedTaskCount }})</span>
-        </el-button>
+        <el-tooltip content="按当前对应关系生成发布任务，创建后前往任务中心执行" placement="top">
+          <el-button
+            type="primary"
+            class="gradient-btn-lg publish-submit-btn"
+            :disabled="activeMediaList.length === 0 || activeAccounts.length === 0 || totalActivatedTaskCount === 0"
+            @click="handleStartPublish"
+          >
+            <el-icon><Promotion /></el-icon>
+            <span>创建发布任务 ({{ totalActivatedTaskCount }})</span>
+          </el-button>
+        </el-tooltip>
       </div>
     </div>
 
@@ -376,7 +378,7 @@ const handleStartPublish = async () => {
   }
 
   // 前置鉴权校验，未激活友好拦截
-  const authorized = await authStore.ensurePublishAuth('视频矩阵发布')
+  const authorized = await authStore.ensurePublishAuth('创建发布任务')
   if (!authorized) {
     return
   }
@@ -393,10 +395,13 @@ const handleStartPublish = async () => {
     })
 
     if (batchId) {
+      ElMessage.success(`已创建 ${totalActivatedTaskCount.value} 个发布任务，正在前往任务中心…`)
       // 延迟引导跳转到任务管理中心
       setTimeout(() => {
         router.push('/tasks')
       }, 600)
+    } else {
+      ElMessage.warning('未能创建发布任务，请检查配置后重试')
     }
   } catch (err: any) {
     console.error('发布任务提交失败:', err)

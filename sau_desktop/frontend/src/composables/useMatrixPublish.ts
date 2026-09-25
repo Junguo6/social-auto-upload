@@ -22,8 +22,11 @@ export function useMatrixPublish() {
     concurrency: number
     isHeadless: boolean
   }) => {
-    if (!authStore.isAuthorized) {
-      authStore.ensurePublishAuth('矩阵批量发布')
+    // 兜底检查：调用方（PublishCenter）已做过一次「扣次 + 放行」的鉴权，
+    // 这里只在「连试用机会都没有」时才拦，且只引导不扣次，
+    // 否则会出现：试用用户被重复扣次 + 任务直接创建失败。
+    if (!authStore.isAuthorized && authStore.trialRemaining <= 0) {
+      authStore.ensurePublishAuth('矩阵批量发布', false)
       return null
     }
 
@@ -167,8 +170,11 @@ export function useMatrixPublish() {
     concurrency: number
     isHeadless: boolean
   }) => {
-    if (!authStore.isAuthorized) {
-      authStore.ensurePublishAuth('多视频矩阵发布')
+    // 兜底检查：调用方（PublishCenter）已做过一次「扣次 + 放行」的鉴权，
+    // 这里只在「连试用机会都没有」时才拦，且只引导不扣次，
+    // 否则会出现：试用用户被重复扣次 + 任务直接创建失败。
+    if (!authStore.isAuthorized && authStore.trialRemaining <= 0) {
+      authStore.ensurePublishAuth('多视频矩阵发布', false)
       return null
     }
 

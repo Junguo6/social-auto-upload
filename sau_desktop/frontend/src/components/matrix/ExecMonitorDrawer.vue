@@ -1,7 +1,7 @@
 <template>
   <el-drawer
     :model-value="modelValue"
-    title="矩阵并发发布调度监视器"
+    title="发布任务实时监视器"
     size="560px"
     :close-on-click-modal="false"
     append-to-body
