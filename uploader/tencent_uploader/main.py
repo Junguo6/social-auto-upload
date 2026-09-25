@@ -1378,6 +1378,19 @@ class TencentBaseUploader(BaseVideoUploader):
         if not label_text or label_text in ("无需标注", "none", "0", ""):
             tencent_logger.info(_msg("🧾", "未指定视频标注或选择无需标注，跳过视频标注"))
             return
+        # 只接受视频号官方标注文案；其他值（如历史遗留的 '1'）一律跳过，
+        # 避免「按文本查找」退化为全页搜索而误点页面其他元素
+        valid_labels = {
+            "含AI生成内容",
+            "内容为虚构剧情，仅供娱乐",
+            "个人观点，仅供参考",
+            "内容包含营销广告",
+            "内容为自行拍摄",
+            "内容为转载",
+        }
+        if label_text not in valid_labels:
+            tencent_logger.info(_msg("🧾", f"视频标注值「{label_text}」非官方标准标注，跳过视频标注"))
+            return
         try:
             entry = await self._find_first_locator(page, "text=选择视频标注")
             if not await entry.count():

@@ -115,7 +115,9 @@ function ensurePlatformConfig(platId: string): PlatformOverrideSetting {
       category: '',
       draft: false,
       schedule: '',
-      declaration: '1',
+      // 各平台「声明/标注」值域不同：B站 1=自制原创；视频号/抖音/小红书的合法值是中文串或英文枚举。
+      // 统一默认「不操作」（空值 → 不传 --declaration → 后端跳过），只有用户主动选择时才发送。
+      declaration: platId === 'bilibili' ? '1' : '',
       collection: '',
       productLink: '',
       productTitle: '',

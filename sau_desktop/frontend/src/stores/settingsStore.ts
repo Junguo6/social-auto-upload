@@ -13,7 +13,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const defaultSettings: AppSettings = {
     concurrency: 3,
     headless: false,
-    declaration: '内容由AI生成',
+    declaration: '',             // 各平台「标注/声明」选项各异，统一默认空 → 不操作；用户自选时由各平台表单填充
     chromePath: '',
     autoRetryCount: 1
   }
