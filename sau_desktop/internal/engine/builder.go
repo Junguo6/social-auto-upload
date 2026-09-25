@@ -78,10 +78,10 @@ func (b *TaskArgsBuilder) BuildTaskArgs(task AccountPublishTask) []string {
 		}
 	}
 
-	// 合规/原创/AI声明
+	// 合规/原创/AI声明/视频标注
 	if task.Declaration != "" {
 		switch task.Platform {
-		case "douyin", "xiaohongshu", "bilibili":
+		case "douyin", "xiaohongshu", "bilibili", "tencent":
 			args = append(args, "--declaration", task.Declaration)
 		}
 	}
@@ -109,6 +109,21 @@ func (b *TaskArgsBuilder) BuildTaskArgs(task AccountPublishTask) []string {
 		}
 		if task.Draft {
 			args = append(args, "--draft")
+		}
+		if task.Location != "" {
+			args = append(args, "--location", task.Location)
+		}
+		if task.LinkType != "" && task.LinkType != "none" {
+			args = append(args, "--link-type", task.LinkType)
+			if task.LinkUrl != "" {
+				args = append(args, "--link-url", task.LinkUrl)
+			}
+			if task.LinkTitle != "" {
+				args = append(args, "--link-title", task.LinkTitle)
+			}
+		}
+		if task.ActivityName != "" {
+			args = append(args, "--activity-name", task.ActivityName)
 		}
 	}
 

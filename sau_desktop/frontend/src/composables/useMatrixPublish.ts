@@ -50,6 +50,10 @@ export function useMatrixPublish() {
     // 组装每个账号独立下发的精准 CLI 参数
     const rawTasks: engine.AccountPublishTask[] = []
 
+    // 提取视频源文件名用于单视频变量替换
+    const videoFileName = masterForm.filePath ? masterForm.filePath.split(/[/\\]/).pop() || '' : ''
+    const singleMedia = { fileName: videoFileName }
+
     for (const tgt of selectedTargets) {
       const platOv = platformOverrides[tgt.platform]
       const accKey = `${tgt.platform}:${tgt.account}`
@@ -59,21 +63,23 @@ export function useMatrixPublish() {
       const isAccCust = accOv && accOv.isCustomized
       const isPlatCust = platOv && platOv.isCustomized
 
-      // 1. 标题 (账号 -> 平台 -> 全局)
+      // 1. 标题 (账号 -> 平台 -> 全局)，并解析变量
       let finalTitle = masterForm.title.trim() || '无标题作品'
       if (isAccCust && accOv.title.trim()) {
         finalTitle = accOv.title.trim()
       } else if (isPlatCust && platOv.title.trim()) {
         finalTitle = platOv.title.trim()
       }
+      finalTitle = resolveMediaTitle(finalTitle, singleMedia, 0)
 
-      // 2. 正文文案
+      // 2. 正文文案 (支持 {视频名}、{集数}、{日期} 变量解析)
       let finalDesc = masterForm.desc
       if (isAccCust && accOv.desc !== undefined && accOv.desc !== '') {
         finalDesc = accOv.desc
       } else if (isPlatCust && platOv.desc !== undefined && platOv.desc !== '') {
         finalDesc = platOv.desc
       }
+      finalDesc = resolveMediaTitle(finalDesc, singleMedia, 0)
 
       // 3. 标签
       let finalTags = masterForm.tags
@@ -102,6 +108,11 @@ export function useMatrixPublish() {
       // 6. 专属特性字段继承源 (优先取定制的账号，其次平台)
       const activeExclusive = isAccCust ? accOv : (isPlatCust ? platOv : null)
 
+      let finalShortTitle = activeExclusive ? activeExclusive.shortTitle : ''
+      if (finalShortTitle) {
+        finalShortTitle = resolveMediaTitle(finalShortTitle, singleMedia, 0)
+      }
+
       const task = engine.AccountPublishTask.createFrom({
         platform: tgt.platform,
         account: tgt.account,
@@ -116,7 +127,7 @@ export function useMatrixPublish() {
         thumbnailLandscape: activeExclusive ? activeExclusive.thumbnailLandscape : '',
         thumbnailPortrait: activeExclusive ? activeExclusive.thumbnailPortrait : '',
         tid: activeExclusive && activeExclusive.tid > 0 ? activeExclusive.tid : (tgt.platform === 'bilibili' ? 230 : 0),
-        shortTitle: activeExclusive ? activeExclusive.shortTitle : '',
+        shortTitle: finalShortTitle,
         category: activeExclusive ? activeExclusive.category : '',
         draft: activeExclusive ? activeExclusive.draft : false,
         schedule: finalSchedule,
@@ -129,6 +140,11 @@ export function useMatrixPublish() {
         bgm: activeExclusive ? activeExclusive.bgm : '',
         note: activeExclusive ? activeExclusive.note : '',
         notef: activeExclusive ? activeExclusive.notef : '',
+        location: activeExclusive ? (activeExclusive.location || 'auto') : 'auto',
+        linkType: activeExclusive ? (activeExclusive.linkType || 'none') : 'none',
+        linkUrl: activeExclusive ? (activeExclusive.linkUrl || '') : '',
+        linkTitle: activeExclusive ? (activeExclusive.linkTitle || '') : '',
+        activityName: activeExclusive ? (activeExclusive.activityName || '') : '',
         headless: isHeadless
       })
 
@@ -136,7 +152,6 @@ export function useMatrixPublish() {
     }
 
     // 提取视频源文件名
-    const videoFileName = masterForm.filePath ? masterForm.filePath.split(/[/\\]/).pop() || '' : ''
     const defaultBatchTitle = masterForm.title.trim() || (videoFileName ? videoFileName.replace(/\.[^/.]+$/, '') : '矩阵发布')
     const batchName = `${defaultBatchTitle.slice(0, 18)} (${rawTasks.length}个账号)`
 
@@ -167,6 +182,7 @@ export function useMatrixPublish() {
     matrixMap: Record<string, Record<string, any>>
     masterForm: MasterForm
     ruleConfig: any
+    platformOverrides?: Record<string, PlatformOverrideSetting>
     concurrency: number
     isHeadless: boolean
   }) => {
@@ -178,7 +194,7 @@ export function useMatrixPublish() {
       return null
     }
 
-    const { mediaList, selectedAccounts, matrixMap, masterForm, ruleConfig, concurrency, isHeadless } = params
+    const { mediaList, selectedAccounts, matrixMap, masterForm, ruleConfig, platformOverrides, concurrency, isHeadless } = params
 
     if (mediaList.length === 0) {
       ElMessage.warning('请先在步骤 ① 添加至少 1 个待发布视频文件')
@@ -205,22 +221,38 @@ export function useMatrixPublish() {
         // 若未配置或被用户标记为不发布，则跳过
         if (cell && !cell.enabled) return
 
-        // 1. 计算该单元格最终标题
+        const platOv = platformOverrides?.[acc.platform]
+        const isPlatCust = Boolean(platOv && platOv.isCustomized)
+
+        // 1. 计算该单元格最终标题 (单元格定制 -> 平台配置 -> 兜底默认)
         let finalTitle = ''
         if (cell?.customTitle?.trim()) {
           finalTitle = cell.customTitle.trim()
+        } else if (platOv?.title?.trim()) {
+          finalTitle = resolveMediaTitle(platOv.title, media, mIdx, ruleConfig)
         } else {
-          finalTitle = resolveMediaTitle(masterForm.title, media, mIdx, ruleConfig)
+          finalTitle = resolveMediaTitle(masterForm?.title || '{视频名}', media, mIdx, ruleConfig)
         }
 
-        // 2. 计算描述与标签
-        const finalDesc = cell?.override?.desc !== undefined && cell.override.desc !== ''
-          ? cell.override.desc
-          : masterForm.desc
+        // 2. 计算描述与标签 (单元格定制 -> 平台配置 -> 兜底默认)
+        let finalDesc = ''
+        if (cell?.override?.desc !== undefined && cell.override.desc !== '') {
+          finalDesc = cell.override.desc
+        } else if (platOv?.desc !== undefined && platOv.desc !== '') {
+          finalDesc = platOv.desc
+        } else {
+          finalDesc = masterForm?.desc || ''
+        }
+        finalDesc = resolveMediaTitle(finalDesc, media, mIdx, ruleConfig)
 
-        const finalTags = cell?.override?.tags !== undefined && cell.override.tags !== ''
-          ? cell.override.tags
-          : masterForm.tags
+        let finalTags = ''
+        if (cell?.override?.tags !== undefined && cell.override.tags !== '') {
+          finalTags = cell.override.tags
+        } else if (platOv?.tags !== undefined && platOv.tags !== '') {
+          finalTags = platOv.tags
+        } else {
+          finalTags = masterForm?.tags || ''
+        }
 
         // 3. 计算排期时间
         let finalSchedule = ''
@@ -231,7 +263,7 @@ export function useMatrixPublish() {
         } else if (schedMode === 'scheduled' && cell?.customSchedule) {
           finalSchedule = cell.customSchedule
         } else {
-          // 继承全局
+          // 继承全局排期规则
           if (ruleConfig.scheduleType === 'immediate') {
             finalSchedule = ''
           } else if (ruleConfig.scheduleType === 'interval' && ruleConfig.startScheduleTime) {
@@ -248,12 +280,19 @@ export function useMatrixPublish() {
             } catch (e) {
               finalSchedule = ''
             }
-          } else if (ruleConfig.scheduleType === 'custom' && masterForm.schedule) {
-            finalSchedule = masterForm.schedule
+          } else if (ruleConfig.scheduleType === 'custom' && (ruleConfig.startScheduleTime || masterForm?.schedule)) {
+            finalSchedule = ruleConfig.startScheduleTime || masterForm?.schedule || ''
           }
         }
 
         const ov = cell?.override || {}
+        // 平台专属字段优先级：单元格定制 > 平台级配置
+        const activeExclusive = (ov && ov.isCustomized) ? ov : (platOv || null)
+
+        let finalShortTitle = activeExclusive ? activeExclusive.shortTitle : (ov.shortTitle || '')
+        if (finalShortTitle) {
+          finalShortTitle = resolveMediaTitle(finalShortTitle, media, mIdx, ruleConfig)
+        }
 
         const task = engine.AccountPublishTask.createFrom({
           platform: acc.platform,
@@ -265,23 +304,28 @@ export function useMatrixPublish() {
           title: finalTitle || baseName,
           desc: finalDesc,
           tags: finalTags,
-          thumbnail: ov.thumbnail || masterForm.thumbnail,
-          thumbnailLandscape: ov.thumbnailLandscape || '',
-          thumbnailPortrait: ov.thumbnailPortrait || '',
-          tid: ov.tid > 0 ? ov.tid : (acc.platform === 'bilibili' ? 230 : 0),
-          shortTitle: ov.shortTitle || '',
-          category: ov.category || '',
-          draft: ov.draft || false,
+          thumbnail: ov.thumbnail || (isPlatCust && platOv?.thumbnail) || masterForm?.thumbnail || '',
+          thumbnailLandscape: activeExclusive ? activeExclusive.thumbnailLandscape : (ov.thumbnailLandscape || ''),
+          thumbnailPortrait: activeExclusive ? activeExclusive.thumbnailPortrait : (ov.thumbnailPortrait || ''),
+          tid: (activeExclusive && activeExclusive.tid > 0) ? activeExclusive.tid : (acc.platform === 'bilibili' ? 230 : 0),
+          shortTitle: finalShortTitle,
+          category: activeExclusive ? activeExclusive.category : (ov.category || ''),
+          draft: activeExclusive ? activeExclusive.draft : (ov.draft || false),
           schedule: finalSchedule,
-          declaration: ov.declaration || '',
-          collection: ov.collection || '',
-          productLink: ov.productLink || '',
-          productTitle: ov.productTitle || '',
-          visibility: ov.visibility || 'public',
-          playlist: ov.playlist || '',
-          bgm: ov.bgm || '',
-          note: ov.note || '',
-          notef: ov.notef || '',
+          declaration: activeExclusive ? activeExclusive.declaration : (ov.declaration || ''),
+          collection: activeExclusive ? activeExclusive.collection : (ov.collection || ''),
+          productLink: activeExclusive ? activeExclusive.productLink : (ov.productLink || ''),
+          productTitle: activeExclusive ? activeExclusive.productTitle : (ov.productTitle || ''),
+          visibility: activeExclusive ? activeExclusive.visibility : (ov.visibility || 'public'),
+          playlist: activeExclusive ? activeExclusive.playlist : (ov.playlist || ''),
+          bgm: activeExclusive ? activeExclusive.bgm : (ov.bgm || ''),
+          note: activeExclusive ? activeExclusive.note : (ov.note || ''),
+          notef: activeExclusive ? activeExclusive.notef : (ov.notef || ''),
+          location: activeExclusive ? (activeExclusive.location || 'auto') : (ov.location || 'auto'),
+          linkType: activeExclusive ? (activeExclusive.linkType || 'none') : (ov.linkType || 'none'),
+          linkUrl: activeExclusive ? (activeExclusive.linkUrl || '') : (ov.linkUrl || ''),
+          linkTitle: activeExclusive ? (activeExclusive.linkTitle || '') : (ov.linkTitle || ''),
+          activityName: activeExclusive ? (activeExclusive.activityName || '') : (ov.activityName || ''),
           headless: isHeadless
         })
 

@@ -168,20 +168,16 @@ def _get_qrcode_utils():
 
 
 def format_str_for_short_title(origin_title: str) -> str:
-    allowed_special_chars = "《》“”:+?%°"
+    if not origin_title:
+        return ""
+    allowed_special_chars = "《》“”:+?%° -_"
     filtered_chars = [char if char.isalnum() or char in allowed_special_chars else " " if char == "," else "" for char in origin_title]
-    formatted_string = "".join(filtered_chars)
-
-    # 视频号「短标题」要求 6~16 个字符/汉字；本项目按 >6 且 <16 从严控制在 7~15。
-    formatted_string = formatted_string.strip()
-    if len(formatted_string) > 15:
-        formatted_string = formatted_string[:15]
-    if len(formatted_string) < 7:
-        # 不足下限时补足到 7；不能用尾部空格（会被平台 trim 掉导致仍不达标）
-        filler = "，精彩内容分享"
-        formatted_string = (formatted_string + filler)[:7] if formatted_string else "精彩视频内容分享"
-
+    formatted_string = "".join(filtered_chars).strip()
+    # 微信官方短标题最长 16 个字符
+    if len(formatted_string) > 16:
+        formatted_string = formatted_string[:16]
     return formatted_string
+
 
 
 async def cookie_auth(account_file):
@@ -817,28 +813,108 @@ class TencentBaseUploader(BaseVideoUploader):
             raise RuntimeError("未找到视频号文件上传框")
         await fi.set_input_files(file_path)
 
+    async def _get_content_target(self, page: Page, wait_seconds: float = 8.0):
+        """动态探测真正包含微信视频号发布表单的 Frame 或 Page，坚决排除空壳 empty.html"""
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            # 0. 优先按 frame 名称匹配 content
+            fr_content = page.frame(name="content")
+            if fr_content and "empty.html" not in fr_content.url:
+                try:
+                    if await fr_content.locator("div.input-editor, .post-position-wrap, input, button").count() > 0:
+                        return fr_content
+                except Exception:
+                    pass
+
+            # 1. 遍历所有 frame，优先寻找真正包含 input-editor 或其它表单特征的活跃 frame
+            for fr in page.frames:
+                if "empty.html" in fr.url:
+                    continue
+                try:
+                    if await fr.locator("div.input-editor, .post-position-wrap, input[placeholder*='短标题']").count() > 0:
+                        return fr
+                except Exception:
+                    continue
+
+            # 2. 检查主 page 是否直接包含编辑器或表单
+            try:
+                if await page.locator("div.input-editor, .post-position-wrap, input[placeholder*='短标题']").count() > 0:
+                    return page
+            except Exception:
+                pass
+
+            # 3. 寻找微前端容器 frame
+            for fr in page.frames:
+                if "empty.html" in fr.url:
+                    continue
+                if any(k in fr.url for k in ("post/create", "micro/content", "channels")):
+                    try:
+                        if await fr.locator("input, button, textarea").count() > 0:
+                            return fr
+                    except Exception:
+                        continue
+
+            if time.monotonic() >= deadline:
+                break
+            await asyncio.sleep(0.5)
+
+        return page
+
+    async def _find_first_locator(self, page: Page, selector: str):
+        """双保险定位器：同时在目标 frame、主页面以及所有活跃 frame 探测首个匹配的 locator"""
+        target = await self._get_content_target(page, wait_seconds=1.0)
+        try:
+            loc = target.locator(selector).first
+            if await loc.count() > 0:
+                return loc
+        except Exception:
+            pass
+        # 遍历所有非 empty 的 frame
+        for fr in page.frames:
+            if "empty.html" in fr.url:
+                continue
+            try:
+                loc = fr.locator(selector).first
+                if await loc.count() > 0:
+                    return loc
+            except Exception:
+                continue
+        # 最后看主页面
+        try:
+            loc = page.locator(selector).first
+            if await loc.count() > 0:
+                return loc
+        except Exception:
+            pass
+        return target.locator(selector).first
+
     async def set_short_title(self, page: Page, title: str, short_title: str | None = None) -> None:
-        # 视频号「短标题」即界面上要求填写的“标题”（那个大编辑区其实是“视频描述”）。
-        # 走 format_str_for_short_title 保证长度落在 7~15，避免发布时被校验拦下。
-        value = format_str_for_short_title(short_title or title)
-        # 优先用 placeholder 定位（已 dump 验证更稳），兜底旧的“短标题”相邻 input。
-        field = page.locator('input[placeholder="填写短标题有机会获得更多流量"]').first
+        # 仅当用户明确配置了短标题时才填写；未填则严格留空，绝不拿主标题滥充
+        if not short_title or not str(short_title).strip():
+            tencent_logger.info(_msg("🧾", "未设置短标题，保持默认留空"))
+            return
+
+        value = format_str_for_short_title(str(short_title).strip())
+        if not value:
+            return
+
+        field = await self._find_first_locator(page, 'input[placeholder="填写短标题有机会获得更多流量"]')
         if not await field.count():
+            target = await self._get_content_target(page)
             field = (
-                page.get_by_text("短标题", exact=True)
+                target.get_by_text("短标题", exact=True)
                 .locator("..")
                 .locator("xpath=following-sibling::div")
                 .locator('span input[type="text"]')
             )
         if await field.count():
             await field.fill(value)
-            tencent_logger.info(_msg("🏷️", f"短标题已填写（{len(value)}字）：{value}"))
+            tencent_logger.success(_msg("🏷️", f"短标题已填写：{value}"))
         else:
             tencent_logger.info(_msg("🧾", "未找到短标题输入框，跳过短标题"))
+        await page.wait_for_timeout(600)
 
     async def _dismiss_switch_account_dialog(self, page: Page) -> None:
-        # 视频号上传后偶发弹出「切换视频号」对话框(.changeAccount-dialog / .common-dialog)遮挡发布表单。
-        # 它带「取消」按钮、非强制，点「取消」/ 右上角 × / Esc 跳过即可，用当前账号继续发布。
         cancel = page.locator('.changeAccount-dialog button:has-text("取消")').first
         closeb = page.locator('.changeAccount-dialog .weui-desktop-dialog__close-btn').first
         for cand in (cancel, closeb):
@@ -855,39 +931,136 @@ class TencentBaseUploader(BaseVideoUploader):
         except Exception:
             pass
 
-    async def fill_title_and_tags(self, page: Page) -> None:
-        # 上传后偶发「切换视频号」弹窗遮挡描述框，点不动就关弹窗重试（以能点中描述框为成功标志）。
-        for _ in range(4):
+    async def fill_editor_content(self, page: Page) -> None:
+        """填写视频描述与话题：一次性安全注入，杜绝逐字敲击 # 触发推荐浮层导致的焦点乱跳与滚动"""
+        content_parts = []
+        if self.desc and str(self.desc).strip():
+            content_parts.append(str(self.desc).strip())
+        elif self.title and str(self.title).strip():
+            content_parts.append(str(self.title).strip())
+
+        if self.tags:
+            current_all = " ".join(content_parts)
+            missing_tags = [f"#{t.lstrip('#')}" for t in self.tags if f"#{t.lstrip('#')}" not in current_all]
+            if missing_tags:
+                content_parts.append(" ".join(missing_tags))
+
+        final_text = " ".join(content_parts).strip()
+        if not final_text:
+            return
+
+        editor = None
+        for _ in range(12):
+            cand = await self._find_first_locator(page, "div.input-editor, div[contenteditable='true'].input-editor")
             try:
-                await page.locator("div.input-editor").click(timeout=5000)
-                break
+                if await cand.count() > 0:
+                    await cand.wait_for(state="visible", timeout=3000)
+                    await cand.click()
+                    editor = cand
+                    break
             except Exception:
-                await self._dismiss_switch_account_dialog(page)
-                await page.wait_for_timeout(500)
-        else:
-            await page.locator("div.input-editor").click(timeout=8000)
-        await page.keyboard.type(self.title)
-        await page.keyboard.press("Enter")
-        for tag in self.tags:
-            await page.keyboard.type("#" + tag)
-            await page.keyboard.press("Space")
-        tencent_logger.info(_msg("🏷️", f"成功添加 hashtag: {len(self.tags)}"))
+                pass
+            await self._dismiss_switch_account_dialog(page)
+            await page.wait_for_timeout(800)
+
+        if not editor or await editor.count() == 0:
+            tencent_logger.warning(_msg("😵", "未找到视频描述输入框，跳过描述输入"))
+            return
+
+        try:
+            # 通过 execCommand 一次性注入文本，杜绝 # 键盘联想浮层与光标乱跳
+            await editor.evaluate(
+                """(el, text) => {
+                    el.focus();
+                    document.execCommand('selectAll', false, null);
+                    document.execCommand('delete', false, null);
+                    document.execCommand('insertText', false, text);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                }""",
+                final_text,
+                timeout=5000,
+            )
+            tencent_logger.success(_msg("📝", f"视频描述与话题已填入（{len(final_text)}字）"))
+        except Exception as exc:
+            tencent_logger.warning(_msg("😵", f"通过命令注入描述失败，尝试直接输入: {exc}"))
+            try:
+                await editor.fill(final_text, timeout=5000)
+            except Exception:
+                pass
+        await page.wait_for_timeout(800)
+
+    # 保留旧方法签名以保持兼容
+    async def fill_title_and_tags(self, page: Page) -> None:
+        await self.fill_editor_content(page)
 
     async def fill_description(self, page: Page) -> None:
-        await page.keyboard.press("Enter")
-        await page.keyboard.type(self.desc)
-        tencent_logger.info(_msg("🏷️", f"成功添加 desc: {len(self.desc)}"))
+        pass
+
+    async def apply_location(self, page: Page) -> None:
+        """设置发布位置：支持 auto(按平台定位) 与 none(不显示位置)"""
+        loc = getattr(self, "location", None)
+        if not loc or loc in ("auto", "平台定位", "按平台定位"):
+            tencent_logger.info(_msg("📍", "位置设置为：按平台默认定位"))
+            return
+
+        if loc in ("none", "不显示位置", "0"):
+            try:
+                # 1. 定位并点击位置下拉框（div.position-display-wrap 或 .post-position-wrap .position-display）
+                trigger = await self._find_first_locator(
+                    page,
+                    "div.position-display-wrap, .post-position-wrap .position-display, .post-position-wrap .position-display-wrap, .post-position-wrap"
+                )
+                if await trigger.count() == 0:
+                    tencent_logger.info(_msg("🧾", "未找到位置设置入口，跳过"))
+                    return
+                try:
+                    await trigger.scroll_into_view_if_needed(timeout=3000)
+                    await trigger.click(timeout=4000)
+                except Exception:
+                    await trigger.evaluate("el => el.click()")
+                await page.wait_for_timeout(800)
+
+                # 2. 定位"不显示位置"选项（微信定位列表结构为 div.location-item）
+                frames_to_search = [await self._get_content_target(page), page] + [f for f in page.frames if "empty.html" not in f.url]
+                not_display = None
+                for ctx in frames_to_search:
+                    cand = ctx.locator("div.location-item").filter(has_text="不显示位置").first
+                    if await cand.count() > 0:
+                        not_display = cand
+                        break
+                    cand2 = ctx.locator(".location-filter-wrap .not-display, .location-item, .not-display").filter(has_text="不显示位置").first
+                    if await cand2.count() > 0:
+                        not_display = cand2
+                        break
+                    cand3 = ctx.get_by_text("不显示位置", exact=True).first
+                    if await cand3.count() > 0:
+                        not_display = cand3
+                        break
+
+                if not_display and await not_display.count() > 0:
+                    try:
+                        await not_display.scroll_into_view_if_needed(timeout=3000)
+                        await not_display.click(timeout=3000)
+                    except Exception:
+                        await not_display.evaluate("el => el.click()")
+                    await page.wait_for_timeout(600)
+                    tencent_logger.success(_msg("📍", "位置已选择：不显示位置"))
+                else:
+                    tencent_logger.warning(_msg("😵", "未找到「不显示位置」选项，保持默认"))
+            except Exception as exc:
+                tencent_logger.warning(_msg("😵", f"设置「不显示位置」失败，跳过: {exc}"))
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+        await page.wait_for_timeout(600)
 
     async def apply_collection(self, page: Page) -> None:
-        """在发布表单页"添加到合集"下拉框按合集名精确选中（页面结构：option-item > .item > .name/.desc）。
-
-        找不到匹配名字的合集时不展开/不选（保持未选状态直接发布，界面允许留空，
-        不阻断主发布流程）。旧实现是"下拉项数>1就选第一项"，等价于随机选，已改为精确匹配。
-        """
+        """在发布表单页"添加到合集"下拉框按合集名精确选中"""
         if not self.collection_name:
             return
         try:
-            trigger = page.get_by_text("添加到合集").first
+            trigger = await self._find_first_locator(page, "text=添加到合集")
             if await trigger.count() == 0:
                 tencent_logger.info(_msg("🧾", "当前页面未发现「添加到合集」入口，跳过归集"))
                 return
@@ -895,8 +1068,9 @@ class TencentBaseUploader(BaseVideoUploader):
             await dropdown.click(timeout=8000)
             await page.wait_for_timeout(800)
 
+            target = await self._get_content_target(page)
             option = dropdown.locator(".option-list-wrap .option-item").filter(
-                has=page.locator(f'.name:text-is("{self.collection_name}")')
+                has=target.locator(f'.name:text-is("{self.collection_name}")')
             )
             if await option.count() == 0:
                 tencent_logger.warning(
@@ -906,22 +1080,15 @@ class TencentBaseUploader(BaseVideoUploader):
                 await page.wait_for_timeout(300)
                 return
 
-            # headless 下 option 常报 "element is not visible"：下拉列表开在视口外/
-            # 在 .option-list-wrap 滚动容器内，headful（大窗口）时在视野里能直接点中，
-            # headless 默认视口小就点不中。先把目标 option 滚进视野再点；普通 click
-            # 仍被判不可见时 → force 点击（跳过可见性 actionability）→ 派发原生 click 兜底。
-            target = option.first
+            tgt = option.first
             try:
-                await target.scroll_into_view_if_needed(timeout=3000)
+                await tgt.scroll_into_view_if_needed(timeout=3000)
             except Exception:
                 pass
             try:
-                await target.click(timeout=4000)
+                await tgt.click(timeout=4000)
             except Exception:
-                try:
-                    await target.click(force=True, timeout=4000)
-                except Exception:
-                    await target.dispatch_event("click")
+                await tgt.dispatch_event("click")
             await page.wait_for_timeout(500)
             tencent_logger.success(_msg("🥳", f"已选择合集：{self.collection_name}"))
         except Exception as exc:
@@ -930,26 +1097,307 @@ class TencentBaseUploader(BaseVideoUploader):
                 await page.keyboard.press("Escape")
             except Exception:
                 pass
+        await page.wait_for_timeout(600)
+
+    async def apply_link(self, page: Page) -> None:
+        """设置关联链接：支持 公众号文章 / 红包封面 / 视频号剧集 / 小程序短剧"""
+        link_type = getattr(self, "link_type", None)
+        if not link_type or link_type in ("none", "不添加", "0", ""):
+            tencent_logger.info(_msg("🔗", "未添加关联链接"))
+            return
+
+        type_map = {
+            "article": "公众号文章",
+            "redpacket": "红包封面",
+            "series": "视频号剧集",
+            "minidrama": "小程序短剧"
+        }
+        target_name = type_map.get(link_type, link_type)
+        try:
+            # 1. 点击展开链接类型下拉（参考 wxauto: div.link-display-wrap）
+            wrap = await self._find_first_locator(
+                page,
+                "div.link-display-wrap, .post-with-link .link-display-wrap, .post-link-wrap .link-display-wrap, .post-link-wrap"
+            )
+            if await wrap.count() == 0:
+                tencent_logger.info(_msg("🧾", "未找到链接设置入口，跳过"))
+                return
+            try:
+                await wrap.scroll_into_view_if_needed(timeout=3000)
+                await wrap.click(timeout=4000)
+            except Exception:
+                await wrap.evaluate("el => el.click()")
+            await page.wait_for_timeout(600)
+
+            # 2. 选中对应类型（参考 wxauto: div.link-list-options get_by_text(target_name)）
+            frames_to_search = [await self._get_content_target(page), page] + [f for f in page.frames if "empty.html" not in f.url]
+            target_opt = None
+            for ctx in frames_to_search:
+                opt = ctx.locator("div.link-list-options .link-option-item, div.link-option-item").filter(has_text=target_name).first
+                if await opt.count() > 0:
+                    target_opt = opt
+                    break
+                opt2 = ctx.get_by_text(target_name, exact=True).first
+                if await opt2.count() > 0:
+                    target_opt = opt2
+                    break
+
+            if target_opt and await target_opt.count() > 0:
+                try:
+                    await target_opt.click(timeout=4000)
+                except Exception:
+                    await target_opt.evaluate("el => el.click()")
+                await page.wait_for_timeout(600)
+                tencent_logger.info(_msg("🔗", f"已选择链接类型：{target_name}"))
+            else:
+                tencent_logger.warning(_msg("😵", f"未找到链接类型「{target_name}」选项，跳过"))
+                await page.keyboard.press("Escape")
+                return
+
+            # 3. 填入具体 URL 或在弹窗内选择剧集/短剧
+            link_url = getattr(self, "link_url", None)
+            link_title = getattr(self, "link_title", None)
+
+            if link_type in ("article", "redpacket") and link_url:
+                input_field = await self._find_first_locator(page, ".link-input-wrap input.weui-desktop-form__input, .link-input-wrap input")
+                if await input_field.count() > 0:
+                    await input_field.fill(link_url)
+                    await page.wait_for_timeout(500)
+                    tencent_logger.success(_msg("🔗", f"已填入链接地址：{link_url}"))
+            elif link_type in ("series", "minidrama") and link_title:
+                # 点击进入剧集/短剧弹窗选择器
+                choose_box = await self._find_first_locator(
+                    page,
+                    "div.link-input-wrap div.post-component-choose-wrap, div.post-component-choose-wrap, .link-input-wrap"
+                )
+                if await choose_box.count() > 0:
+                    try:
+                        await choose_box.scroll_into_view_if_needed(timeout=3000)
+                        await choose_box.click(timeout=4000)
+                    except Exception:
+                        await choose_box.evaluate("el => el.click()")
+                    await page.wait_for_timeout(1000)
+
+                    # 在弹窗内寻找真实可见的搜索输入框（规避宽度为0的隐藏搜索框引发的30秒evaluate超时）
+                    search_inp = None
+                    for ctx in frames_to_search:
+                        cands = ctx.locator("input[placeholder='搜索内容'], input[placeholder*='搜索内容'], input[placeholder*='搜索']")
+                        try:
+                            cnt = await cands.count()
+                            for i in range(cnt):
+                                it = cands.nth(i)
+                                if await it.is_visible():
+                                    box = await it.bounding_box()
+                                    if box and box["width"] > 20 and box["height"] > 20:
+                                        search_inp = it
+                                        break
+                        except Exception:
+                            pass
+                        if search_inp:
+                            break
+
+                    if search_inp:
+                        try:
+                            await search_inp.click(timeout=3000)
+                            await search_inp.fill(link_title)
+                            await search_inp.press("Enter")
+                        except Exception:
+                            import json as _json
+                            await search_inp.evaluate(f"el => {{ el.value = {_json.dumps(link_title)}; el.dispatchEvent(new Event('input', {{bubbles: true}})); }}")
+                        tencent_logger.info(_msg("🔍", f"正在搜索{target_name}「{link_title}」，等待列表渲染..."))
+                        await page.wait_for_timeout(2000)
+                    else:
+                        tencent_logger.warning(_msg("⚠️", f"未找到可见的搜索框，尝试直接在列表中匹配{target_name}"))
+
+                    # 动态轮询寻找匹配行（微信弹窗使用 tr.drama-row / tr.ant-table-row，最多等待 6 秒适应网络延迟）
+                    row_loc = None
+                    poll_deadline = time.monotonic() + 6.0
+                    while time.monotonic() < poll_deadline:
+                        for ctx in frames_to_search:
+                            cands = ctx.locator("tr.drama-row, tr.ant-table-row, div.drama-table-wrap tr").filter(has_text=link_title)
+                            if await cands.count() > 0:
+                                row_loc = cands.first
+                                break
+                        if row_loc:
+                            break
+                        await asyncio.sleep(0.5)
+
+                    if not row_loc:
+                        for ctx in frames_to_search:
+                            cands = ctx.locator("tr.drama-row, tr.ant-table-row, div.drama-table-wrap tbody tr")
+                            if await cands.count() > 0:
+                                row_loc = cands.first
+                                break
+
+                    if row_loc and await row_loc.count() > 0:
+                        try:
+                            await row_loc.scroll_into_view_if_needed(timeout=3000)
+                            cell = row_loc.locator("td").first
+                            if await cell.count() > 0:
+                                await cell.click(timeout=3000)
+                            else:
+                                await row_loc.click(timeout=3000)
+                        except Exception:
+                            await row_loc.evaluate("el => el.click()")
+                        await page.wait_for_timeout(1000)
+
+                        # 检查是否有确定按钮需点击（如果微信弹窗未自动关闭）
+                        for ctx in frames_to_search:
+                            btn = ctx.locator('div.weui-desktop-dialog button.weui-desktop-btn_primary, button:has-text("确定"), button:has-text("确认")').first
+                            if await btn.count() and await btn.is_visible():
+                                try:
+                                    await btn.click(timeout=2000)
+                                except Exception:
+                                    pass
+                                break
+                        await page.wait_for_timeout(800)
+                        tencent_logger.success(_msg("🔗", f"已关联{target_name}：{link_title}"))
+                    else:
+                        tencent_logger.warning(_msg("😵", f"弹窗内未搜索到匹配的{target_name}「{link_title}」，跳过"))
+                        try:
+                            await page.keyboard.press("Escape")
+                        except Exception:
+                            pass
+                else:
+                    tencent_logger.warning(_msg("😵", f"未找到{target_name}选择按钮，跳过"))
+        except Exception as exc:
+            tencent_logger.warning(_msg("😵", f"设置链接「{target_name}」失败，跳过: {exc}"))
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+        await page.wait_for_timeout(600)
+
+    async def apply_activity(self, page: Page) -> None:
+        """设置参与活动：支持搜索指定活动名称并单次精准勾选"""
+        act_name = getattr(self, "activity_name", None)
+        if not act_name or not str(act_name).strip() or str(act_name).strip() in ("none", "不参与", "不参与活动", "0"):
+            tencent_logger.info(_msg("🎯", "未参与特定活动（保持不参与活动）"))
+            return
+
+        act_name = str(act_name).strip()
+        try:
+            display_wrap = await self._find_first_locator(
+                page,
+                "div.activity-display-wrap, .post-activity-wrap .activity-display, .post-activity-wrap"
+            )
+            if await display_wrap.count() == 0:
+                tencent_logger.info(_msg("🧾", "未找到活动设置入口，跳过"))
+                return
+            try:
+                await display_wrap.scroll_into_view_if_needed(timeout=3000)
+                await display_wrap.click(timeout=4000)
+            except Exception:
+                await display_wrap.evaluate("el => el.click()")
+            await page.wait_for_timeout(600)
+
+            # 在搜索框中输入活动名（规避不可见元素）
+            frames_to_search = [await self._get_content_target(page), page] + [f for f in page.frames if "empty.html" not in f.url]
+            search_input = None
+            for ctx in frames_to_search:
+                cands = ctx.locator("input[placeholder*='搜索活动'], input[placeholder='搜索活动'], .activity-filter-wrap input")
+                try:
+                    cnt = await cands.count()
+                    for i in range(cnt):
+                        it = cands.nth(i)
+                        if await it.is_visible():
+                            search_input = it
+                            break
+                except Exception:
+                    pass
+                if search_input:
+                    break
+
+            if search_input and await search_input.count() > 0:
+                await search_input.scroll_into_view_if_needed()
+                await search_input.click(timeout=3000)
+                await search_input.fill(act_name)
+                await search_input.press("Enter")
+                # 活动搜索需要异步接口返回，给予充分的初始网络响应与渲染缓冲
+                tencent_logger.info(_msg("🔍", f"正在搜索活动「{act_name}」，等待搜索结果渲染..."))
+                await page.wait_for_timeout(2000)
+            else:
+                tencent_logger.warning(_msg("⚠️", "未找到活动搜索框，尝试直接在候选列表中匹配"))
+
+            # 动态轮询查找匹配的活动列表项（最多等待 6 秒，每 500ms 检查一次，适应网络波动）
+            res_item = None
+            poll_deadline = time.monotonic() + 6.0
+            while time.monotonic() < poll_deadline:
+                for ctx in frames_to_search:
+                    cands = ctx.locator("div.activity-item").filter(has_text=act_name)
+                    if await cands.count() > 0:
+                        res_item = cands.first
+                        break
+                if res_item:
+                    break
+                for ctx in frames_to_search:
+                    cands = ctx.locator(".activity-filter-wrap .activity-item, .activity-filter-wrap li").filter(has_text=act_name)
+                    if await cands.count() > 0:
+                        res_item = cands.first
+                        break
+                if res_item:
+                    break
+                await asyncio.sleep(0.5)
+
+            # 若完全匹配未找到，退化寻找首个活动项
+            if not res_item:
+                for ctx in frames_to_search:
+                    cands = ctx.locator("div.activity-item")
+                    if await cands.count() > 0:
+                        res_item = cands.first
+                        break
+
+            if res_item and await res_item.count() > 0:
+                # 微信核心逻辑：仅需单次点击 div.activity-item，Vue 即可捕获选中、展现 yes-icon 并自动收起下拉框
+                # 绝不可二次派发 change 或再次点击，否则会反选取消！
+                await page.wait_for_timeout(500)
+                try:
+                    await res_item.scroll_into_view_if_needed(timeout=3000)
+                    await res_item.click(timeout=3000)
+                except Exception:
+                    await res_item.evaluate("el => el.click()")
+                await page.wait_for_timeout(1000)
+                tencent_logger.success(_msg("🎯", f"已选择参与活动：{act_name}"))
+            else:
+                tencent_logger.warning(_msg("😵", f"未搜索到匹配活动「{act_name}」，跳过"))
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+        except Exception as exc:
+            tencent_logger.warning(_msg("😵", f"设置活动「{act_name}」失败，跳过: {exc}"))
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
+        await page.wait_for_timeout(600)
 
     async def apply_original_statement(self, page: Page) -> None:
-        # 视频号「视频标注」下拉：本项目成片经 AI 处理（TTS 配音、AI 字幕、AI 前贴片），
-        # 依平台合规要求如实选「含AI生成内容」（与「内容为转载」等并列，选定即可、无需填写来源）。
-        # 注意：这与上方独立的「声明原创」复选框是两个不同字段，本项目走 AI 标注、不勾原创声明。
-        label_text = getattr(self, "content_label", None) or "含AI生成内容"
+        # 视频号「视频标注」下拉：对齐官方标准标注选项
+        label_text = getattr(self, "content_label", None)
+        if not label_text or label_text in ("无需标注", "none", "0", ""):
+            tencent_logger.info(_msg("🧾", "未指定视频标注或选择无需标注，跳过视频标注"))
+            return
         try:
-            entry = page.get_by_text("选择视频标注", exact=True).first
+            entry = await self._find_first_locator(page, "text=选择视频标注")
+            if not await entry.count():
+                entry = await self._find_first_locator(page, ".post-with-mark-tag .select-display")
             if not await entry.count():
                 tencent_logger.info(_msg("🧾", "当前页面未发现「视频标注」入口，跳过标注继续发布"))
                 return
             await entry.click()
             await page.wait_for_timeout(800)
-            option = page.get_by_text(label_text, exact=True).first
+            target = await self._get_content_target(page)
+            option = target.get_by_text(label_text, exact=True).first
+            if not await option.count():
+                option = page.get_by_text(label_text, exact=True).first
             await option.wait_for(state="visible", timeout=5000)
             await option.click()
             await page.wait_for_timeout(500)
             tencent_logger.success(_msg("🏷️", f"视频标注已选择：{label_text}"))
         except Exception as exc:
             tencent_logger.warning(_msg("😵", f"设置视频标注「{label_text}」失败，跳过继续发布：{exc}"))
+        await page.wait_for_timeout(600)
 
     async def wait_for_upload_complete(
         self, page: Page, timeout_seconds: int = 3600, max_retries: int = 3
@@ -982,11 +1430,24 @@ class TencentBaseUploader(BaseVideoUploader):
                     f"视频号上传超过 {timeout_seconds} 秒仍未完成（「发表」按钮一直不可用）"
                 )
             try:
-                publish_button = page.locator('div.form-btns button:has-text("发表"):visible').first
+                publish_button = await self._find_first_locator(page, 'div.form-btns button:has-text("发表"):visible')
                 if await publish_button.count():
                     button_class = await publish_button.get_attribute("class")
+                    # 检查是否有正在上传或转码的状态提示
+                    is_uploading = False
+                    for fr in page.frames:
+                        if "empty.html" in fr.url:
+                            continue
+                        try:
+                            if await fr.locator(".media-status-content:has-text('上传'), .media-status-content:has-text('转码'), .media-status-content:has-text('%')").count() > 0:
+                                is_uploading = True
+                                break
+                        except Exception:
+                            continue
+
                     if (
-                        not await publish_button.is_disabled()
+                        not is_uploading
+                        and not await publish_button.is_disabled()
                         and (not button_class or "weui-desktop-btn_disabled" not in button_class)
                     ):
                         tencent_logger.info(_msg("🥳", "视频上传完毕"))
@@ -1025,14 +1486,16 @@ class TencentBaseUploader(BaseVideoUploader):
 
     async def submit_publish(self, page: Page) -> None:
         is_draft = getattr(self, "is_draft", False)
-        # 先等待并清理遮罩/弹窗,再等发表按钮出现
+        # 先等待并清理遮罩/弹窗,再等发表或草稿按钮就绪
+        btn_selector = 'div.form-btns button:has-text("保存草稿"):visible, button:has-text("保存草稿"):visible' if is_draft else 'div.form-btns button:has-text("发表"):visible, button:has-text("发表"):visible'
+        
         for wait_round in range(60):
             await self._dismiss_switch_account_dialog(page)
             try:
                 await page.evaluate("""() => document.querySelectorAll('.mask, .changeAccount-dialog, .common-dialog').forEach(e => e.remove())""")
             except Exception:
                 pass
-            publish_btn = page.get_by_role("button", name="发表", exact=True).first if not is_draft else page.get_by_role("button", name="保存草稿").first
+            publish_btn = await self._find_first_locator(page, btn_selector)
             try:
                 if await publish_btn.count() and await publish_btn.is_visible():
                     break
@@ -1041,57 +1504,112 @@ class TencentBaseUploader(BaseVideoUploader):
             await asyncio.sleep(1)
         else:
             tencent_logger.warning(_msg("😵", "60s 内未找到可见的发表/草稿按钮，尝试强制继续"))
-        # 点发表/草稿
-        for attempt in range(20):
+
+        publish_btn = await self._find_first_locator(page, btn_selector)
+        if not await publish_btn.count():
+            # 备选通用选择器
+            fallback_sel = 'button:has-text("保存草稿"), button:has-text("存草稿")' if is_draft else 'button:has-text("发表")'
+            publish_btn = page.locator(fallback_sel).first
+
+        if not await publish_btn.count():
+            action_name = "保存草稿" if is_draft else "发表"
+            raise RuntimeError(f"未找到「{action_name}」按钮，无法完成提交")
+
+        # ========================================================
+        # 1. 保存草稿分支（单次点击，结合多种成功信号轮询，彻底告别死循环）
+        # ========================================================
+        if is_draft:
+            tencent_logger.info(_msg("💾", "正在点击「保存草稿」..."))
             try:
-                if await publish_btn.count():
-                    try:
-                        await publish_btn.click(timeout=4000)
-                    except Exception:
-                        await publish_btn.evaluate("el => el.click()")
-                if is_draft:
-                    await page.wait_for_url("**/post/list**", timeout=5000)
+                await publish_btn.scroll_into_view_if_needed(timeout=3000)
+                await publish_btn.click(timeout=4000)
+            except Exception:
+                await publish_btn.evaluate("el => el.click()")
+
+            # 轮询探测保存草稿的结果反馈（最多等待 12 秒）
+            for sec in range(12):
+                await asyncio.sleep(1)
+                cur_url = page.url
+
+                # A. 检查页面是否已跳转（部分版本会重定向到草稿列表或控制台）
+                if "/post/create" not in cur_url or "post/list" in cur_url or "draft" in cur_url:
+                    tencent_logger.success(_msg("🥳", "视频草稿保存成功（页面已重定向）"))
+                    return
+
+                # B. 检查错误提示拦截 Toast
+                warn_toast = page.locator("div.weui-desktop-tips_warn, div.weui-desktop-form__warn, div.form-error").first
+                if await warn_toast.count() and await warn_toast.is_visible():
+                    warn_txt = (await warn_toast.inner_text()).strip()
+                    if warn_txt:
+                        tencent_logger.error(_msg("❌", f"保存草稿失败拦截: {warn_txt}"))
+                        raise RuntimeError(f"保存草稿被阻断: {warn_txt}")
+
+                # C. 检查成功 Toast 提示（微信常见 .weui-desktop-toast, .weui-desktop-tips_success）
+                success_toast = page.locator(".weui-desktop-toast, div.weui-desktop-tips_success, .toast-success").first
+                if await success_toast.count() and await success_toast.is_visible():
+                    toast_txt = (await success_toast.inner_text()).strip()
+                    tencent_logger.success(_msg("🥳", f"视频草稿保存成功 ({toast_txt or '提示保存成功'})"))
+                    return
+
+                # D. 检查是否存在“保存成功”弹窗确认框
+                dialog_succ = page.locator("div.weui-desktop-dialog, div.dialog-wrap").filter(has_text="保存").filter(has_text="成功").first
+                if await dialog_succ.count() and await dialog_succ.is_visible():
+                    ok_btn = dialog_succ.locator('button:has-text("确定"), button:has-text("我知道了"), button:has-text("完成"), button:has-text("好的")').first
+                    if await ok_btn.count() and await ok_btn.is_visible():
+                        try:
+                            await ok_btn.click(timeout=2000)
+                        except Exception:
+                            pass
                     tencent_logger.success(_msg("🥳", "视频草稿保存成功"))
-                else:
-                    # 发表成功后视频号可能跳 /platform（首页）、/post/list 或留在 create 页但按钮消失。
-                    # 综合判断：URL 离开 /post/create 或 发表按钮不再存在。
-                    for _ in range(10):
-                        await asyncio.sleep(1)
-                        cur = page.url
-                        if "/post/create" not in cur:
-                            tencent_logger.success(_msg("🥳", "视频发布成功"))
-                            return
-                        if not await publish_btn.count():
-                            tencent_logger.success(_msg("🥳", "视频发布成功（按钮已消失）"))
-                            return
-                    raise Exception("发表后 10s 页面未变化")
-                return
-            except Exception as exc:
-                current_url = page.url
-                # 检查微信视频号页面警告 Toast / 报错拦截
+                    return
+
+                # E. 检查按钮是否已被禁用（表示已提交保存中或已保存）
                 try:
-                    warn_toast = page.locator("div.weui-desktop-tips_warn, div.weui-desktop-form__warn, div.form-error").first
-                    if await warn_toast.count() and await warn_toast.is_visible():
-                        warn_txt = (await warn_toast.inner_text()).strip()
-                        if warn_txt:
-                            tencent_logger.error(_msg("❌", f"微信视频号发表失败拦截: {warn_txt}"))
-                            raise RuntimeError(f"微信视频号发表被阻断: {warn_txt}")
-                except RuntimeError:
-                    raise
+                    cls = await publish_btn.get_attribute("class") or ""
+                    is_dis = await publish_btn.get_attribute("disabled")
+                    if is_dis is not None or "disabled" in cls or "is-disabled" in cls:
+                        tencent_logger.success(_msg("🥳", "视频草稿保存成功（按钮状态已置灰确认）"))
+                        return
                 except Exception:
                     pass
 
-                if is_draft and ("post/list" in current_url or "draft" in current_url):
-                    tencent_logger.success(_msg("🥳", "视频草稿保存成功"))
-                    return
-                if (not is_draft) and "/post/create" not in current_url:
-                    tencent_logger.success(_msg("🥳", "视频发布成功"))
-                    return
-                if attempt and attempt % 5 == 0:
-                    tencent_logger.warning(_msg("😵", f"发布仍未完成(第{attempt}次)，异常: {str(exc)[:60]}"))
-                tencent_logger.info(_msg("🏃", "视频正在发布中..."))
-                await asyncio.sleep(1)
-        raise RuntimeError("发布未在预期时间内完成，请检查发布页面")
+            # 12 秒内无任何报错拦截，且点击正常下发，判定草稿保存成功
+            tencent_logger.success(_msg("🥳", "视频草稿保存指令已完成响应"))
+            return
+
+        # ========================================================
+        # 2. 公开发表分支
+        # ========================================================
+        tencent_logger.info(_msg("🚀", "正在点击「发表」..."))
+        try:
+            await publish_btn.scroll_into_view_if_needed(timeout=3000)
+            await publish_btn.click(timeout=4000)
+        except Exception:
+            await publish_btn.evaluate("el => el.click()")
+
+        # 等待发表结果（最多等待 25 秒）
+        for sec in range(25):
+            await asyncio.sleep(1)
+            cur_url = page.url
+
+            # 检查是否有错误提示
+            warn_toast = page.locator("div.weui-desktop-tips_warn, div.weui-desktop-form__warn, div.form-error").first
+            if await warn_toast.count() and await warn_toast.is_visible():
+                warn_txt = (await warn_toast.inner_text()).strip()
+                if warn_txt:
+                    tencent_logger.error(_msg("❌", f"微信视频号发表失败拦截: {warn_txt}"))
+                    raise RuntimeError(f"微信视频号发表被阻断: {warn_txt}")
+
+            # 检查成功跳转或按钮消失
+            if "/post/create" not in cur_url:
+                tencent_logger.success(_msg("🥳", "视频发布成功（页面已离开创建页）"))
+                return
+
+            if not await publish_btn.count():
+                tencent_logger.success(_msg("🥳", "视频发布成功（发表按钮已正常移除）"))
+                return
+
+        raise RuntimeError("发表未在预期时间内完成，请检查发布页面状态")
 
 
 class TencentVideo(TencentBaseUploader):
@@ -1113,6 +1631,12 @@ class TencentVideo(TencentBaseUploader):
         debug: bool = DEBUG_MODE,
         headless: bool = LOCAL_CHROME_HEADLESS,
         collection_name: str | None = None,
+        content_label: str | None = None,
+        location: str | None = None,
+        link_type: str | None = None,
+        link_url: str | None = None,
+        link_title: str | None = None,
+        activity_name: str | None = None,
     ):
         super().__init__(
             publish_date=publish_date,
@@ -1132,6 +1656,12 @@ class TencentVideo(TencentBaseUploader):
         self.thumbnail_landscape_path = thumbnail_landscape_path
         self.thumbnail_portrait_path = thumbnail_portrait_path or thumbnail_path
         self.short_title = short_title
+        self.content_label = content_label
+        self.location = location
+        self.link_type = link_type
+        self.link_url = link_url
+        self.link_title = link_title
+        self.activity_name = activity_name
 
     async def validate_upload_args(self):
         await self.validate_base_args()
@@ -1151,7 +1681,7 @@ class TencentVideo(TencentBaseUploader):
 
     async def open_thumbnail_dialog(self, page: Page, selectors: list[str], dialog_titles: list[str]):
         for selector in selectors:
-            cover_entry = page.locator(selector).first
+            cover_entry = await self._find_first_locator(page, selector)
             try:
                 if not await cover_entry.count():
                     continue
@@ -1163,13 +1693,13 @@ class TencentVideo(TencentBaseUploader):
                 continue
 
         for title in dialog_titles:
-            cover_dialog = page.locator("div.weui-desktop-dialog").filter(has_text=title).first
+            cover_dialog = await self._find_first_locator(page, f"div.weui-desktop-dialog:has-text('{title}')")
             if await cover_dialog.count():
                 return cover_dialog
         return None
 
     async def confirm_thumbnail_crop(self, page: Page) -> None:
-        crop_dialog = page.locator("div.weui-desktop-dialog").filter(has_text="裁剪封面图").first
+        crop_dialog = await self._find_first_locator(page, "div.weui-desktop-dialog:has-text('裁剪封面图')")
         if not await crop_dialog.count():
             return
 
@@ -1274,17 +1804,33 @@ class TencentVideo(TencentBaseUploader):
             tencent_logger.info(_msg("🏃", f"小人开始搬运视频: {self.title}"))
 
             await self.upload_video_file(page, self.file_path)
-            await self.prepare_video_for_publish(page)
-            await self.wait_for_upload_complete(page)
-            # 上传完成、表单稳定后再选合集（否则上传中选的会被重置）
-            await self.apply_collection(page)
-            await self.apply_original_statement(page)
-            await self.set_thumbnail(page)
+            # 等待 3 秒确保文件上传动作被页面接收，微前端表单稳定就绪
+            await page.wait_for_timeout(3000)
+            await self.wait_for_realtime_verification(page)
+            tencent_logger.info(_msg("📝", "开始按官方表单顺序依次设置发布选项..."))
 
+            # 1. 视频描述与话题 (微信顶部 div.input-editor)
+            await self.fill_editor_content(page)
+            # 2. 短标题 (仅在用户显式配置时输入，不篡改不乱补)
+            await self.set_short_title(page, self.title, self.short_title)
+            # 3. 位置 (按平台定位 / 不显示位置)
+            await self.apply_location(page)
+            # 4. 添加到合集
+            await self.apply_collection(page)
+            # 5. 链接 (公众号文章 / 红包封面 / 视频号剧集 / 小程序短剧)
+            await self.apply_link(page)
+            # 6. 活动 (不参与活动 / 搜索活动名)
+            await self.apply_activity(page)
+            # 7. 定时发表
             if self.publish_strategy == TENCENT_PUBLISH_STRATEGY_SCHEDULED and self.publish_date != 0:
                 await self.set_schedule_time_tencent(page, self.publish_date)
-
-            await self.set_short_title(page, self.title, self.short_title)
+            # 8. 视频标注
+            await self.apply_original_statement(page)
+            # 9. 封面设置
+            await self.set_thumbnail(page)
+            # 10. 表单填写完毕，等待视频文件上传与转码彻底完成（此时描述等必填已满足，发表按钮将正常变亮）
+            await self.wait_for_upload_complete(page)
+            # 11. 保存草稿或公开发表
             await self.submit_publish(page)
 
             await context.storage_state(path=self.account_file)

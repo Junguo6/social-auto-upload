@@ -37,6 +37,13 @@ export interface PlatformOverrideSetting {
   bgm: string
   note: string
   notef: string
+  contentLabel?: string
+  location?: string
+  linkType?: string
+  linkUrl?: string
+  linkTitle?: string
+  activityMode?: string
+  activityName?: string
 }
 
 // 3. 矩阵预设持久化模板 (Preset)

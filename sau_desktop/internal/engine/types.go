@@ -65,6 +65,11 @@ type AccountPublishTask struct {
 	Bgm                string   `json:"bgm"`                // 背景音乐
 	Note               string   `json:"note"`               // 图文正文
 	Notef              string   `json:"notef"`              // 长正文文件路径
+	Location           string   `json:"location"`           // 视频号位置: auto(按平台定位) / none(不显示位置)
+	LinkType           string   `json:"linkType"`           // 视频号链接类型: none / article / redpacket / series / minidrama
+	LinkUrl            string   `json:"linkUrl"`            // 视频号链接URL (公众号文章 / 红包封面)
+	LinkTitle          string   `json:"linkTitle"`          // 视频号链接名称或搜索关键字 (剧集 / 短剧)
+	ActivityName       string   `json:"activityName"`       // 视频号参与活动名称
 	InitialDelaySeconds int     `json:"initialDelaySeconds"` // 任务执行前的前置防风控延时(秒)
 	DelaySeconds       int      `json:"delaySeconds"`       // 单步骤特定防风控延时(秒)，<=0时回退使用通道默认延时
 	Headless           bool     `json:"headless"`           // 静默无头模式
@@ -103,6 +108,11 @@ type BatchPublishParam struct {
 	Bgm                string          `json:"bgm"`
 	Note               string          `json:"note"`
 	Notef              string          `json:"notef"`
+	Location           string          `json:"location"`
+	LinkType           string          `json:"linkType"`
+	LinkUrl            string          `json:"linkUrl"`
+	LinkTitle          string          `json:"linkTitle"`
+	ActivityName       string          `json:"activityName"`
 	Headless           bool            `json:"headless"`
 }
 

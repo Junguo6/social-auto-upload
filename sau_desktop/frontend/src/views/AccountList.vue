@@ -433,7 +433,7 @@
                   @click="startAppWindowForTab(tab)"
                 >
                   <el-icon><Monitor /></el-icon>
-                  <span>{{ tab.accountItem.isValid ? '🚀 启动原生浏览器视窗' : '🚀 立即拉起原生视窗扫码' }}</span>
+                  <span>{{ tab.accountItem.isValid ? ' 启动原生浏览器视窗' : ' 立即拉起原生视窗扫码' }}</span>
                 </el-button>
 
                 <!-- 暂时注释内嵌投屏模式
@@ -451,12 +451,12 @@
                 -->
               </div>
 
-              <div class="standby-feature-tags">
+              <!-- <div class="standby-feature-tags">
                 <span>🚀 原生 Chrome / Edge 视窗</span>
                 <span>💎 100% 原始视网膜画质</span>
                 <span>🖱️ 零延迟原生输入与交互</span>
                 <span>🔒 本地加密持久化</span>
-              </div>
+              </div> -->
             </div>
           </div>
 

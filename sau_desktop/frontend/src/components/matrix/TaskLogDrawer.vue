@@ -100,13 +100,13 @@
       <!-- 2.5 视图模式切换: 实时画面 vs 终端日志 -->
       <div class="view-mode-tabs">
         <el-radio-group v-model="activeTab" size="small">
-          <el-radio-button label="terminal">
+          <el-radio-button label="terminal" style="display:flex;">
             <el-icon><Monitor /></el-icon>
-            <span>📄 终端标准输出日志</span>
+            <span style="margin-left: 5px;">终端标准输出日志</span>
           </el-radio-button>
-          <el-radio-button label="live">
+          <el-radio-button label="live" style="display:flex;">
             <el-icon><VideoCamera /></el-icon>
-            <span>📺 实时运行画面 (CDP)</span>
+            <span style="margin-left: 5px;">实时运行画面 (CDP)</span>
           </el-radio-button>
         </el-radio-group>
 
