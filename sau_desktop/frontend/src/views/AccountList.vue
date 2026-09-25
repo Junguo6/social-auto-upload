@@ -25,7 +25,7 @@
 
         <el-dropdown trigger="click" @command="handleBatchMove">
           <el-button size="small" plain>
-            <el-icon><FolderOpened /></el-icon><span>移动到分组</span>
+            <FolderIcon :size="13" /><span>移动到分组</span>
             <el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
@@ -52,7 +52,7 @@
           <span>添加账号</span>
         </el-button>
         <el-button plain @click="showGroupDialog = true">
-          <el-icon><FolderOpened /></el-icon>
+          <FolderIcon :size="13" />
           <span>分组管理</span>
         </el-button>
       </div>
@@ -528,44 +528,85 @@
     <el-dialog
       v-model="showGroupDialog"
       title="分组管理"
-      width="520px"
+      width="540px"
       append-to-body
       destroy-on-close
     >
       <div class="group-dialog-body">
-        <div class="new-group-input">
+        <!-- 新建分组 -->
+        <div class="gd-create-row">
           <el-input
             v-model="newGroupName"
-            placeholder="输入新分组名称 (如: 探店组、科技出海组)"
+            placeholder="新分组名称，如「出海三人组」"
+            size="default"
+            clearable
             @keyup.enter="handleCreateGroup"
-          >
-            <template #append>
-              <el-button @click="handleCreateGroup">创建</el-button>
-            </template>
-          </el-input>
+          />
+          <el-button type="primary" @click="handleCreateGroup">+ 新建</el-button>
         </div>
 
-        <div class="group-list-box">
-          <div class="group-list-title">现有分组：</div>
-          <div class="group-rows">
-            <div v-for="grp in accountStore.groups" :key="grp" class="group-row">
-              <el-icon class="gr-ic"><FolderOpened /></el-icon>
-              <span class="gr-name" :title="grp">{{ grp }}</span>
-              <span class="gr-count">{{ accountStore.groupCounts[grp] || 0 }} 个账号</span>
+        <!-- 汇总 -->
+        <div class="gd-summary">
+          共 <b>{{ accountStore.groups.length }}</b> 个分组
+          <span class="gd-dot">·</span>
+          <b>{{ accountStore.accounts.length }}</b> 个账号
+        </div>
 
-              <template v-if="grp !== DEFAULT_GROUP">
-                <el-button size="small" text @click="handleRenameGroup(grp)">改名</el-button>
-                <el-button size="small" text type="danger" @click="handleDeleteGroup(grp)">删除</el-button>
-              </template>
-              <span v-else class="gr-lock" title="默认分组不可改名或删除">默认</span>
+        <!-- 分组列表 -->
+        <div class="gd-list" v-if="accountStore.groups.length > 0">
+          <div v-for="grp in accountStore.groups" :key="grp" class="gd-row">
+            <FolderIcon :size="18" />
+
+            <div class="gd-meta">
+              <div class="gd-name">{{ grp }}</div>
+              <div class="gd-sub">{{ groupPlatforms(grp) }}</div>
             </div>
-          </div>
 
-          <div class="group-dialog-tip">
-            💡 分组用于「发布工作台」里快速筛选账号，例如只勾选「出海三人组」下的全部账号
+            <span class="gd-count">{{ accountStore.groupCounts[grp] || 0 }} 个账号</span>
+
+            <!-- 默认分组：只显示徽章 -->
+            <span v-if="grp === DEFAULT_GROUP" class="gd-default" title="默认分组不可改名或删除">
+              默认
+            </span>
+
+            <!-- 自定义分组：⋯ 菜单 -->
+            <el-dropdown
+              v-else
+              trigger="click"
+              placement="bottom-end"
+              @command="(cmd: string) => handleGroupCommand(cmd, grp)"
+            >
+              <span class="gd-more" title="更多操作">
+                <el-icon><MoreFilled /></el-icon>
+              </span>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="rename">
+                    <el-icon><EditPen /></el-icon>重命名
+                  </el-dropdown-item>
+                  <el-dropdown-item command="delete" divided>
+                    <el-icon><Delete /></el-icon>删除分组
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </div>
+        </div>
+
+        <!-- 空状态 -->
+        <div class="gd-empty" v-else>
+          <FolderIcon :size="26" />
+          <span>还没有自定义分组</span>
+        </div>
+
+        <div class="gd-tip">
+          💡 分组用于「发布工作台」里批量勾选账号 —— 例如只发「出海三人组」的号
         </div>
       </div>
+
+      <template #footer>
+        <el-button @click="showGroupDialog = false">完成</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -573,6 +614,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import FolderIcon from '../components/common/FolderIcon.vue'
 import { PLATFORMS, getPlatformConfig } from '../config/platforms'
 import { useAccountStore, AccountItem, DEFAULT_GROUP } from '../stores/accountStore'
 import { LoginAccountWithAppWindow, StopTaskById } from '../../wailsjs/go/main/App'
@@ -747,6 +789,22 @@ function fmtCheckedAt(ts?: number): string {
 function isStaleCheck(ts?: number): boolean {
   if (!ts) return false
   return Date.now() - ts > 7 * 86400000
+}
+
+/** 分组 → 该组包含的平台名（最多 3 个） */
+function groupPlatforms(grp: string): string {
+  const names = accountStore.accounts
+    .filter(a => (a.group || DEFAULT_GROUP) === grp)
+    .map(a => getPlatformConfig(a.platform).name)
+  const uniq = Array.from(new Set(names))
+  if (uniq.length === 0) return '暂无账号'
+  return uniq.slice(0, 3).join(' · ') + (uniq.length > 3 ? ` 等 ${uniq.length} 个平台` : '')
+}
+
+/** ⋯ 菜单命令分发 */
+function handleGroupCommand(cmd: string, grp: string) {
+  if (cmd === 'rename') handleRenameGroup(grp)
+  else if (cmd === 'delete') handleDeleteGroup(grp)
 }
 
 // 激活某个标签页
@@ -1994,5 +2052,97 @@ watch(() => accountStore.accounts, (newAccounts) => {
   line-height: 1.6;
   margin: 2px 0 4px;
   padding-left: 2px;
+}
+
+/* ── 分组管理弹窗 ── */
+.group-dialog-body { display: flex; flex-direction: column; }
+
+/* 新建行 */
+.gd-create-row {
+  display: flex; gap: 9px; align-items: center;
+  margin-bottom: 14px;
+}
+
+/* 汇总行 */
+.gd-summary {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-bottom: 9px;
+  padding-left: 2px;
+}
+.gd-summary b { color: var(--text-main); font-weight: 700; }
+.gd-dot { opacity: .4; margin: 0 3px; }
+
+/* 分组列表 */
+.gd-list {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.gd-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background-color .15s;
+}
+.gd-row:last-child { border-bottom: none; }
+.gd-row:hover { background: rgba(79, 70, 229, .05); }
+
+.gd-meta { min-width: 0; flex: 1; }
+.gd-name {
+  font-size: 12.5px; font-weight: 600; color: var(--text-main);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gd-sub {
+  font-size: 10.5px; color: var(--text-muted);
+  margin-top: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.gd-count {
+  font-size: 11px; font-weight: 700;
+  padding: 2px 9px; border-radius: 20px;
+  background: rgba(79, 70, 229, .10);
+  color: var(--primary-color);
+  white-space: nowrap; flex-shrink: 0;
+}
+
+.gd-default {
+  font-size: 10.5px;
+  padding: 2px 8px; border-radius: 20px;
+  background: rgba(128, 128, 128, .12);
+  color: var(--text-muted);
+  white-space: nowrap; flex-shrink: 0;
+}
+
+.gd-more {
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: .55;
+  flex-shrink: 0;
+  transition: all .15s;
+}
+.gd-more:hover {
+  background: rgba(128, 128, 128, .12);
+  opacity: 1;
+  color: var(--text-main);
+}
+
+/* 空状态 */
+.gd-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+  padding: 30px 0;
+  color: var(--text-muted); font-size: 12px;
+}
+
+/* 底部提示 */
+.gd-tip {
+  margin-top: 13px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.65;
 }
 </style>

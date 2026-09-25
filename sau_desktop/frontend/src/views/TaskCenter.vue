@@ -270,7 +270,7 @@
           <div v-if="planGroups.length === 0" class="list-empty">
             <!-- 空态①：一条计划都没有 -->
             <template v-if="taskStore.tasks.length === 0">
-              <el-icon :size="22"><FolderOpened /></el-icon>
+              <FolderIcon :size="22" />
               <span>还没有发布计划</span>
               <el-button size="small" type="primary" link @click="goPublishCenter">
                 去「发布工作台」创建
@@ -536,7 +536,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, onErrorCaptured } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CircleCheck, CircleClose, Clock, Delete, Document, FolderOpened, InfoFilled, Loading, Monitor, Promotion, Remove, WarningFilled } from '@element-plus/icons-vue'
+import { CircleCheck, CircleClose, Clock, Delete, Document, InfoFilled, Loading, Monitor, Promotion, Remove, WarningFilled } from '@element-plus/icons-vue'
 import FolderIcon from '../components/common/FolderIcon.vue'
 import { getPlatformConfig } from '../config/platforms'
 import { useTaskStore } from '../stores/taskStore'

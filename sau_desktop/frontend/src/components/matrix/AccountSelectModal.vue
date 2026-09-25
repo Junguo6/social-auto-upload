@@ -63,7 +63,7 @@
       <!-- 3. 业务矩阵分组过滤栏 (带一键勾选该分组按钮) -->
       <div class="dialog-filter-section">
         <div class="filter-section-title">
-          <el-icon><Folder /></el-icon>
+          <FolderIcon :size="15" />
           <span>按业务分组筛选 / 批量选择：</span>
         </div>
         <div class="group-chips-row">
@@ -194,6 +194,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
+import FolderIcon from '../common/FolderIcon.vue'
 import { PLATFORMS, getPlatformConfig } from '../../config/platforms'
 import { useAccountStore, AccountItem } from '../../stores/accountStore'
 
