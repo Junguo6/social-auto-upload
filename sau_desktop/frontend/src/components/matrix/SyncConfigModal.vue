@@ -66,7 +66,8 @@
                 {{ getPlatformStyle(acc.platform).name }}
               </div>
               <span class="acc-name">{{ acc.nickname || acc.account }}</span>
-              <span class="group-tag" v-if="acc.group">{{ acc.group }}</span>
+              <span class="group-tag" v-if="acc.groups && acc.groups.length">{{ acc.groups.join(' · ') }}</span>
+              <span class="group-tag" v-else>未分组</span>
             </div>
             <div class="acc-check-circle" :class="{ checked: targetKeys.has(`${acc.platform}:${acc.account}`) }">
               <el-icon v-if="targetKeys.has(`${acc.platform}:${acc.account}`)"><Check /></el-icon>

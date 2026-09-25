@@ -142,7 +142,8 @@
                 <span class="plat-text" :style="{ color: getPlatformStyle(acc.platform).brandColor }">
                   {{ getPlatformStyle(acc.platform).name }}
                 </span>
-                <span class="group-pill" v-if="acc.group">{{ acc.group }}</span>
+                <span class="group-pill" v-if="acc.groups && acc.groups.length">{{ acc.groups.join(' · ') }}</span>
+                <span class="group-pill" v-else>未分组</span>
 
                 <!-- 状态健康标签 (去除 emoji，采用微点状态标签) -->
                 <span v-if="acc.checked && acc.isValid === false" class="status-pill status-invalid">
@@ -229,7 +230,7 @@ const filteredAccounts = computed(() => {
     if (statusFilter.value === 'valid_only' && isAccountInvalid(a)) {
       return false
     }
-    if (groupFilter.value !== 'all' && (a.group || '默认分组') !== groupFilter.value) {
+    if (groupFilter.value !== 'all' && !a.groups?.includes(groupFilter.value)) {
       return false
     }
     if (platformFilter.value !== 'all' && a.platform !== platformFilter.value) {
@@ -240,7 +241,7 @@ const filteredAccounts = computed(() => {
       const matchAcc = a.account.toLowerCase().includes(kw)
       const matchNick = a.nickname ? a.nickname.toLowerCase().includes(kw) : false
       const matchPlat = a.platform.toLowerCase().includes(kw)
-      const matchGrp = a.group ? a.group.toLowerCase().includes(kw) : false
+      const matchGrp = a.groups && a.groups.some(g => g.toLowerCase().includes(kw))
       return matchAcc || matchNick || matchPlat || matchGrp
     }
     return true
@@ -260,7 +261,7 @@ const getStoreAccountCountByPlat = (platId: string) => {
 }
 
 const getStoreAccountCountByGroup = (groupName: string) => {
-  return accountStore.accounts.filter(a => (a.group || '默认分组') === groupName && !isAccountInvalid(a)).length
+  return accountStore.accounts.filter(a => a.groups?.includes(groupName) && !isAccountInvalid(a)).length
 }
 
 const getPlatformStyle = (platformId: string) => {
@@ -308,13 +309,13 @@ const clearAccountSelection = () => {
 }
 
 const isAllSelectedInGroup = (groupName: string) => {
-  const groupValidAccs = accountStore.accounts.filter(a => (a.group || '默认分组') === groupName && !isAccountInvalid(a))
+  const groupValidAccs = accountStore.accounts.filter(a => a.groups?.includes(groupName) && !isAccountInvalid(a))
   if (groupValidAccs.length === 0) return false
   return groupValidAccs.every(a => props.selectedKeys.has(`${a.platform}:${a.account}`))
 }
 
 const toggleSelectAllInGroup = (groupName: string) => {
-  const groupValidAccs = accountStore.accounts.filter(a => (a.group || '默认分组') === groupName && !isAccountInvalid(a))
+  const groupValidAccs = accountStore.accounts.filter(a => a.groups?.includes(groupName) && !isAccountInvalid(a))
   if (groupValidAccs.length === 0) {
     ElMessage.info(`「${groupName}」暂无可用的有效账号`)
     return

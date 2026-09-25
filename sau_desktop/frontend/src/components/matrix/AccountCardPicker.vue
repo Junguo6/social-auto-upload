@@ -148,14 +148,14 @@ const allGroups = computed(() => {
 // 各分组数量统计
 const getGroupCount = (grp: string) => {
   if (grp === '全部') return accountStore.accounts.length
-  return accountStore.accounts.filter(a => a.group === grp).length
+  return accountStore.accounts.filter(a => a.groups?.includes(grp)).length
 }
 
 // 过滤后的账号列表
 const filteredAccounts = computed(() => {
   return accountStore.accounts.filter(acc => {
     // 分组过滤
-    if (currentGroup.value !== '全部' && acc.group !== currentGroup.value) {
+    if (currentGroup.value !== '全部' && !acc.groups?.includes(currentGroup.value)) {
       return false
     }
     // 搜索过滤

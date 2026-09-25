@@ -2,8 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { CheckAccountStatus, DeleteAccountCredential, LoginAccount } from '../../wailsjs/go/main/App'
 
-/** 默认分组名（不可改名、不可删除；删除分组时账号回落到这里） */
-export const DEFAULT_GROUP = '默认分组'
+/** 分组只存在于用户创建的分组里；账号可以不属于任何分组（groups 为空数组） */
 
 export interface AccountItem {
   platform: string
@@ -12,7 +11,8 @@ export interface AccountItem {
   finderUid?: string    // 平台唯一 UID
   avatar?: string       // 平台真实高清头像 URL
   avatarLoadFailed?: boolean // 头像加载失败兜底标记
-  group: string         // 分组标签，例如 "默认分组", "美食矩阵", "科技出海"
+  /** 所属分组（可 0~N 个；空数组 = 未分组） */
+  groups?: string[]
   isValid?: boolean
   checked?: boolean
   msg?: string
@@ -23,10 +23,8 @@ export interface AccountItem {
 }
 
 export const useAccountStore = defineStore('account', () => {
-  // 分组列表
-  const groups = ref<string[]>([
-    DEFAULT_GROUP
-  ])
+  // 分组列表：全部从已有账号的 groups 字段重建
+  const groups = ref<string[]>([])
 
   // 默认初始账号数据 (初始为空)
   const defaultAccounts: AccountItem[] = []
@@ -38,6 +36,7 @@ export const useAccountStore = defineStore('account', () => {
     try {
       parsedAccs = JSON.parse(savedAccs)
       parsedAccs = parsedAccs.map(acc => {
+        acc = migrateAccountGroups(acc)             // ← Step 1.2 新增
         if (acc.platform === 'tencent' && acc.account === 'auto' && acc.finderUid) {
           acc.account = acc.finderUid
         }
@@ -51,6 +50,14 @@ export const useAccountStore = defineStore('account', () => {
   }
   const accounts = ref<AccountItem[]>(parsedAccs)
 
+  // 从账号数据里补齐分组列表（老数据可能只存在于账号的 group 字段里）
+  const rebuildGroups = () => {
+    const seen = new Set<string>(groups.value)
+    accounts.value.forEach(a => (a.groups || []).forEach(g => seen.add(g)))
+    groups.value = Array.from(seen)
+  }
+  rebuildGroups()
+
   const saveToStorage = () => {
     // 持久化存储时剔除 loading 和 isSyncing 运行时临时状态，杜绝污染本地存储导致永久卡在同步中
     const cleanList = accounts.value.map(a => {
@@ -62,6 +69,19 @@ export const useAccountStore = defineStore('account', () => {
 
   const checkingAll = ref(false)
 
+  /** 老数据迁移：group: string → groups: string[]（幂等，可重复执行） */
+  function migrateAccountGroups(acc: any): AccountItem {
+    if (Array.isArray(acc.groups)) {
+      // 已经是新格式：过滤掉历史遗留的"默认分组"空值
+      acc.groups = acc.groups.filter((g: string) => !!g && g !== '默认分组')
+      return acc
+    }
+    const legacy = typeof acc.group === 'string' ? acc.group.trim() : ''
+    acc.groups = (legacy && legacy !== '默认分组') ? [legacy] : []
+    delete acc.group
+    return acc
+  }
+
   // 添加新分组
   const addGroup = (groupName: string) => {
     const trimmed = groupName.trim()
@@ -72,13 +92,37 @@ export const useAccountStore = defineStore('account', () => {
     return false
   }
 
-  // 修改账号分组
-  const updateAccountGroup = (platform: string, account: string, newGroup: string) => {
+  /** 把账号加入某分组（已在组内则忽略） */
+  const addToGroup = (platform: string, account: string, groupName: string) => {
+    const g = (groupName || '').trim()
+    if (!g) return
+    if (!groups.value.includes(g)) groups.value.push(g)
     const target = accounts.value.find(a => a.platform === platform && a.account === account)
-    if (target) {
-      target.group = newGroup
-      saveToStorage()
-    }
+    if (!target) return
+    if (!Array.isArray(target.groups)) target.groups = []
+    if (!target.groups.includes(g)) target.groups.push(g)
+    saveToStorage()
+  }
+
+  /** 把账号从某分组移除（不影响它在其他分组里的归属） */
+  const removeFromGroup = (platform: string, account: string, groupName: string) => {
+    const target = accounts.value.find(a => a.platform === platform && a.account === account)
+    if (!target || !Array.isArray(target.groups)) return
+    target.groups = target.groups.filter(g => g !== groupName)
+    saveToStorage()
+  }
+
+  /** 批量：把多个账号加入某分组 */
+  const addAccountsToGroup = (keys: { platform: string; account: string }[], groupName: string) => {
+    keys.forEach(k => addToGroup(k.platform, k.account, groupName))
+  }
+
+  /** 切换账号在某分组里的归属 */
+  const toggleAccountGroup = (platform: string, account: string, groupName: string) => {
+    const target = accounts.value.find(a => a.platform === platform && a.account === account)
+    if (!target) return
+    if ((target.groups || []).includes(groupName)) removeFromGroup(platform, account, groupName)
+    else addToGroup(platform, account, groupName)
   }
 
   // 每个分组的账号数（用于分组管理弹窗与选择弹层）
@@ -86,44 +130,41 @@ export const useAccountStore = defineStore('account', () => {
     const map: Record<string, number> = {}
     groups.value.forEach((g) => { map[g] = 0 })
     accounts.value.forEach((a) => {
-      const g = a.group || DEFAULT_GROUP
-      map[g] = (map[g] || 0) + 1
+      ;(a.groups || []).forEach(g => { map[g] = (map[g] || 0) + 1 })
     })
     return map
   })
 
   /**
    * 重命名分组：同步更新组内所有账号。
-   * 默认分组不允许改名；新名字不能与已有分组重名。
+   * 新名字不能与已有分组重名。
    * @returns 错误信息（成功时返回空字符串）
    */
   const renameGroup = (oldName: string, newName: string): string => {
     const trimmed = (newName || '').trim()
     if (!trimmed) return '分组名不能为空'
-    if (oldName === DEFAULT_GROUP) return '默认分组不可改名'
     if (trimmed === oldName) return ''
     if (groups.value.includes(trimmed)) return '已存在同名分组'
 
     groups.value = groups.value.map((g) => (g === oldName ? trimmed : g))
     accounts.value.forEach((a) => {
-      if ((a.group || DEFAULT_GROUP) === oldName) a.group = trimmed
+      if (Array.isArray(a.groups) && a.groups.includes(oldName)) {
+        a.groups = a.groups.map(g => (g === oldName ? trimmed : g))
+      }
     })
     saveToStorage()
     return ''
   }
 
   /**
-   * 删除分组：组内账号回落到默认分组（不删除账号本身）。
-   * 默认分组不可删除。
-   * @returns 受影响并已转移的账号数；-1 表示不允许删除
+   * 删除分组：把它从所有账号的分组列表里移除（账号本身不删除）。
+   * @returns 受影响的账号数
    */
   const removeGroup = (name: string): number => {
-    if (name === DEFAULT_GROUP) return -1
-
     let moved = 0
     accounts.value.forEach((a) => {
-      if ((a.group || DEFAULT_GROUP) === name) {
-        a.group = DEFAULT_GROUP
+      if (Array.isArray(a.groups) && a.groups.includes(name)) {
+        a.groups = a.groups.filter(g => g !== name)
         moved += 1
       }
     })
@@ -219,7 +260,7 @@ export const useAccountStore = defineStore('account', () => {
   }
 
   // 扫码/授权登录并加入分组（自动解析出带 Emoji 的真实平台昵称与安全 UID）
-  const loginAccount = async (platform: string, customAccount: string, group: string, headed: boolean = true) => {
+  const loginAccount = async (platform: string, customAccount: string, groupsToAdd: string[] = [], headed: boolean = true) => {
     const res: any = await LoginAccount(platform, customAccount || 'auto', headed)
     const targetAccountKey = res.account || customAccount || 'auto'
     const targetNickname = res.nickname || targetAccountKey
@@ -241,7 +282,7 @@ export const useAccountStore = defineStore('account', () => {
         nickname: targetNickname,
         finderUid: targetUid,
         avatar: targetAvatar,
-        group: group || '默认分组',
+        groups: groupsToAdd,
         checked: false
       }
       accounts.value.push(exist)
@@ -250,7 +291,10 @@ export const useAccountStore = defineStore('account', () => {
       exist.nickname = targetNickname
       exist.finderUid = targetUid
       if (targetAvatar) exist.avatar = targetAvatar
-      exist.group = group || exist.group
+      if (groupsToAdd.length) {
+        const set = new Set([...(exist.groups || []), ...groupsToAdd])
+        exist.groups = Array.from(set)
+      }
     }
     saveToStorage()
     await checkAccount(exist)
@@ -264,10 +308,11 @@ export const useAccountStore = defineStore('account', () => {
       try {
         const list = JSON.parse(saved)
         accounts.value = list.map((a: any) => ({
-          ...a,
+          ...migrateAccountGroups({ ...a }),
           loading: false,
           isSyncing: false
         }))
+        rebuildGroups()
       } catch (e) {}
     }
   }
@@ -292,7 +337,7 @@ export const useAccountStore = defineStore('account', () => {
         nickname: nickname || account,
         finderUid: finderUid || '',
         avatar: avatar || '',
-        group: '默认分组',
+        groups: [],
         isValid: isValid !== undefined ? isValid : false,
         checked: isValid !== undefined,
         isSyncing: false
@@ -321,7 +366,10 @@ export const useAccountStore = defineStore('account', () => {
     accounts,
     checkingAll,
     addGroup,
-    updateAccountGroup,
+    addToGroup,
+    removeFromGroup,
+    addAccountsToGroup,
+    toggleAccountGroup,
     removeAccount,
     checkAccount,
     checkAllAccounts,
@@ -330,7 +378,6 @@ export const useAccountStore = defineStore('account', () => {
     saveLoggedInAccount,
     groupCounts,
     renameGroup,
-    removeGroup,
-    DEFAULT_GROUP
+    removeGroup
   }
 })

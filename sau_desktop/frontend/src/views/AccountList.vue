@@ -47,7 +47,7 @@
       </div>
 
       <div class="sum-right">
-        <el-button type="primary" @click="openNewTab">
+        <el-button type="primary" @click="openAddAccountDialog">
           <el-icon><Plus /></el-icon>
           <span>添加账号</span>
         </el-button>
@@ -163,7 +163,10 @@
             v-for="acc in filteredAccounts"
             :key="acc.platform + ':' + acc.account"
             class="contact-card-item"
-            :class="{ 'is-active': activeTabId === `${acc.platform}:${acc.account}` }"
+            :class="{ 'is-active': activeTabId === `${acc.platform}:${acc.account}`, dragging: isDragging(acc) }"
+            draggable="true"
+            @dragstart="onDragStart(acc, $event)"
+            @dragend="onDragEnd"
             @click="openAccountTab(acc)"
           >
             <!-- 左侧勾选框 (批量操作) -->
@@ -209,7 +212,7 @@
                 >
                   <template #reference>
                     <span class="contact-group-name clickable">
-                      #{{ acc.group || DEFAULT_GROUP }}
+                      {{ (acc.groups && acc.groups.length) ? '#' + acc.groups.join(' #') : '未分组' }}
                       <el-icon class="grp-caret"><ArrowDown /></el-icon>
                     </span>
                   </template>
@@ -220,10 +223,10 @@
                       v-for="grp in accountStore.groups"
                       :key="grp"
                       class="gp-item"
-                      :class="{ on: (acc.group || DEFAULT_GROUP) === grp }"
+                      :class="{ on: (acc.groups || []).includes(grp) }"
                       @click="assignGroup(acc, grp)"
                     >
-                      <el-icon v-if="(acc.group || DEFAULT_GROUP) === grp" class="gp-check"><Check /></el-icon>
+                      <el-icon v-if="(acc.groups || []).includes(grp)" class="gp-check"><Check /></el-icon>
                       <span v-else class="gp-check placeholder" />
                       <span class="gp-name">{{ grp }}</span>
                       <span class="gp-count">{{ accountStore.groupCounts[grp] || 0 }}</span>
@@ -265,261 +268,126 @@
                 >
                   {{ fmtCheckedAt(acc.checkedAt) }}
                 </span>
+
+                <!-- 操作按钮 -->
+                <span class="acc-acts" @click.stop>
+                  <el-tooltip content="检测登录状态" placement="top">
+                    <el-icon class="acc-act" :class="{ spinning: acc.isSyncing }" @click="checkStatus(acc)"><Refresh /></el-icon>
+                  </el-tooltip>
+                  <el-tooltip content="打开浏览器登录" placement="top">
+                    <el-icon class="acc-act" @click="openBrowserForAccount(acc)"><Monitor /></el-icon>
+                  </el-tooltip>
+                </span>
+              </div>
+
+              <!-- 分组标签 -->
+              <div class="acc-group-tags" v-if="acc.groups && acc.groups.length">
+                <span v-for="g in acc.groups" :key="g" class="acc-gtag">#{{ g }}</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 👉 右侧：单账号面板 -->
-      <div class="browser-window-pane" v-show="!browserCollapsed">
-        <!-- 面板标题行（替代原来的浏览器工具栏） -->
-        <div class="panel-head">
-          <div class="ph-left">
-            <span class="ph-title">
-              <template v-if="currentActiveTab?.type === 'new'">添加账号</template>
-              <template v-else-if="currentActiveTab?.accountItem">
-                {{ currentActiveTab.accountItem.nickname || currentActiveTab.accountItem.account }}
-              </template>
-              <template v-else>账号详情</template>
-            </span>
-            <span
-              v-if="currentActiveTab?.type === 'account' && currentActiveTab.accountItem"
-              class="ph-status"
-              :class="currentActiveTab.accountItem.isValid ? 'ok' : 'bad'"
-            >
-              {{ currentActiveTab.accountItem.isValid ? '✅ 登录正常' : '⚠️ 登录已失效' }}
-            </span>
-          </div>
+      <!-- 👉 右侧：分组（文件夹形式） -->
+      <div class="groups-pane" v-show="!browserCollapsed">
+        <div class="gsp-head">
+          <span class="gsp-title">分组</span>
+          <span class="gsp-count">{{ accountStore.groups.length }} 个</span>
+          <span class="gsp-spacer"></span>
+          <el-button size="small" text @click="showGroupDialog = true">
+            <el-icon><Setting /></el-icon>
+          </el-button>
+        </div>
 
-          <div class="ph-right">
-            <!-- 账号操作按钮 -->
-            <template v-if="currentActiveTab?.type === 'account' && currentActiveTab.accountItem">
-              <el-button size="small" plain :loading="currentActiveTab.accountItem.loading" @click="checkStatus(currentActiveTab.accountItem)">
-                <el-icon><Search /></el-icon><span>检测登录状态</span>
-              </el-button>
-              <el-button size="small" type="primary" plain :loading="currentActiveTab.isStartingSession" @click="startAppWindowForTab(currentActiveTab)">
-                <el-icon><Monitor /></el-icon>
-                <span>{{ currentActiveTab.isSessionActive ? '重新打开浏览器' : '打开浏览器登录' }}</span>
-              </el-button>
-              <el-button v-if="currentActiveTab.isSessionActive" size="small" type="danger" plain @click="stopSessionForTab(currentActiveTab)">
-                <el-icon><CircleClose /></el-icon><span>关闭浏览器</span>
-              </el-button>
-            </template>
+        <!-- 新建分组 -->
+        <div class="gsp-create">
+          <el-input
+            v-model="newGroupName"
+            size="small"
+            placeholder="新分组名称"
+            clearable
+            @keyup.enter="handleCreateGroupInline"
+          />
+          <el-button size="small" type="primary" plain @click="handleCreateGroupInline">新建</el-button>
+        </div>
 
-            <!-- 收起 / 展开 -->
-            <el-tooltip :content="browserCollapsed ? '展开' : '收起'" placement="bottom">
-              <el-button size="small" text @click="browserCollapsed = !browserCollapsed">
-                <el-icon><ArrowRight v-if="browserCollapsed" /><ArrowLeft v-else /></el-icon>
-              </el-button>
-            </el-tooltip>
+        <!-- 文件夹列表 -->
+        <div class="gsp-list" v-if="accountStore.groups.length > 0">
+          <div
+            v-for="grp in accountStore.groups"
+            :key="grp"
+            class="folder"
+            :class="{ drop: dropTargetGroup === grp }"
+            @dragover.prevent="onDragOverGroup(grp)"
+            @dragleave="onDragLeaveGroup(grp)"
+            @drop.prevent="onDropToGroup(grp)"
+          >
+            <div class="folder-head" @click="toggleGroupExpand(grp)">
+              <el-icon class="f-arrow" :class="{ open: expandedGroups.includes(grp) }">
+                <ArrowRight />
+              </el-icon>
+              <FolderIcon :size="17" />
+              <span class="f-name">{{ grp }}</span>
+              <span class="f-count">{{ accountStore.groupCounts[grp] || 0 }}</span>
+
+              <el-dropdown
+                trigger="click"
+                placement="bottom-end"
+                @command="(cmd: string) => handleGroupCommand(cmd, grp)"
+                @click.stop
+              >
+                <span class="f-more" @click.stop><el-icon><MoreFilled /></el-icon></span>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="rename"><el-icon><EditPen /></el-icon>重命名</el-dropdown-item>
+                    <el-dropdown-item command="selectAll"><el-icon><Select /></el-icon>选中该组账号</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided><el-icon><Delete /></el-icon>删除分组</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+
+            <!-- 拖拽提示 -->
+            <div class="f-drop-hint" v-if="dropTargetGroup === grp">
+              ⬇ 松开即可加入 {{ draggingAccounts.length }} 个账号
+            </div>
+
+            <!-- 展开的成员 -->
+            <div class="f-members" v-if="expandedGroups.includes(grp)">
+              <div
+                v-for="m in groupMembers(grp)"
+                :key="`${m.platform}:${m.account}`"
+                class="f-member"
+                @click="openAccountTab(m)"
+              >
+                <span class="fm-plat">{{ platShort(m.platform) }}</span>
+                <span class="fm-nick">{{ m.nickname || m.account }}</span>
+                <span class="fm-status" :class="m.isValid ? 'ok' : 'bad'">
+                  {{ m.isValid ? '✅' : (m.checked ? '⚠️' : '—') }}
+                </span>
+                <span
+                  class="fm-x"
+                  title="从该分组移除（不删除账号）"
+                  @click.stop="handleRemoveFromGroup(m, grp)"
+                >✕</span>
+              </div>
+              <div class="f-empty" v-if="groupMembers(grp).length === 0">
+                这个分组还没有账号，从左侧拖进来
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- 面板内容区 -->
-        <div class="browser-viewport-stage">
-          <div
-            v-for="tab in openTabs"
-            :key="tab.id"
-            v-show="activeTabId === tab.id"
-            class="tab-viewport-container"
-          >
-            <!-- A. 处于会话中 -->
-            <template v-if="tab.isSessionActive">
-              <div class="browser-appmode-hub">
-                <div class="appmode-card">
-                  <div class="appmode-header">
-                    <div class="appmode-badge-live">
-                      <span class="live-pulse-dot"></span>
-                      <span>浏览器已打开</span>
-                    </div>
-                  </div>
+        <!-- 空状态 -->
+        <div class="gsp-empty" v-else>
+          <FolderIcon :size="30" />
+          <span>还没有分组</span>
+          <span class="gsp-empty-sub">在上面输入名称，点「新建」开始</span>
+        </div>
 
-                  <div class="appmode-avatar-box" :style="{ background: getPlatformStyle(tab.platform).gradient }">
-                    <img
-                      v-if="tab.accountItem?.avatar && !tab.accountItem?.avatarLoadFailed"
-                      :src="tab.accountItem.avatar"
-                      class="appmode-real-avatar"
-                      referrerpolicy="no-referrer"
-                      @error="tab.accountItem ? tab.accountItem.avatarLoadFailed = true : null"
-                      :alt="tab.accountItem?.nickname || tab.accountItem?.account || tab.title"
-                    />
-                    <span v-else class="avatar-char">{{ getAccountAvatarText(tab.accountItem, tab.account || getPlatformConfig(tab.platform).name) }}</span>
-                    <span class="avatar-badge">
-                      <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
-                    </span>
-                  </div>
-
-                  <h3 class="appmode-title">{{ tab.accountItem?.nickname || tab.accountItem?.account || tab.title }}</h3>
-                  <p class="appmode-url">{{ tab.url }}</p>
-
-                  <div class="appmode-guide-tip">
-                    <el-icon><CircleCheck /></el-icon>
-                    <span>浏览器窗口已为您展开在桌面上，您可以在里面扫码登录、使用键盘打字、拖拽上传文件。登录状态每 30 秒自动保存一次。</span>
-                  </div>
-
-                  <div class="appmode-actions">
-                    <el-button
-                      type="primary"
-                      size="large"
-                      class="focus-window-btn"
-                      @click="startAppWindowForTab(tab)"
-                    >
-                      <el-icon><RefreshRight /></el-icon>
-                      <span>重新打开窗口</span>
-                    </el-button>
-
-                    <el-button
-                      type="danger"
-                      size="large"
-                      plain
-                      class="stop-session-btn"
-                      @click="stopSessionForTab(tab)"
-                    >
-                      <el-icon><CircleClose /></el-icon>
-                      <span>关闭并保存登录状态</span>
-                    </el-button>
-                  </div>
-                </div>
-              </div>
-            </template>
-
-            <!-- B. 待机状态：账号就绪面板 -->
-            <div v-else-if="tab.type === 'account' && tab.accountItem" class="browser-standby-hub">
-              <div class="standby-card-content">
-                <div class="standby-brand-avatar" :style="{ background: getPlatformStyle(tab.platform).gradient }">
-                  <img
-                    v-if="tab.accountItem.avatar && !tab.accountItem.avatarLoadFailed"
-                    :src="tab.accountItem.avatar"
-                    class="standby-real-avatar"
-                    referrerpolicy="no-referrer"
-                    @error="tab.accountItem.avatarLoadFailed = true"
-                    :alt="tab.accountItem.nickname || tab.accountItem.account"
-                  />
-                  <span v-else class="avatar-huge-char">{{ getAccountAvatarText(tab.accountItem) }}</span>
-                  <span class="brand-sub-badge">
-                    <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
-                  </span>
-                </div>
-
-                <h2 class="standby-account-title">{{ tab.accountItem.nickname || tab.accountItem.account }}</h2>
-                <div class="standby-checked-at" v-if="tab.accountItem?.checkedAt">
-                  上次检测：{{ fmtCheckedAt(tab.accountItem.checkedAt) }}
-                </div>
-                <div class="standby-meta-pills">
-                  <el-tag size="default" :type="isTabSyncing(tab) ? 'warning' : (tab.accountItem.isValid ? 'success' : 'danger')" effect="dark" round>
-                    <el-icon v-if="isTabSyncing(tab)" class="is-loading" style="margin-right: 4px;"><Loading /></el-icon>
-                    <span>{{ isTabSyncing(tab) ? '正在检查登录状态…' : (tab.accountItem.isValid ? '✅ 登录状态正常' : '⚠️ 登录已失效，请重新扫码') }}</span>
-                  </el-tag>
-                  <el-tag size="default" type="info" round v-if="tab.accountItem.finderUid">
-                    UID: {{ tab.accountItem.finderUid }}
-                  </el-tag>
-                  <el-tag size="default" type="warning" round>
-                    分组：{{ tab.accountItem.group || DEFAULT_GROUP }}
-                  </el-tag>
-                </div>
-
-                <p class="standby-intro-desc" v-if="tab.accountItem.isValid">
-                  本账号登录状态健康，点击下方按钮即可直接在浏览器窗口打开创作者服务平台，享受清晰的画面与顺畅的交互。
-                </p>
-                <p class="standby-intro-desc warning-text" v-else>
-                  当前账号登录已失效，点击下方按钮将打开浏览器窗口并呈现扫码页面，手机微信/抖音扫码即可无缝完成绑定更新。
-                </p>
-
-                <div class="standby-action-launch">
-                  <el-button
-                    type="primary"
-                    class="launch-stream-large-btn"
-                    size="large"
-                    :loading="tab.isStartingSession"
-                    @click="startAppWindowForTab(tab)"
-                  >
-                    <el-icon><Monitor /></el-icon>
-                    <span>{{ tab.accountItem.isValid ? '🚀 打开浏览器窗口' : '🚀 打开浏览器扫码登录' }}</span>
-                  </el-button>
-                </div>
-              </div>
-            </div>
-
-            <!-- C. 新标签页 / 快速接入向导 -->
-            <div v-else class="browser-newtab-hub">
-              <div class="newtab-content-box">
-                <div class="newtab-logo-box">
-                  <el-icon class="newtab-logo"><Compass /></el-icon>
-                </div>
-                <h2 class="newtab-heading">添加账号</h2>
-                <p class="newtab-sub">选择要添加的平台，点下方按钮后会打开浏览器，用手机扫码登录即可</p>
-
-                <!-- 平台选择卡片网格 -->
-                <div class="newtab-platforms-grid">
-                  <div
-                    v-for="plat in platformList"
-                    :key="plat.id"
-                    class="newtab-platform-card"
-                    :class="{ 'selected': newTabSelectedPlatform === plat.id }"
-                    @click="newTabSelectedPlatform = plat.id"
-                  >
-                    <div class="card-plat-icon" :style="{ background: plat.gradient }">
-                      <el-icon><component :is="plat.icon" /></el-icon>
-                    </div>
-                    <span class="card-plat-name">{{ plat.name }}</span>
-                  </div>
-                </div>
-
-                <!-- 备注名 + 分组 + 启动按钮 -->
-                <div class="newtab-launch-form">
-                  <div class="form-row">
-                    <span class="row-label">账号备注名</span>
-                    <el-input
-                      v-model="newTabAccountAlias"
-                      placeholder="选填：留空则自动读取平台昵称"
-                      size="default"
-                      style="flex: 1;"
-                      clearable
-                    />
-                  </div>
-
-                  <div class="form-row">
-                    <span class="row-label">分组</span>
-                    <el-select
-                      v-model="newTabGroup"
-                      placeholder="选填：默认归入「默认分组」"
-                      size="default"
-                      style="flex: 1;"
-                      filterable
-                      allow-create
-                      clearable
-                      default-first-option
-                    >
-                      <el-option
-                        v-for="g in accountStore.groups"
-                        :key="g"
-                        :label="g"
-                        :value="g"
-                      />
-                    </el-select>
-                  </div>
-
-                  <div class="newtab-form-hint">
-                    💡 分组用于在「发布工作台」里批量勾选账号；也可直接输入新名称创建分组
-                  </div>
-
-                  <div class="form-action-row">
-                    <el-button
-                      type="primary"
-                      class="launch-stream-large-btn"
-                      size="default"
-                      :loading="tab.isStartingSession"
-                      @click="startNewTabLoginForTab(tab)"
-                    >
-                      <el-icon><Monitor /></el-icon>
-                      <span>🚀 打开浏览器扫码登录</span>
-                    </el-button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div class="gsp-tip">
+          💡 把左侧账号拖到文件夹即可归类；一个账号可以属于多个分组
         </div>
       </div>
     </div>
@@ -564,14 +432,8 @@
 
             <span class="gd-count">{{ accountStore.groupCounts[grp] || 0 }} 个账号</span>
 
-            <!-- 默认分组：只显示徽章 -->
-            <span v-if="grp === DEFAULT_GROUP" class="gd-default" title="默认分组不可改名或删除">
-              默认
-            </span>
-
-            <!-- 自定义分组：⋯ 菜单 -->
+            <!-- 所有分组均可改名或删除 -->
             <el-dropdown
-              v-else
               trigger="click"
               placement="bottom-end"
               @command="(cmd: string) => handleGroupCommand(cmd, grp)"
@@ -608,17 +470,71 @@
         <el-button @click="showGroupDialog = false">完成</el-button>
       </template>
     </el-dialog>
+
+    <!-- 添加账号弹框 -->
+    <el-dialog v-model="showAddAccountDialog" title="添加账号" width="560px" destroy-on-close>
+      <div class="add-dlg-body">
+        <div class="add-step-label">1. 选择平台</div>
+        <div class="add-platform-grid">
+          <div
+            v-for="plat in platformList"
+            :key="plat.id"
+            class="add-plat-card"
+            :class="{ on: addForm.platform === plat.id }"
+            @click="addForm.platform = plat.id"
+          >
+            <span class="ap-name">{{ plat.name }}</span>
+          </div>
+        </div>
+
+        <div class="add-step-label">2. 填写信息（可选）</div>
+        <div class="add-form-row">
+          <span class="af-label">账号备注名</span>
+          <el-input v-model="addForm.alias" size="default" placeholder="留空则自动读取平台昵称" clearable />
+        </div>
+        <div class="add-form-row">
+          <span class="af-label">分组</span>
+          <el-select
+            v-model="addForm.groups"
+            multiple
+            collapse-tags
+            filterable
+            allow-create
+            clearable
+            placeholder="可多选，留空则不分组"
+            style="flex:1"
+          >
+            <el-option v-for="g in accountStore.groups" :key="g" :label="g" :value="g" />
+          </el-select>
+        </div>
+
+        <div class="add-hint">💡 点下方按钮会打开浏览器，用手机扫码登录</div>
+      </div>
+
+      <template #footer>
+        <el-button @click="showAddAccountDialog = false">取消</el-button>
+        <el-button type="primary" :loading="addForm.loading" @click="handleAddAccountConfirm">
+          🚀 打开浏览器扫码登录
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import FolderIcon from '../components/common/FolderIcon.vue'
 import { PLATFORMS, getPlatformConfig } from '../config/platforms'
-import { useAccountStore, AccountItem, DEFAULT_GROUP } from '../stores/accountStore'
+import { useAccountStore, AccountItem } from '../stores/accountStore'
 import { LoginAccountWithAppWindow, StopTaskById } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
+import {
+  Plus, Search, Delete, Monitor, ArrowDown, ArrowLeft,
+  ArrowRight, FolderAdd, UserFilled, Loading, Check,
+  CircleClose, Refresh, RefreshRight, CircleCheck, Compass,
+  MoreFilled, EditPen, Setting, Select
+} from '@element-plus/icons-vue'
 
 const accountStore = useAccountStore()
 
@@ -635,8 +551,8 @@ interface BrowserTab {
   isStartingSession: boolean
   taskId: string
   sessionStatusText: string
-  /** 接入向导里选的分组，登录成功后用于给新账号归组 */
-  pendingGroup?: string
+  /** 接入向导里选的分组（选填，可多选） */
+  pendingGroups?: string[]
 }
 
 const openTabs = ref<BrowserTab[]>([])
@@ -651,11 +567,20 @@ const filterOnlyInvalidFlag = ref(false)
 
 const newTabSelectedPlatform = ref('douyin')
 const newTabAccountAlias = ref('')
-/** 接入向导里选择的分组（选填） */
-const newTabGroup = ref('')
+/** 接入向导里选择的分组（选填，可多选） */
+const newTabGroups = ref<string[]>([])
 
 const showGroupDialog = ref(false)
 const newGroupName = ref('')
+
+/** 添加账号弹框 */
+const showAddAccountDialog = ref(false)
+const addForm = reactive({
+  platform: 'douyin',
+  alias: '',
+  groups: [] as string[],
+  loading: false
+})
 
 /** 是否收起右侧浏览器 */
 const browserCollapsed = ref(false)
@@ -690,7 +615,7 @@ const filteredAccounts = computed(() => {
     if (currentPlatformFilter.value !== 'all' && acc.platform !== currentPlatformFilter.value) {
       return false
     }
-    if (currentGroupFilter.value !== 'all' && acc.group !== currentGroupFilter.value) {
+    if (currentGroupFilter.value !== 'all' && !acc.groups?.includes(currentGroupFilter.value)) {
       return false
     }
     if (searchKeyword.value) {
@@ -794,22 +719,105 @@ function isStaleCheck(ts?: number): boolean {
 /** 分组 → 该组包含的平台名（最多 3 个） */
 function groupPlatforms(grp: string): string {
   const names = accountStore.accounts
-    .filter(a => (a.group || DEFAULT_GROUP) === grp)
+    .filter(a => a.groups?.includes(grp))
     .map(a => getPlatformConfig(a.platform).name)
   const uniq = Array.from(new Set(names))
   if (uniq.length === 0) return '暂无账号'
   return uniq.slice(0, 3).join(' · ') + (uniq.length > 3 ? ` 等 ${uniq.length} 个平台` : '')
 }
 
-/** ⋯ 菜单命令分发 */
-function handleGroupCommand(cmd: string, grp: string) {
-  if (cmd === 'rename') handleRenameGroup(grp)
-  else if (cmd === 'delete') handleDeleteGroup(grp)
-}
-
 // 激活某个标签页
 const activateTab = (tabId: string) => {
   activeTabId.value = tabId
+}
+
+/* ───────── 拖拽归类 ───────── */
+const draggingAccounts = ref<AccountItem[]>([])
+const dropTargetGroup = ref('')
+
+function isDragging(acc: AccountItem) {
+  return draggingAccounts.value.some(a => a.platform === acc.platform && a.account === acc.account)
+}
+
+function onDragStart(acc: AccountItem, e: DragEvent) {
+  const useChecked = checkedAccounts.value.length > 0 && checkedAccounts.value.includes(accKey(acc))
+  draggingAccounts.value = useChecked ? checkedAccountItems.value.slice() : [acc]
+  e.dataTransfer?.setData('text/plain', String(draggingAccounts.value.length))
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'
+}
+
+function onDragEnd() {
+  draggingAccounts.value = []
+  dropTargetGroup.value = ''
+}
+
+function onDragOverGroup(grp: string) {
+  if (dropTargetGroup.value !== grp) dropTargetGroup.value = grp
+}
+
+function onDragLeaveGroup(grp: string) {
+  if (dropTargetGroup.value === grp) dropTargetGroup.value = ''
+}
+
+function onDropToGroup(grp: string) {
+  const list = draggingAccounts.value
+  if (list.length > 0) {
+    accountStore.addAccountsToGroup(
+      list.map(a => ({ platform: a.platform, account: a.account })),
+      grp
+    )
+    ElMessage.success(`已将 ${list.length} 个账号加入「${grp}」`)
+  }
+  onDragEnd()
+}
+
+/* ───────── 文件夹展开 ───────── */
+const expandedGroups = ref<string[]>([])
+
+function toggleGroupExpand(grp: string) {
+  const i = expandedGroups.value.indexOf(grp)
+  if (i >= 0) expandedGroups.value.splice(i, 1)
+  else expandedGroups.value.push(grp)
+}
+
+function groupMembers(grp: string): AccountItem[] {
+  return accountStore.accounts.filter(a => a.groups?.includes(grp))
+}
+
+/** 从分组移除单个账号 */
+function handleRemoveFromGroup(acc: AccountItem, grp: string) {
+  accountStore.removeFromGroup(acc.platform, acc.account, grp)
+  ElMessage.success(`已从「${grp}」移除`)
+}
+
+/** ⋯ 菜单 */
+function handleGroupCommand(cmd: string, grp: string) {
+  if (cmd === 'rename') handleRenameGroup(grp)
+  else if (cmd === 'delete') handleDeleteGroup(grp)
+  else if (cmd === 'selectAll') {
+    groupMembers(grp).forEach(a => {
+      const k = accKey(a)
+      if (!checkedAccounts.value.includes(k)) checkedAccounts.value.push(k)
+    })
+    ElMessage.success(`已选中「${grp}」的 ${accountStore.groupCounts[grp] || 0} 个账号`)
+  }
+}
+
+/** 右侧面板内联新建分组 */
+function handleCreateGroupInline() {
+  const name = newGroupName.value.trim()
+  if (!name) { ElMessage.warning('请输入分组名称'); return }
+  if (accountStore.groups.includes(name)) { ElMessage.warning('已存在同名分组'); return }
+  accountStore.addGroup(name)
+  newGroupName.value = ''
+  ElMessage.success(`已创建分组「${name}」`)
+}
+
+/** 为指定账号打开浏览器登录 */
+async function openBrowserForAccount(acc: AccountItem) {
+  openAccountTab(acc)
+  const tab = currentActiveTab.value
+  if (tab) await startAppWindowForTab(tab)
 }
 
 // 左侧点击用户卡片：在右侧单账号面板中显示该账号（单面板模式：切换账号即替换）
@@ -858,6 +866,32 @@ const openNewTab = () => {
     sessionStatusText: '就绪'
   }]
   activeTabId.value = newTabId
+}
+
+/** 打开添加账号弹框 */
+function openAddAccountDialog() {
+  addForm.platform = 'douyin'
+  addForm.alias = ''
+  addForm.groups = []
+  addForm.loading = false
+  showAddAccountDialog.value = true
+}
+
+/** 弹框确认 → 走原有登录链路 */
+async function handleAddAccountConfirm() {
+  addForm.loading = true
+  try {
+    openNewTab()
+    const tab = currentActiveTab.value
+    if (!tab) return
+    tab.platform = addForm.platform
+    tab.account = addForm.alias.trim() || 'auto'
+    tab.pendingGroups = addForm.groups.slice()
+    showAddAccountDialog.value = false
+    await startAppWindowForTab(tab)
+  } finally {
+    addForm.loading = false
+  }
 }
 
 // 关闭标签页
@@ -910,11 +944,11 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
       const savedAcc = accountStore.saveLoggedInAccount(platform, res.account, res.nickname, res.finderUid, true, res.avatar)
       pendingAccountLogins.value = pendingAccountLogins.value.filter(p => p.platform !== platform)
       if (savedAcc) {
-        const wantGroup = (tab.pendingGroup || '').trim()
-        if (wantGroup) {
-          if (!accountStore.groups.includes(wantGroup)) accountStore.addGroup(wantGroup)
-          accountStore.updateAccountGroup(platform, savedAcc.account, wantGroup)
-        }
+        const wantGroups = (tab.pendingGroups || []).filter((g: string) => !!g.trim())
+        wantGroups.forEach((g: string) => {
+          if (!accountStore.groups.includes(g)) accountStore.addGroup(g)
+          accountStore.addToGroup(platform, savedAcc.account, g)
+        })
         tab.accountItem = savedAcc
         tab.account = savedAcc.account
         tab.type = 'account'
@@ -965,7 +999,7 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
 const startNewTabLoginForTab = (tab: BrowserTab) => {
   tab.platform = newTabSelectedPlatform.value
   tab.account = newTabAccountAlias.value.trim() || 'auto'
-  tab.pendingGroup = newTabGroup.value.trim()
+  tab.pendingGroups = newTabGroups.value
   tab.url = getPlatformCreatorUrl(tab.platform)
   tab.title = `${getPlatformConfig(tab.platform).name} - ${tab.account === 'auto' ? '扫码接入' : tab.account}`
   startAppWindowForTab(tab)
@@ -1030,11 +1064,11 @@ async function handleBatchCheck() {
   }
 }
 
-/** 批量移动到分组 */
+/** 批量加入分组 */
 function handleBatchMove(groupName: string) {
   const list = checkedAccountItems.value
-  list.forEach(acc => accountStore.updateAccountGroup(acc.platform, acc.account, groupName))
-  ElMessage.success(`已将 ${list.length} 个账号移动到「${groupName}」`)
+  accountStore.addAccountsToGroup(list.map(acc => ({ platform: acc.platform, account: acc.account })), groupName)
+  ElMessage.success(`已将 ${list.length} 个账号加入「${groupName}」`)
   checkedAccounts.value = []
 }
 
@@ -1126,10 +1160,9 @@ const handleCreateGroup = () => {
 /** 卡片上"改分组"弹层里新建分组的输入 */
 const newGroupNameForAccount = ref('')
 
-/** 把账号移到指定分组 */
+/** 把账号加入分组（已在组内则移除） */
 function assignGroup(acc: AccountItem, groupName: string) {
-  accountStore.updateAccountGroup(acc.platform, acc.account, groupName)
-  ElMessage.success(`已移动到「${groupName}」`)
+  accountStore.toggleAccountGroup(acc.platform, acc.account, groupName)
 }
 
 /** 新建分组并把当前账号放进去 */
@@ -1162,16 +1195,15 @@ async function handleDeleteGroup(name: string) {
   try {
     await ElMessageBox.confirm(
       count > 0
-        ? `删除分组「${name}」后，组内 ${count} 个账号会移到「${DEFAULT_GROUP}」（账号不会被删除）。`
+        ? `删除分组「${name}」后，组内 ${count} 个账号会从这个分组移除（账号不会被删除）。`
         : `确认删除空分组「${name}」？`,
       '确认删除分组',
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
     )
   } catch { return }
 
-  const moved = accountStore.removeGroup(name)
-  if (moved < 0) ElMessage.warning('默认分组不可删除')
-  else ElMessage.success(moved > 0 ? `已删除分组，${moved} 个账号已移到默认分组` : '已删除分组')
+  accountStore.removeGroup(name)
+  ElMessage.success(count > 0 ? `已删除分组，${count} 个账号已从该分组移除` : '已删除分组')
 }
 
 let unlistenLoginSuccess: (() => void) | null = null
@@ -1328,20 +1360,6 @@ watch(() => accountStore.accounts, (newAccounts) => {
   color: var(--primary-color);
   white-space: nowrap;
 }
-
-/* 面板标题行（替代原来的浏览器工具栏） */
-.panel-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-.ph-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.ph-title { font-size: 14px; font-weight: 700; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ph-status { font-size: 12px; font-weight: 600; white-space: nowrap; }
-.ph-status.ok { color: var(--status-success); }
-.ph-status.bad { color: var(--status-danger); }
-.ph-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
 /* 👈 左侧：账号列表侧边栏 */
 .account-sidebar-pane {
@@ -1629,430 +1647,112 @@ watch(() => accountStore.accounts, (newAccounts) => {
   font-weight: 600;
 }
 
-/* 👉 右侧：单账号面板 */
-.browser-window-pane {
-  flex: 1;
-  min-width: 0;
-  height: auto;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-card);
+/* 👉 右侧：分组面板 */
+.groups-pane {
+  width: 340px; min-width: 340px; max-width: 340px;
+  display: flex; flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border-subtle);
+  padding-left: 14px;
+}
+.gsp-head { display: flex; align-items: center; gap: 7px; padding: 2px 0 10px; flex-shrink: 0; }
+.gsp-title { font-size: 13px; font-weight: 700; color: var(--text-main); }
+.gsp-count { font-size: 11px; color: var(--text-muted); }
+.gsp-spacer { flex: 1; }
+
+.gsp-create { display: flex; gap: 7px; margin-bottom: 11px; flex-shrink: 0; }
+
+.gsp-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+
+.folder {
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  border-radius: 9px;
+  margin-bottom: 7px;
   overflow: hidden;
-  box-shadow: var(--shadow-card);
+  transition: border-color .15s, background-color .15s;
 }
-
-/* 收起浏览器时隐藏右侧面板 */
-.accounts-body.collapsed .browser-window-pane {
-  display: none;
+.folder.drop {
+  border: 2px dashed var(--primary-color);
+  background: rgba(79, 70, 229, .07);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, .10);
 }
-
-/* 浏览器主内容区 */
-.browser-viewport-stage {
-  flex: 1;
-  position: relative;
-  background: var(--bg-app);
-  overflow: hidden;
-  display: flex;
+.folder-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 11px; cursor: pointer;
 }
-
-.tab-viewport-container {
-  width: 100%;
-  height: 100%;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
+.folder-head:hover { background: rgba(79,70,229,.04); }
+.f-arrow { font-size: 11px; color: var(--text-muted); transition: transform .18s; }
+.f-arrow.open { transform: rotate(90deg); }
+.f-name { font-size: 12.5px; font-weight: 600; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-count {
+  margin-left: auto; font-size: 10.5px; font-weight: 700;
+  padding: 2px 8px; border-radius: 20px;
+  background: rgba(79,70,229,.10); color: var(--primary-color);
 }
-
-.live-canvas-fill {
-  width: 100%;
-  height: 100%;
+.f-more {
+  width: 22px; height: 22px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted); opacity: .5; flex-shrink: 0;
 }
+.f-more:hover { background: rgba(0,0,0,.06); opacity: 1; }
 
-/* 浏览器伴侣控制台样式 */
-.browser-appmode-hub {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  background: radial-gradient(circle at 50% 30%, rgba(99, 102, 241, 0.08) 0%, transparent 70%);
+.f-drop-hint {
+  font-size: 11.5px; font-weight: 700; color: var(--primary-color);
+  padding: 0 11px 9px;
 }
-
-.appmode-card {
-  max-width: 540px;
-  width: 100%;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  padding: 28px 32px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.15);
-  animation: fadeIn 0.3s ease;
+.f-members { border-top: 1px solid var(--border-subtle); padding: 4px 6px; }
+.f-member {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 7px; border-radius: 6px;
+  font-size: 11.5px; cursor: pointer;
 }
+.f-member:hover { background: rgba(79,70,229,.06); }
+.fm-plat { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,.06); }
+.fm-nick { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fm-status { margin-left: auto; font-size: 11px; }
+.fm-x { opacity: .35; font-size: 11px; padding: 0 3px; }
+.fm-x:hover { opacity: 1; color: var(--status-danger); }
+.f-empty { padding: 10px; font-size: 11px; color: var(--text-muted); text-align: center; }
 
-.appmode-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 18px;
+.gsp-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 34px 0; color: var(--text-muted); font-size: 12px;
 }
+.gsp-empty-sub { font-size: 11px; opacity: .7; }
 
-.appmode-badge-live {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #10b981;
+.gsp-tip { font-size: 11px; color: var(--text-muted); line-height: 1.6; padding: 10px 0 2px; flex-shrink: 0; }
+
+/* ── 账号卡片 ── */
+.acc-group-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+.acc-gtag {
+  font-size: 9.5px; padding: 1px 6px; border-radius: 20px;
+  background: rgba(79,70,229,.09); color: var(--primary-color);
 }
+.acc-acts { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
+.acc-act { font-size: 13px; color: var(--text-muted); cursor: pointer; opacity: .55; }
+.acc-act:hover { opacity: 1; color: var(--primary-color); }
+.acc-act.spinning { animation: spin 1s linear infinite; opacity: 1; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.contact-item.dragging { opacity: .4; }
 
-.live-pulse-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 10px #10b981;
-  animation: pulse 1.6s infinite;
+/* ── 添加账号弹框 ── */
+.add-dlg-body { display: flex; flex-direction: column; gap: 12px; }
+.add-step-label { font-size: 12px; font-weight: 700; color: var(--text-main); }
+.add-platform-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.add-plat-card {
+  border: 1px solid var(--border-subtle); border-radius: 8px;
+  padding: 10px; text-align: center; font-size: 12px; cursor: pointer;
+  transition: all .15s;
 }
-
-.appmode-avatar-box {
-  position: relative;
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-}
-
-.avatar-badge {
-  position: absolute;
-  bottom: -2px;
-  right: -2px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary-color);
-  font-size: 13px;
-}
-
-.appmode-title {
-  margin: 0 0 6px 0;
-  font-size: 18px;
-  font-weight: 800;
-  color: var(--text-main);
-}
-
-.appmode-url {
-  margin: 0 0 16px 0;
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-family: monospace;
-  background: var(--bg-detail);
-  padding: 4px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border-subtle);
-  max-width: 90%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.appmode-guide-tip {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  text-align: left;
-  margin-bottom: 20px;
-}
-
-.appmode-guide-tip .el-icon {
-  font-size: 16px;
-  color: #10b981;
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-
-.appmode-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  margin-bottom: 14px;
-}
-
-.focus-window-btn {
-  flex: 1;
-  background: var(--primary-color) !important;
-  border: none !important;
-  font-weight: 700;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
-}
-
-.stop-session-btn {
-  font-weight: 700;
-}
-
-/* 创作者中心就绪待机面板 */
-.browser-standby-hub {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.standby-card-content {
-  max-width: 480px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 12px;
-}
-
-.standby-brand-avatar {
-  position: relative;
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
-  border: 3px solid var(--bg-card);
-}
-
-.avatar-huge-char {
-  font-size: 36px;
-  font-weight: 800;
-  color: #ffffff;
-}
-
-.brand-sub-badge {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary-color);
-  font-size: 13px;
-}
-
-.standby-account-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--text-main);
-}
-
-.standby-checked-at {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-.standby-meta-pills {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.standby-intro-desc {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  margin: 0;
-}
-
-.standby-intro-desc.warning-text {
-  color: #ef4444;
-  font-weight: 600;
-}
-
-.standby-action-launch {
-  width: 100%;
-  margin: 8px 0;
-}
-
-.launch-stream-large-btn {
-  width: 100%;
-  background: var(--primary-color) !important;
-  border: none !important;
-  font-weight: 800;
-  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);
-}
-
-.standby-feature-tags {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-/* 新标签页接入向导面板 */
-.browser-newtab-hub {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.newtab-content-box {
-  max-width: 520px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 12px;
-}
-
-.newtab-logo-box {
-  width: 68px;
-  height: 68px;
-  border-radius: 20px;
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.25);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.newtab-logo {
-  font-size: 36px;
-  color: var(--primary-color);
-}
-
-.newtab-heading {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--text-main);
-}
-
-.newtab-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  margin: 0;
-}
-
-.newtab-platforms-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  width: 100%;
-  margin: 6px 0;
-}
-
-.newtab-platform-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 8px;
-  background: var(--bg-detail);
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.newtab-platform-card:hover {
+.add-plat-card:hover { border-color: var(--primary-color); }
+.add-plat-card.on {
   border-color: var(--primary-color);
-  transform: translateY(-2px);
+  background: rgba(79,70,229,.08);
+  color: var(--primary-color); font-weight: 700;
 }
-
-.newtab-platform-card.selected {
-  border-color: var(--primary-color);
-  background: rgba(99, 102, 241, 0.12);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
-}
-
-.card-plat-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 16px;
-}
-
-.card-plat-name {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.newtab-launch-form {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: var(--bg-detail);
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  padding: 12px;
-}
-
-.form-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.row-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  min-width: 70px;
-}
-
-.newtab-form-hint {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  line-height: 1.6;
-  margin: 2px 0 4px;
-  padding-left: 2px;
-}
+.add-form-row { display: flex; align-items: center; gap: 9px; }
+.af-label { font-size: 12px; color: var(--text-muted); min-width: 70px; }
+.add-hint { font-size: 11.5px; color: var(--text-muted); }
 
 /* ── 分组管理弹窗 ── */
 .group-dialog-body { display: flex; flex-direction: column; }
@@ -2104,14 +1804,6 @@ watch(() => accountStore.accounts, (newAccounts) => {
   padding: 2px 9px; border-radius: 20px;
   background: rgba(79, 70, 229, .10);
   color: var(--primary-color);
-  white-space: nowrap; flex-shrink: 0;
-}
-
-.gd-default {
-  font-size: 10.5px;
-  padding: 2px 8px; border-radius: 20px;
-  background: rgba(128, 128, 128, .12);
-  color: var(--text-muted);
   white-space: nowrap; flex-shrink: 0;
 }
 
