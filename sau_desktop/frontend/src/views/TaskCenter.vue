@@ -87,6 +87,10 @@
           <span class="log-indicator-dot" v-if="taskStore.runningTasksCount > 0"></span>
         </el-button>
 
+        <el-button size="small" plain @click="showBatchDrawer = true">
+          <el-icon><CollectionTag /></el-icon> 批次中心 ({{ taskStore.batches.length }})
+        </el-button>
+
         <el-button size="small" plain @click="taskStore.clearFinishedTasks">
           <el-icon><Delete /></el-icon> 清理已完成
         </el-button>
@@ -122,7 +126,27 @@
             <span class="batch-name-text" :title="batch.name">{{ batch.name }}</span>
             <span class="batch-count-tag">{{ getBatchTaskCount(batch.id) }}</span>
           </span>
+
+          <el-button 
+            v-if="taskStore.batches.length > 0"
+            size="small"
+            link
+            type="primary"
+            class="batch-more-pill"
+            @click="showBatchDrawer = true"
+          >
+            管理全部批次 »
+          </el-button>
         </div>
+      </div>
+
+      <!-- 已清理已归档批次便捷提示 -->
+      <div class="batch-archived-banner" v-if="selectedBatch !== 'all' && getBatchTaskCount(selectedBatch) === 0">
+        <el-icon><InfoFilled /></el-icon>
+        <span>该批次已在画板中清理归档，已安全保存在「批次中心」。</span>
+        <el-button size="small" type="primary" link @click="taskStore.republishBatch(selectedBatch)">
+          一键重新装载发布
+        </el-button>
       </div>
 
       <!-- 防风控并发冲突警告 -->
@@ -307,7 +331,7 @@
                       <el-icon><RefreshRight /></el-icon> 恢复
                     </el-button>
 
-                    <el-button size="small" type="primary" link @click="openTaskLogs(task)">
+                    <el-button size="small" type="primary" link @click="openTaskLogs(task, 'terminal')">
                       <el-icon><Monitor /></el-icon> 日志
                     </el-button>
                   </div>
@@ -411,7 +435,7 @@
             </span>
           </div>
           <div class="card-right-tools">
-            <el-button size="small" type="primary" link @click.stop="openTaskLogs(task)">
+            <el-button size="small" type="primary" link @click.stop="openTaskLogs(task, 'terminal')">
               <el-icon><Monitor /></el-icon>
             </el-button>
             <el-icon class="drag-icon"><Rank /></el-icon>
@@ -428,6 +452,13 @@
     <TaskLogDrawer 
       v-model="showLogDrawer"
       :task="selectedTaskForDrawer"
+      :initialTab="drawerInitialTab"
+    />
+
+    <!-- 6. 任务批次中心与历史记录库抽屉 -->
+    <BatchManagerDrawer
+      v-model="showBatchDrawer"
+      @republished="handleBatchRepublished"
     />
   </div>
 </template>
@@ -438,6 +469,7 @@ import { ElMessage } from 'element-plus'
 import { getPlatformConfig } from '../config/platforms'
 import { useTaskStore } from '../stores/taskStore'
 import TaskLogDrawer from '../components/matrix/TaskLogDrawer.vue'
+import BatchManagerDrawer from '../components/matrix/BatchManagerDrawer.vue'
 import type { PublishTask, TaskStatus } from '../types/task'
 
 const taskStore = useTaskStore()
@@ -447,7 +479,9 @@ const selectedBatch = ref<string>('all')
 
 // 抽屉状态
 const showLogDrawer = ref(false)
+const showBatchDrawer = ref(false)
 const selectedTaskForDrawer = ref<PublishTask | null>(null)
+const drawerInitialTab = ref<'terminal' | 'live'>('terminal')
 
 // 拖拽状态
 const isDragging = ref(false)
@@ -484,12 +518,18 @@ const getBatchTaskCount = (batchId: string) => {
 
 const openGlobalLogs = () => {
   selectedTaskForDrawer.value = null
+  drawerInitialTab.value = 'terminal'
   showLogDrawer.value = true
 }
 
-const openTaskLogs = (task: PublishTask) => {
+const openTaskLogs = (task: PublishTask, tab: 'terminal' | 'live' = 'terminal') => {
   selectedTaskForDrawer.value = task
+  drawerInitialTab.value = tab
   showLogDrawer.value = true
+}
+
+const handleBatchRepublished = (newBatchId: string) => {
+  selectedBatch.value = newBatchId
 }
 
 const getStepDelay = (task: PublishTask, lane: any) => {
@@ -768,6 +808,30 @@ const handleDropOnUnassigned = (_e: DragEvent) => {
   padding: 0 4px;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.08);
+}
+
+.batch-more-pill {
+  font-size: 11px;
+  padding: 2px 6px;
+  margin-left: 2px;
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+
+.batch-more-pill:hover {
+  opacity: 1;
+}
+
+.batch-archived-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px dashed rgba(99, 102, 241, 0.25);
+  font-size: 11px;
+  color: #a5b4fc;
 }
 
 .risk-alert-box {

@@ -79,4 +79,5 @@ export interface TaskBatch {
   executionMode: ExecutionMode
   delayBetweenTasks?: number
   scheduledAt?: string
+  tasksSnapshot?: PublishTask[] // 完整保存批次内的全部卡片快照，确保清理已完成画板后依然可以回溯查看与一键重新发布！
 }

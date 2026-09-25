@@ -199,28 +199,34 @@ defineExpose({
   font-family: 'JetBrains Mono', Consolas, monospace;
   font-size: 11px;
   line-height: 1.4;
+  color: #f1f5f9 !important;
 }
 
 .log-line {
   margin-bottom: 2px;
   word-break: break-all;
+  color: #f1f5f9 !important;
 }
 
 .log-time {
-  color: #64748b;
+  color: #94a3b8 !important;
   margin-right: 6px;
 }
 
+.log-text {
+  color: #f1f5f9 !important;
+}
+
 .log-line.error .log-text {
-  color: #f87171;
+  color: #f87171 !important;
 }
 
 .log-line.success .log-text {
-  color: #34d399;
+  color: #34d399 !important;
 }
 
 .log-line.log .log-text {
-  color: #cbd5e1;
+  color: #cbd5e1 !important;
 }
 
 .log-empty {

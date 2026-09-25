@@ -252,51 +252,91 @@ export const useTaskStore = defineStore('task', () => {
       globalLiveLogs.value.shift()
     }
 
-    // 1. 结构化事件精准推进任务状态 (优先匹配 TaskId)
+    // 1. 结构化事件精准推进任务状态 (严格遵循单一主键 TaskId 绑定)
     if (evt.taskId || (plat && acc)) {
-      const matchPredicate = (t: PublishTask) => {
-        if (evt.taskId && t.id === evt.taskId) return true
-        if (plat && acc && t.platform === plat && t.account === acc && t.status !== 'success') return true
-        return false
+      let matchedTask: PublishTask | null = null
+
+      if (evt.taskId) {
+        // 严格主键匹配：通过 TaskId 精准锁定任务，杜绝同通道同账号卡片串门连带误报成功
+        matchedTask = tasks.value.find(t => t.id === evt.taskId) || null
+        if (!matchedTask) {
+          for (const l of lanes.value) {
+            matchedTask = l.tasks.find(t => t.id === evt.taskId) || null
+            if (matchedTask) break
+          }
+        }
+      } else if (plat && acc) {
+        // 兜底无 TaskId 时：绝对只匹配当前正在执行中 (status === 'running') 的任务，严禁碰排队中 (queued) 任务！
+        matchedTask = tasks.value.find(t => t.platform === plat && t.account === acc && t.status === 'running') || null
+        if (!matchedTask) {
+          for (const l of lanes.value) {
+            matchedTask = l.tasks.find(t => t.platform === plat && t.account === acc && t.status === 'running') || null
+            if (matchedTask) break
+          }
+        }
       }
 
-      const updated = syncUpdateTask(matchPredicate, (targetTask) => {
-        targetTask.logs.push(logItem)
+      if (matchedTask) {
+        const targetId = matchedTask.id
+        const isAuthOrLoginIssue = cleanMsg.includes('未登录') || cleanMsg.includes('登录失效') || 
+                                   cleanMsg.includes('Cookie已失效') || cleanMsg.includes('cookie 已失效') ||
+                                   cleanMsg.includes('扫码登录') || cleanMsg.includes('登录已过期')
 
-        if (type === 'task_start') {
-          targetTask.status = 'running'
-          targetTask.startedAt = timeStr
-          targetTask.progress = 30
-        } else if (type === 'task_success') {
-          targetTask.status = 'success'
-          targetTask.completedAt = timeStr
-          targetTask.completedAtTimestamp = Date.now()
-          targetTask.progress = 100
-          targetTask.errorMsg = ''
-        } else if (type === 'task_error') {
-          targetTask.status = 'failed'
-          targetTask.completedAt = timeStr
-          targetTask.completedAtTimestamp = Date.now()
-          targetTask.errorMsg = cleanMsg
-        } else if (type === 'risk_alert') {
-          targetTask.status = 'failed'
-          targetTask.isPaused = true
-          targetTask.pauseReason = cleanMsg
-          targetTask.errorMsg = cleanMsg
-        }
-      })
+        const updated = syncUpdateTask(t => t.id === targetId, (targetTask) => {
+          targetTask.logs.push(logItem)
 
-      if (updated) {
-        if (type === 'risk_alert') {
-          ElNotification({
-            title: '⚠️ 账号已自动保护暂停',
-            message: cleanMsg,
-            type: 'warning',
-            duration: 9000
-          })
+          if (type === 'task_start') {
+            targetTask.status = 'running'
+            targetTask.startedAt = timeStr
+            targetTask.progress = 30
+          } else if (type === 'task_success') {
+            targetTask.status = 'success'
+            targetTask.completedAt = timeStr
+            targetTask.completedAtTimestamp = Date.now()
+            targetTask.progress = 100
+            targetTask.errorMsg = ''
+          } else if (type === 'task_error') {
+            targetTask.status = 'failed'
+            targetTask.completedAt = timeStr
+            targetTask.completedAtTimestamp = Date.now()
+            targetTask.errorMsg = cleanMsg
+            if (isAuthOrLoginIssue) {
+              targetTask.isPaused = true
+              targetTask.pauseReason = '账号未登录或凭证失效，请在账号管理中重新登录后点击恢复'
+            }
+          } else if (type === 'risk_alert') {
+            targetTask.status = 'failed'
+            targetTask.isPaused = true
+            targetTask.pauseReason = cleanMsg
+            targetTask.errorMsg = cleanMsg
+          }
+        })
+
+        // 若当前任务因未登录而失败，自动保护暂停同账号后续在排队的任务，防止无意义的连续尝试
+        if (isAuthOrLoginIssue && matchedTask.platform && matchedTask.account) {
+          const authPlat = matchedTask.platform
+          const authAcc = matchedTask.account
+          syncUpdateTask(
+            t => t.id !== targetId && t.platform === authPlat && t.account === authAcc && t.status === 'queued',
+            t => {
+              t.isPaused = true
+              t.pauseReason = '账号未登录或凭证失效，已自动暂停排队，请在账号管理登录后重试'
+            }
+          )
         }
-        refreshAllLanesStatus()
-        return
+
+        if (updated) {
+          if (type === 'risk_alert') {
+            ElNotification({
+              title: '⚠️ 账号已自动保护暂停',
+              message: cleanMsg,
+              type: 'warning',
+              duration: 9000
+            })
+          }
+          refreshAllLanesStatus()
+          return
+        }
       }
     }
 
@@ -372,6 +412,7 @@ export const useTaskStore = defineStore('task', () => {
     })
 
     tasks.value = [...tasks.value, ...newTasks]
+    newBatch.tasksSnapshot = JSON.parse(JSON.stringify(newTasks))
 
     // 智能将新任务追加装载到现有泳道中 (同平台追加到同通道尾部，新平台分配到空闲通道)
     distributeNewBatchIntoLanes(newTasks, effectiveConcurrency)
@@ -659,18 +700,37 @@ export const useTaskStore = defineStore('task', () => {
       // 解析每个账号的发布结果 (优先根据 TaskId 精准匹配，同时同步 lanes 与 tasks)
       if (results && Array.isArray(results)) {
         results.forEach((res: engine.AccountPublishResult) => {
-          syncUpdateTask(
-            t => (res.taskId ? t.id === res.taskId : (t.platform === res.platform && t.account === res.account && t.status !== 'success')),
-            matched => {
-              if (matched.status !== 'success') {
-                matched.status = res.success ? 'success' : 'failed'
-                matched.completedAt = new Date().toLocaleTimeString()
-                matched.completedAtTimestamp = Date.now()
-                matched.progress = 100
-                matched.errorMsg = res.errorMsg || ''
+          if (!res) return
+          const targetId = res.taskId
+          if (targetId) {
+            syncUpdateTask(
+              t => t.id === targetId,
+              matched => {
+                if (matched.status !== 'success') {
+                  matched.status = res.success ? 'success' : 'failed'
+                  matched.completedAt = new Date().toLocaleTimeString()
+                  matched.completedAtTimestamp = Date.now()
+                  matched.progress = 100
+                  matched.errorMsg = res.errorMsg || matched.errorMsg || ''
+                }
               }
+            )
+          } else if (res.platform && res.account) {
+            // 兜底无 TaskId 时，仅匹配非成功中的第 1 个执行中任务
+            const runningTask = tasks.value.find(t => t.platform === res.platform && t.account === res.account && t.status === 'running')
+            if (runningTask) {
+              syncUpdateTask(
+                t => t.id === runningTask.id,
+                matched => {
+                  matched.status = res.success ? 'success' : 'failed'
+                  matched.completedAt = new Date().toLocaleTimeString()
+                  matched.completedAtTimestamp = Date.now()
+                  matched.progress = 100
+                  matched.errorMsg = res.errorMsg || matched.errorMsg || ''
+                }
+              )
             }
-          )
+          }
         })
       }
 
@@ -773,14 +833,23 @@ export const useTaskStore = defineStore('task', () => {
     ElMessage.info(`已中止任务「${task.nickname || task.account}」，通道后续任务将自动继续`)
   }
 
-  // 8. 重试 / 恢复单个任务 (自动排布至泳道)
-  const retryTask = (taskId: string) => {
+  // 8. 重试 / 恢复单个任务 (自动排布至泳道并立即重置风控限流冷却)
+  const retryTask = async (taskId: string) => {
     const task = tasks.value.find(t => t.id === taskId) || lanes.value.flatMap(l => l.tasks).find(t => t.id === taskId)
     if (!task) return
+
+    // 关键机制：重试前调用 Go 接口，立即清空该账号在后端的 Cooldown 和失败计数！杜绝后端拦截“提示要等待”！
+    try {
+      await ResumeAccount(task.platform, task.account)
+    } catch (e) {
+      console.warn('ResumeAccount on retry failed:', e)
+    }
 
     syncUpdateTask(t => t.id === taskId, target => {
       target.status = 'queued'
       target.errorMsg = ''
+      target.isPaused = false
+      target.pauseReason = ''
       target.progress = 0
       target.logs = []
     })
@@ -796,14 +865,111 @@ export const useTaskStore = defineStore('task', () => {
     triggerMultiLaneExecution()
   }
 
-  // 9. 清理已完成
+  // 9. 清理已完成 (仅清理当前活跃泳道画板，批次历史完整归档保存)
   const clearFinishedTasks = () => {
+    // 1. 同步归档各批次的最终快照与统计指标，确保历史记录永不丢失
+    batches.value.forEach(b => {
+      const batchTasks = tasks.value.filter(t => t.batchId === b.id)
+      if (batchTasks.length > 0) {
+        b.tasksSnapshot = JSON.parse(JSON.stringify(batchTasks.map(t => ({
+          ...t,
+          logs: t.logs.slice(-20) // 保存最后20条关键日志
+        }))))
+        b.completedTasks = batchTasks.filter(t => t.status === 'success').length
+        b.failedTasks = batchTasks.filter(t => t.status === 'failed' || t.status === 'cancelled').length
+        if (b.completedTasks === b.totalTasks && b.totalTasks > 0) {
+          b.status = 'completed'
+        } else if (b.failedTasks > 0) {
+          b.status = 'partial'
+        }
+      }
+    })
+
+    // 2. 从当前活跃画板与泳道中清除已结束的任务，让主画板重归整洁
     tasks.value = tasks.value.filter(t => t.status === 'running' || t.status === 'queued')
     lanes.value.forEach(l => {
       l.tasks = l.tasks.filter(t => t.status === 'running' || t.status === 'queued')
     })
     refreshAllLanesStatus()
     saveTasksToStorage()
+    ElMessage.success('已清理当前画板中的完成任务，完整数据已安全归档至「批次中心」')
+  }
+
+  // 9.1 重新发布整个历史批次
+  const republishBatch = (batchId: string): string | null => {
+    const batch = batches.value.find(b => b.id === batchId)
+    const taskList = batch?.tasksSnapshot && batch.tasksSnapshot.length > 0 
+      ? batch.tasksSnapshot 
+      : tasks.value.filter(t => t.batchId === batchId)
+
+    if (!batch || taskList.length === 0) {
+      ElMessage.warning('该批次暂无归档的任务数据')
+      return null
+    }
+
+    const rawTasks: engine.AccountPublishTask[] = taskList.map(t => ({
+      ...t.params,
+      status: 'queued'
+    }))
+
+    const newBatchId = enqueueBatch({
+      batchName: `${batch.name} (重新发布)`,
+      videoFileName: batch.videoFileName,
+      thumbnail: taskList[0]?.thumbnail,
+      rawTasks,
+      concurrency: batch.concurrency || 3
+    })
+
+    ElMessage.success(`已克隆并重新发布批次 [${batch.name}]`)
+    return newBatchId
+  }
+
+  // 9.2 仅重新发布批次中失败/异常的任务
+  const republishFailedInBatch = (batchId: string): string | null => {
+    const batch = batches.value.find(b => b.id === batchId)
+    const taskList = batch?.tasksSnapshot && batch.tasksSnapshot.length > 0 
+      ? batch.tasksSnapshot 
+      : tasks.value.filter(t => t.batchId === batchId)
+
+    if (!batch || taskList.length === 0) {
+      ElMessage.warning('未找到该批次数据')
+      return null
+    }
+
+    const failedTasks = taskList.filter(t => t.status === 'failed' || t.status === 'cancelled')
+    if (failedTasks.length === 0) {
+      ElMessage.info('该批次中没有失败或中止的任务')
+      return null
+    }
+
+    const rawTasks: engine.AccountPublishTask[] = failedTasks.map(t => ({
+      ...t.params,
+      status: 'queued'
+    }))
+
+    const newBatchId = enqueueBatch({
+      batchName: `${batch.name} (重发${failedTasks.length}个失败任务)`,
+      videoFileName: batch.videoFileName,
+      thumbnail: failedTasks[0]?.thumbnail,
+      rawTasks,
+      concurrency: batch.concurrency || 3
+    })
+
+    ElMessage.success(`已重新装载 ${failedTasks.length} 个失败任务至发布通道`)
+    return newBatchId
+  }
+
+  // 9.3 删除历史批次
+  const deleteBatch = (batchId: string) => {
+    const idx = batches.value.findIndex(b => b.id === batchId)
+    if (idx >= 0) {
+      batches.value.splice(idx, 1)
+      if (selectedBatchFilter.value === batchId) {
+        selectedBatchFilter.value = 'all'
+      }
+      saveTasksToStorage()
+      ElMessage.info('已删除该批次归档记录')
+    }
   }
 
   // 10. 清空全部
@@ -917,6 +1083,9 @@ export const useTaskStore = defineStore('task', () => {
     retryTask,
     resumeAccountRisk,
     clearFinishedTasks,
+    republishBatch,
+    republishFailedInBatch,
+    deleteBatch,
     clearAllTasks,
     saveTasksToStorage
   }
