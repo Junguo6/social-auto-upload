@@ -116,6 +116,33 @@
           </div>
         </div>
 
+        <!-- 筛选 chips -->
+        <div class="acc-chips">
+          <span
+            class="acc-chip"
+            :class="{ on: !filterOnlyInvalidFlag && !filterUngrouped }"
+            @click="filterOnlyInvalidFlag = false; filterUngrouped = false"
+          >
+            全部 <span class="chip-n">{{ accountStore.accounts.length }}</span>
+          </span>
+
+          <span
+            class="acc-chip danger"
+            :class="{ on: filterOnlyInvalidFlag, disabled: invalidCount === 0 }"
+            @click="invalidCount > 0 && (filterOnlyInvalidFlag = true, filterUngrouped = false)"
+          >
+            需重新登录 <span class="chip-n">{{ invalidCount }}</span>
+          </span>
+
+          <span
+            class="acc-chip warn"
+            :class="{ on: filterUngrouped, disabled: ungroupedCount === 0 }"
+            @click="ungroupedCount > 0 && (filterUngrouped = true, filterOnlyInvalidFlag = false)"
+          >
+            未分组 <span class="chip-n">{{ ungroupedCount }}</span>
+          </span>
+        </div>
+
         <!-- 2. 账号联系人滚动列表 -->
         <div class="sidebar-contact-list custom-scrollbar">
           <!-- 空状态：仅在没有任何账号且无正在接入任务时显示 -->
@@ -163,16 +190,23 @@
             :key="acc.platform + ':' + acc.account"
             class="contact-card-item"
             :class="{ 'is-active': activeTabId === `${acc.platform}:${acc.account}`, dragging: isDragging(acc) }"
+            :title="(acc.groups && acc.groups.length) ? '所属分组：' + acc.groups.join('、') : '未分组'"
             @mousedown="onCardMouseDown(acc, $event)"
             @click="onCardClick(acc)"
           >
-            <!-- 左侧勾选框 (批量操作) -->
-            <el-checkbox
-              class="acc-check"
-              :model-value="checkedAccounts.includes(accKey(acc))"
-              @click.stop
-              @change="(v: any) => toggleAccountCheck(acc, !!v)"
-            />
+            <!-- 左侧勾选热区：点这一整条都能切换勾选 -->
+            <div
+              class="acc-check-zone"
+              :class="{ on: checkedAccounts.includes(accKey(acc)) }"
+              @click.stop="toggleAccountCheck(acc, !checkedAccounts.includes(accKey(acc)))"
+            >
+              <el-checkbox
+                class="acc-check"
+                :model-value="checkedAccounts.includes(accKey(acc))"
+                @click.stop
+                @change="(v: any) => toggleAccountCheck(acc, !!v)"
+              />
+            </div>
 
             <!-- 头像模块 -->
             <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(acc.platform).gradient }">
@@ -277,11 +311,15 @@
                 </span>
               </div>
 
-              <!-- 分组标签 -->
-              <div class="acc-group-tags" v-if="acc.groups && acc.groups.length">
-                <span v-for="g in acc.groups" :key="g" class="acc-gtag">#{{ g }}</span>
-              </div>
             </div>
+          </div>
+
+          <!-- 底部操作提示（固定在卡片底部，不随列表滚动） -->
+          <div class="pane-tip" v-if="accountStore.groups.length > 0">
+            💡 拖拽账号到右侧分组即可归类（一个账号可属于多个分组）
+          </div>
+          <div class="pane-tip" v-else>
+            💡 先在右侧新建一个分组，再把账号拖进去归类
           </div>
         </div>
       </div>
@@ -293,41 +331,87 @@
           <span class="pch-title">分组列表</span>
           <span class="pch-badge">{{ accountStore.groups.length }}</span>
           <span class="pch-spacer"></span>
-          <el-button size="small" text @click="showGroupDialog = true" title="分组管理">
-            <el-icon><Setting /></el-icon>
+          <el-button size="small" type="primary" plain @click="showGroupDialog = true">
+            <el-icon><Plus /></el-icon>
+            <span>新建分组</span>
           </el-button>
         </div>
 
-        <!-- 新建分组 -->
-        <div class="gsp-create">
-          <el-input
-            v-model="newGroupName"
-            size="small"
-            placeholder="新分组名称"
-            clearable
-            @keyup.enter="handleCreateGroupInline"
-          />
-          <el-button size="small" type="primary" plain @click="handleCreateGroupInline">+ 新建分组</el-button>
-        </div>
-
         <!-- ═══ 视图 A：分组平铺网格 ═══ -->
-        <div class="folder-grid" v-if="!openedGroup && accountStore.groups.length > 0">
+        <div class="folder-grid" :class="{ dragging: dragState.active }" v-if="!openedGroup && accountStore.groups.length > 0">
           <div
             v-for="grp in accountStore.groups"
             :key="grp"
             class="fcell"
-            :class="{ drop: dragState.targetGroup === grp, empty: (accountStore.groupCounts[grp] || 0) === 0 }"
+            :class="{
+              hot: dragState.targetGroup === grp,
+              pop: justDroppedGroup === grp,
+              empty: (accountStore.groupCounts[grp] || 0) === 0
+            }"
             :data-group="grp"
             @dblclick="openGroupDetail(grp)"
           >
-            <FolderIcon :size="40" />
-            <span class="fcell-name" :title="grp">{{ grp }}</span>
-            <span class="fcell-count">{{ accountStore.groupCounts[grp] || 0 }} 个账号</span>
+            <!-- hover 显示：重命名 / 删除 -->
+            <div class="fcell-actions" @click.stop @dblclick.stop @mousedown.stop>
+              <span
+                class="fcell-act"
+                title="重命名"
+                @click.stop="startRename(grp)"
+              >
+                <el-icon><EditPen /></el-icon>
+              </span>
+              <span
+                class="fcell-act danger"
+                :title="`删除分组「${grp}」`"
+                @click.stop="handleDeleteGroup(grp)"
+              >
+                <el-icon><Delete /></el-icon>
+              </span>
+            </div>
+
+            <FolderIcon :size="56" />
+
+            <!-- 双击名字 → 就地重命名；双击其他地方 → 进入文件夹 -->
+            <el-input
+              v-if="renamingGroup === grp"
+              ref="renameInputRef"
+              v-model="renameDraft"
+              size="small"
+              class="fcell-rename"
+              maxlength="20"
+              @click.stop
+              @dblclick.stop
+              @mousedown.stop
+              @keyup.enter="commitRename"
+              @keyup.esc="cancelRename"
+              @blur="commitRename"
+            />
+            <span
+              v-else
+              class="fcell-name"
+              :title="grp"
+              @dblclick.stop="startRename(grp)"
+            >{{ grp }}</span>
+            <span v-if="dragState.targetGroup === grp" class="drop-hint">
+              松开加入 {{ dragState.accounts.length }} 个
+            </span>
+            <span v-else class="fcell-count">
+              {{ accountStore.groupCounts[grp] || 0 }} 个账号
+            </span>
           </div>
         </div>
 
+        <div class="pane-tip" v-if="!openedGroup && accountStore.groups.length > 0">
+          💡 双击图标进入查看 · 双击名称可重命名 · 也可把左侧账号拖到格子上归类
+        </div>
+
         <!-- ═══ 视图 B：进入某个分组 ═══ -->
-        <div class="group-detail" v-else-if="openedGroup" :data-group="openedGroup">
+        <div
+          class="group-detail"
+          v-else-if="openedGroup"
+          :class="{ droppable: dragState.active, hot: dragState.active && dragState.targetGroup === openedGroup, pop: justDroppedGroup === openedGroup }"
+          :data-group="openedGroup"
+        >
           <div class="back-bar">
             <el-button size="small" text @click="backToGroupList">
               <el-icon><ArrowLeft /></el-icon>
@@ -339,41 +423,115 @@
             <span class="pch-badge">{{ groupMembers(openedGroup).length }}</span>
           </div>
 
+          <!-- 拖拽时提示：整片区域都可以放 -->
+          <div class="gd-drop-banner" v-if="dragState.active">
+            <template v-if="dragState.targetGroup === openedGroup">
+              <span class="gdb-dot"></span>
+              ⬇ 松开即可把 {{ dragState.accounts.length }} 个账号加入「{{ openedGroup }}」
+            </template>
+            <template v-else>
+              拖到这里松开，即可加入「{{ openedGroup }}」
+            </template>
+          </div>
+
           <div class="gd-members">
             <div
               v-for="m in groupMembers(openedGroup)"
               :key="`${m.platform}:${m.account}`"
               class="gd-member"
-              @click="openAccountTab(m)"
+              :class="{ dragging: isDragging(m) }"
+              :title="(m.groups && m.groups.length) ? '所属分组：' + m.groups.join('、') : '未分组'"
+              @mousedown="onCardMouseDown(m, $event)"
+              @click="onCardClick(m)"
             >
-              <span class="plat-chip">{{ platShort(m.platform) }}</span>
-              <span class="gdm-nick">{{ m.nickname || m.account }}</span>
-              <span class="gdm-status" :class="m.isValid ? 'ok' : (m.checked ? 'bad' : 'none')">
-                {{ m.isValid ? '✅' : (m.checked ? '⚠️' : '未检测') }}
-              </span>
-              <span v-if="m.checkedAt" class="gdm-time">{{ fmtCheckedAt(m.checkedAt) }}</span>
-              <span
-                class="gdm-x"
-                title="从该分组移出（不影响其他分组）"
-                @click.stop="handleRemoveFromGroup(m, openedGroup)"
-              >✕</span>
+              <!-- 勾选框（与左侧全局选择联动） -->
+              <div
+                class="acc-check-zone"
+                :class="{ on: checkedAccounts.includes(accKey(m)) }"
+                @click.stop="toggleAccountCheck(m, !checkedAccounts.includes(accKey(m)))"
+              >
+                <el-checkbox
+                  class="acc-check"
+                  :model-value="checkedAccounts.includes(accKey(m))"
+                  @click.stop
+                  @change="(v: any) => toggleAccountCheck(m, !!v)"
+                />
+              </div>
+
+              <!-- 头像 -->
+              <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(m.platform).gradient }">
+                <img
+                  v-if="m.avatar && !m.avatarLoadFailed"
+                  :src="m.avatar"
+                  class="contact-real-avatar"
+                  referrerpolicy="no-referrer"
+                  @error="m.avatarLoadFailed = true"
+                  :alt="m.nickname || m.account"
+                />
+                <span v-else class="avatar-char">{{ getAccountAvatarText(m) }}</span>
+              </div>
+
+              <!-- 文本与状态 -->
+              <div class="contact-meta-content">
+                <div class="contact-first-row">
+                  <span class="contact-name-text">
+                    <span class="plat-chip" :title="getPlatformStyle(m.platform).name">
+                      {{ platShort(m.platform) }}
+                    </span>
+                    {{ m.nickname || m.account }}
+                  </span>
+                </div>
+
+                <div class="contact-second-row">
+                  <span class="acc-status" :class="m.isValid ? 'ok' : (m.checked ? 'bad' : '')">
+                    {{ m.checked ? (m.isValid ? '登录正常' : '登录已失效') : '未检测' }}
+                  </span>
+
+                  <span
+                    v-if="m.checkedAt"
+                    class="contact-checked-at"
+                    :class="{ stale: isStaleCheck(m.checkedAt) }"
+                    :title="new Date(m.checkedAt).toLocaleString('zh-CN')"
+                  >
+                    {{ fmtCheckedAt(m.checkedAt) }}
+                  </span>
+
+                  <span class="acc-acts" @click.stop>
+                    <el-tooltip content="检测登录状态" placement="top">
+                      <el-icon class="acc-act" :class="{ spinning: m.isSyncing }" @click="checkStatus(m)">
+                        <Refresh />
+                      </el-icon>
+                    </el-tooltip>
+                    <el-tooltip content="打开浏览器登录" placement="top">
+                      <el-icon class="acc-act" @click="openBrowserForAccount(m)">
+                        <Monitor />
+                      </el-icon>
+                    </el-tooltip>
+                    <el-tooltip content="从该分组移出（不影响其他分组）" placement="top">
+                      <el-icon class="gdm-x" @click.stop="handleRemoveFromGroup(m, openedGroup)">
+                        <CircleClose />
+                      </el-icon>
+                    </el-tooltip>
+                  </span>
+                </div>
+              </div>
             </div>
 
             <div class="gd-empty" v-if="groupMembers(openedGroup).length === 0">
-              这个分组还没有账号，把左侧的账号拖进来
+              这个分组还没有账号<br>把左侧的账号拖进来，或拖到其他分组格子上
             </div>
           </div>
 
-          <div class="gsp-tip">
+          <div class="pane-tip">
             💡 ✕ 只是从本分组移出，账号本身和其他分组都不受影响
           </div>
         </div>
 
         <!-- ═══ 视图 C：一个分组都没有 ═══ -->
         <div class="gsp-empty" v-else>
-          <FolderIcon :size="30" />
+          <FolderIcon :size="34" />
           <span>还没有分组</span>
-          <span class="gsp-empty-sub">在上面输入名称，点「+ 新建分组」开始</span>
+          <span class="gsp-empty-sub">点右上角「+ 新建分组」创建一个，再把左侧账号拖进来</span>
         </div>
       </div>
     </div>
@@ -387,23 +545,22 @@
       <FolderIcon :size="13" />
       <span>{{ dragState.accounts.length }} 个账号</span>
       <span v-if="dragState.targetGroup" class="dg-target">→ {{ dragState.targetGroup }}</span>
-      <span v-else class="dg-hint">拖到右侧文件夹</span>
+      <span v-else class="dg-hint">拖到分组文件夹</span>
     </div>
 
     <!-- 业务分组管理弹窗 -->
     <el-dialog
       v-model="showGroupDialog"
-      title="分组管理"
-      width="540px"
+      title="新建分组"
+      width="420px"
       append-to-body
       destroy-on-close
     >
       <div class="group-dialog-body">
-        <!-- 新建分组 -->
         <div class="gd-create-row">
           <el-input
             v-model="newGroupName"
-            placeholder="新分组名称，如「出海三人组」"
+            placeholder="分组名称，如「出海三人组」"
             size="default"
             clearable
             @keyup.enter="handleCreateGroup"
@@ -411,56 +568,17 @@
           <el-button type="primary" @click="handleCreateGroup">+ 新建</el-button>
         </div>
 
-        <!-- 汇总 -->
-        <div class="gd-summary">
-          共 <b>{{ accountStore.groups.length }}</b> 个分组
-          <span class="gd-dot">·</span>
-          <b>{{ accountStore.accounts.length }}</b> 个账号
-        </div>
-
-        <!-- 分组列表 -->
-        <div class="gd-list" v-if="accountStore.groups.length > 0">
-          <div v-for="grp in accountStore.groups" :key="grp" class="gd-row">
-            <FolderIcon :size="18" />
-
-            <div class="gd-meta">
-              <div class="gd-name">{{ grp }}</div>
-              <div class="gd-sub">{{ groupPlatforms(grp) }}</div>
-            </div>
-
-            <span class="gd-count">{{ accountStore.groupCounts[grp] || 0 }} 个账号</span>
-
-            <!-- 所有分组均可改名或删除 -->
-            <el-dropdown
-              trigger="click"
-              placement="bottom-end"
-              @command="(cmd: string) => handleGroupCommand(cmd, grp)"
-            >
-              <span class="gd-more" title="更多操作">
-                <el-icon><MoreFilled /></el-icon>
-              </span>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="rename">
-                    <el-icon><EditPen /></el-icon>重命名
-                  </el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>
-                    <el-icon><Delete /></el-icon>删除分组
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-          </div>
-        </div>
-
-        <!-- 空状态 -->
-        <div class="gd-empty" v-else>
-          <FolderIcon :size="26" />
-          <span>还没有自定义分组</span>
+        <!-- 已有的分组：只读提示，不再提供操作 -->
+        <div class="gd-existing" v-if="accountStore.groups.length > 0">
+          <span class="gd-existing-label">已有分组：</span>
+          <span v-for="g in accountStore.groups" :key="g" class="gd-existing-tag">
+            {{ g }}
+          </span>
         </div>
 
         <div class="gd-tip">
-          💡 分组用于「发布工作台」里批量勾选账号 —— 例如只发「出海三人组」的号
+          💡 重命名或删除分组，请在分组格子上点 ⋯<br>
+          分组用于「发布工作台」里批量勾选账号
         </div>
       </div>
 
@@ -520,8 +638,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, onUnmounted, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import FolderIcon from '../components/common/FolderIcon.vue'
 import { PLATFORMS, getPlatformConfig } from '../config/platforms'
 import { useAccountStore, AccountItem } from '../stores/accountStore'
@@ -562,6 +680,14 @@ const searchKeyword = ref('')
 
 /** 只看"需重新登录"的账号 */
 const filterOnlyInvalidFlag = ref(false)
+
+/** 只看未归类的账号 */
+const filterUngrouped = ref(false)
+
+/** 未归入任何分组的账号数 */
+const ungroupedCount = computed(() =>
+  accountStore.accounts.filter(a => !a.groups || a.groups.length === 0).length
+)
 
 const newTabSelectedPlatform = ref('douyin')
 const newTabAccountAlias = ref('')
@@ -609,6 +735,8 @@ const filteredAccounts = computed(() => {
   return accountStore.accounts.filter(acc => {
     if (filterOnlyInvalidFlag.value) {
       if (!acc.checked || acc.isValid) return false
+    } else if (filterUngrouped.value) {
+      if (acc.groups && acc.groups.length > 0) return false
     }
     if (currentPlatformFilter.value !== 'all' && acc.platform !== currentPlatformFilter.value) {
       return false
@@ -738,6 +866,38 @@ const dragState = reactive({
   targetGroup: '',                               // 鼠标当前悬停的文件夹
 })
 
+/** 刚放下账号的分组（用于播放弹跳动画） */
+const justDroppedGroup = ref('')
+const justDroppedTimer = ref<number | null>(null)
+
+function playDropPop(grp: string) {
+  if (justDroppedTimer.value) window.clearTimeout(justDroppedTimer.value)
+  justDroppedGroup.value = ''
+  nextTick(() => {
+    justDroppedGroup.value = grp
+    justDroppedTimer.value = window.setTimeout(() => {
+      justDroppedGroup.value = ''
+    }, 520)
+  })
+}
+
+/** 是否已经提示过"可以拖多个"（仅弹一次） */
+const DRAG_TIP_KEY = 'sau_drag_tip_shown'
+function maybeShowDragTip() {
+  if (localStorage.getItem(DRAG_TIP_KEY)) return
+  localStorage.setItem(DRAG_TIP_KEY, '1')
+  ElNotification({
+    title: '小提示',
+    message: '一个账号可以同时拖到多个分组里；勾选多个账号再拖，可以一次归类一批',
+    type: 'info',
+    duration: 6000
+  })
+}
+
+onUnmounted(() => {
+  if (justDroppedTimer.value) window.clearTimeout(justDroppedTimer.value)
+})
+
 /** 待定拖拽（还没超过阈值，避免误触） */
 let pendingDrag: { acc: AccountItem; startX: number; startY: number } | null = null
 
@@ -750,7 +910,7 @@ function onCardMouseDown(acc: AccountItem, e: MouseEvent) {
   if (e.button !== 0) return                    // 只响应左键
   const el = e.target as HTMLElement
   // 点在勾选框 / 操作图标 / 分组标签上时不启动拖拽
-  if (el.closest('.acc-check, .acc-acts, .acc-gtag, .el-checkbox')) return
+  if (el.closest('.acc-check-zone, .acc-check, .acc-acts, .acc-gtag, .acc-tag, .el-checkbox')) return
   pendingDrag = { acc, startX: e.clientX, startY: e.clientY }
 }
 
@@ -764,10 +924,17 @@ function onGlobalMouseMove(e: MouseEvent) {
         Math.abs(e.clientY - pd.startY) < DRAG_THRESHOLD) return
 
     dragState.active = true
+    // 进入拖拽态：锁定文本选择 + 让输入框失焦（否则拖完会往输入框里打字）
+    document.body.classList.add('dragging-active')
+    ;(document.activeElement as HTMLElement | null)?.blur()
+
     // 拖的是已勾选账号 → 带上整批；否则只拖这一个
     const useChecked = checkedAccounts.value.length > 0 && checkedAccounts.value.includes(accKey(pd.acc))
     dragState.accounts = useChecked ? checkedAccountItems.value.slice() : [pd.acc]
   }
+
+  // 拖拽进行中：阻止浏览器默认的文本选择行为
+  if (dragState.active) e.preventDefault()
 
   dragState.x = e.clientX
   dragState.y = e.clientY
@@ -788,6 +955,8 @@ function onGlobalMouseUp(e: MouseEvent) {
         grp
       )
       ElMessage.success(`已将 ${list.length} 个账号加入「${grp}」`)
+      playDropPop(grp)
+      maybeShowDragTip()
     }
   }
   resetDrag()
@@ -798,6 +967,7 @@ function resetDrag() {
   dragState.active = false
   dragState.accounts = []
   dragState.targetGroup = ''
+  document.body.classList.remove('dragging-active')
 }
 
 /** 用 elementFromPoint 找出鼠标位置下方的文件夹 */
@@ -807,11 +977,16 @@ function groupAtPoint(x: number, y: number): string {
   return folderEl?.dataset.group || ''
 }
 
-/** 占位：兼容模板里的 isDragging 调用 */
+/** 占位：兼容模板里的 isDragging调用 */
 function isDragging(acc: AccountItem) {
   return dragState.active && dragState.accounts.some(
     a => a.platform === acc.platform && a.account === acc.account
   )
+}
+
+/** 鼠标离开窗口（拖到窗口外松手时，mouseup 收不到）→ 直接复位 */
+function onWindowBlurOrLeave() {
+  if (dragState.active || pendingDrag) resetDrag()
 }
 
 /** 卡片点击（拖拽结束后吞掉 click） */
@@ -862,16 +1037,6 @@ function handleGroupCommand(cmd: string, grp: string) {
     })
     ElMessage.success(`已选中「${grp}」的 ${accountStore.groupCounts[grp] || 0} 个账号`)
   }
-}
-
-/** 右侧面板内联新建分组 */
-function handleCreateGroupInline() {
-  const name = newGroupName.value.trim()
-  if (!name) { ElMessage.warning('请输入分组名称'); return }
-  if (accountStore.groups.includes(name)) { ElMessage.warning('已存在同名分组'); return }
-  accountStore.addGroup(name)
-  newGroupName.value = ''
-  ElMessage.success(`已创建分组「${name}」`)
 }
 
 /** 为指定账号打开浏览器登录 */
@@ -1130,6 +1295,7 @@ function handleBatchMove(groupName: string) {
   const list = checkedAccountItems.value
   accountStore.addAccountsToGroup(list.map(acc => ({ platform: acc.platform, account: acc.account })), groupName)
   ElMessage.success(`已将 ${list.length} 个账号加入「${groupName}」`)
+  maybeShowDragTip()
   checkedAccounts.value = []
 }
 
@@ -1250,6 +1416,63 @@ async function handleRenameGroup(oldName: string) {
   } catch { /* 取消 */ }
 }
 
+/** 正在就地重命名的分组（空 = 没有在重命名） */
+const renamingGroup = ref('')
+/** 重命名输入中的草稿 */
+const renameDraft = ref('')
+/** 重命名输入框引用（用于自动聚焦） */
+const renameInputRef = ref<any>(null)
+
+/** 开始重命名 */
+function startRename(grp: string) {
+  if (dragState.active) return          // 拖拽中禁止
+  renamingGroup.value = grp
+  renameDraft.value = grp
+  nextTick(() => {
+    const el = renameInputRef.value
+    // el-input 的聚焦：拿内部 input 元素
+    const input = Array.isArray(el) ? el[0]?.input : el?.input
+    input?.focus()
+    input?.select()
+  })
+}
+
+/** 提交重命名 */
+function commitRename() {
+  const oldName = renamingGroup.value
+  if (!oldName) return
+  const newName = renameDraft.value.trim()
+
+  // 没改动 → 直接退出
+  if (!newName || newName === oldName) {
+    renamingGroup.value = ''
+    return
+  }
+
+  const err = accountStore.renameGroup(oldName, newName)
+  if (err) {
+    ElMessage.warning(err)
+    // 失败时保持编辑态，让用户改
+    nextTick(() => {
+      const el = renameInputRef.value
+      const input = Array.isArray(el) ? el[0]?.input : el?.input
+      input?.focus()
+    })
+    return
+  }
+
+  // 如果当前正在看这个分组，名字要跟着换
+  if (openedGroup.value === oldName) openedGroup.value = newName
+
+  ElMessage.success('已重命名')
+  renamingGroup.value = ''
+}
+
+/** 取消重命名 */
+function cancelRename() {
+  renamingGroup.value = ''
+}
+
 /** 删除分组（账号回落到默认分组） */
 async function handleDeleteGroup(name: string) {
   const count = accountStore.groupCounts[name] || 0
@@ -1265,14 +1488,19 @@ async function handleDeleteGroup(name: string) {
 
   accountStore.removeGroup(name)
   ElMessage.success(count > 0 ? `已删除分组，${count} 个账号已从该分组移除` : '已删除分组')
+
+  // 如果正在看这个分组，退回列表
+  if (openedGroup.value === name) openedGroup.value = ''
 }
 
 let unlistenLoginSuccess: (() => void) | null = null
 
 // 初始化时：打开第一个账号标签页，若无账号则打开新标签页向导
 onMounted(() => {
-  window.addEventListener('mousemove', onGlobalMouseMove)
+  window.addEventListener('mousemove', onGlobalMouseMove, { passive: false } as AddEventListenerOptions)
   window.addEventListener('mouseup', onGlobalMouseUp)
+  window.addEventListener('blur', onWindowBlurOrLeave)
+  document.addEventListener('mouseleave', onWindowBlurOrLeave)
 
   if (accountStore.accounts.length > 0) {
     openAccountTab(accountStore.accounts[0])
@@ -1329,6 +1557,9 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('mousemove', onGlobalMouseMove)
   window.removeEventListener('mouseup', onGlobalMouseUp)
+  window.removeEventListener('blur', onWindowBlurOrLeave)
+  document.removeEventListener('mouseleave', onWindowBlurOrLeave)
+  document.body.classList.remove('dragging-active')
   if (typeof unlistenLoginSuccess === 'function') {
     unlistenLoginSuccess()
   }
@@ -1407,9 +1638,33 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .sum-invalid:hover { text-decoration: underline; }
 .sum-invalid.zero { color: var(--status-success); cursor: default; }
 .sum-invalid:disabled { cursor: default; }
+.acc-check-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: 34px;
+  min-width: 34px;
+  margin-left: -6px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color .15s;
+}
+
+.acc-check-zone:hover {
+  background: rgba(79, 70, 229, .09);
+}
+
+.acc-check-zone.on {
+  background: rgba(79, 70, 229, .07);
+}
+
 .acc-check {
-  margin-right: 6px;
+  margin-right: 0;
   flex-shrink: 0;
+  transform: scale(1.2);
+  transform-origin: center;
+  pointer-events: none;
 }
 
 .sum-batch {
@@ -1753,48 +2008,112 @@ watch(() => accountStore.accounts, (newAccounts) => {
 }
 .pch-spacer { flex: 1; }
 
-.gsp-create { display: flex; gap: 8px; margin-bottom: 12px; flex-shrink: 0; }
-
-/* ── 分组平铺网格 ── */
+/* ══════ 分组平铺网格 ══════ */
 .folder-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: 12px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   align-content: start;
-  padding-bottom: 4px;
+  padding: 2px;              /* 给放大后的格子留点空间 */
 }
 
 .fcell {
   border: 1px solid var(--border-subtle);
   border-radius: 11px;
-  padding: 14px 8px 11px;
+  padding: 18px 8px 13px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   cursor: pointer;
   user-select: none;
-  transition: all .15s;
+  transition: border-color .18s ease, background-color .18s ease,
+              transform .18s ease, box-shadow .18s ease;
+  position: relative;
 }
-.fcell:hover {
+
+/* ── 拖拽中：所有格子变「可放置」呼吸动画 ── */
+@keyframes fcell-breathe {
+  0%, 100% {
+    border-color: rgba(79, 70, 229, .40);
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, .16);
+  }
+  50% {
+    border-color: rgba(79, 70, 229, .72);
+    box-shadow: 0 0 0 4px rgba(79, 70, 229, .10);
+  }
+}
+
+.folder-grid.dragging .fcell {
+  border: 2px dashed rgba(79, 70, 229, .55);
+  background: rgba(79, 70, 229, .035);
+  animation: fcell-breathe 1.6s ease-in-out infinite;
+}
+/* 错开延迟 → 视觉上像波纹扩散 */
+.folder-grid.dragging .fcell:nth-child(2) { animation-delay: .18s; }
+.folder-grid.dragging .fcell:nth-child(3) { animation-delay: .36s; }
+.folder-grid.dragging .fcell:nth-child(4) { animation-delay: .54s; }
+.folder-grid.dragging .fcell:nth-child(5) { animation-delay: .72s; }
+.folder-grid.dragging .fcell:nth-child(6) { animation-delay: .90s; }
+.folder-grid.dragging .fcell:nth-child(n+7) { animation-delay: 1.08s; }
+
+/* 非拖拽时保持原来的 hover */
+.folder-grid:not(.dragging) .fcell:hover {
   border-color: rgba(79, 70, 229, .35);
   background: rgba(79, 70, 229, .035);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(79, 70, 229, .10);
 }
-.fcell.drop {
-  border: 2px dashed var(--primary-color);
-  background: rgba(79, 70, 229, .09);
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, .12);
-  transform: translateY(-2px) scale(1.02);
+
+/* ── 悬停目标格子：放大吸住 ── */
+@keyframes fcell-pull {
+  from { transform: translateY(-2px) scale(1.02); }
+  to   { transform: translateY(-4px) scale(1.07); }
+}
+.folder-grid.dragging .fcell.hot {
+  border: 2px solid var(--primary-color);
+  background: rgba(79, 70, 229, .13);
+  box-shadow: 0 0 0 5px rgba(79, 70, 229, .14), 0 10px 24px rgba(79, 70, 229, .20);
+  animation: fcell-pull .5s ease-in-out infinite alternate;
+  z-index: 2;
+}
+.folder-grid.dragging .fcell.hot .fcell-name { color: var(--primary-color); }
+
+/* ── 放下瞬间：弹一下 ── */
+@keyframes fcell-pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.10); }
+  70%  { transform: scale(.97); }
+  100% { transform: scale(1); }
+}
+.fcell.pop {
+  animation: fcell-pop .45s cubic-bezier(.34, 1.56, .64, 1);
+  border-color: rgba(34, 197, 94, .55) !important;
+  background: rgba(34, 197, 94, .08);
+}
+.fcell.pop .fcell-count {
+  background: rgba(34, 197, 94, .14) !important;
+  color: #16a34a !important;
+  transition: all .3s;
+}
+
+/* ── 「松开加入」提示 ── */
+.drop-hint {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary-color);
+  background: rgba(79, 70, 229, .12);
+  padding: 2px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
 }
 
 .fcell-name {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text-main);
   max-width: 100%;
@@ -1802,6 +2121,24 @@ watch(() => accountStore.accounts, (newAccounts) => {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: center;
+  transition: color .18s;
+}
+
+/* 就地重命名输入框 */
+.fcell-rename {
+  width: 100%;
+}
+.fcell-rename :deep(.el-input__wrapper) {
+  padding: 0 6px;
+  height: 24px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--primary-color) inset;
+}
+.fcell-rename :deep(.el-input__inner) {
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  height: 24px;
 }
 .fcell-count {
   font-size: 10.5px;
@@ -1811,6 +2148,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
   background: rgba(79, 70, 229, .10);
   color: var(--primary-color);
   white-space: nowrap;
+  transition: all .2s;
 }
 .fcell.empty .fcell-count {
   background: rgba(128, 128, 128, .10);
@@ -1819,11 +2157,67 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .fcell.empty { opacity: .72; }
 
 /* ── 进入分组后的视图 ── */
+@keyframes gd-breathe {
+  0%, 100% { box-shadow: inset 0 0 0 2px rgba(79, 70, 229, .30); }
+  50%      { box-shadow: inset 0 0 0 2px rgba(79, 70, 229, .62); }
+}
+
 .group-detail {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  border-radius: 10px;
+  transition: background-color .18s ease, box-shadow .18s ease;
+}
+
+/* 拖拽中（还没进入本区域上方） */
+.group-detail.droppable {
+  background: rgba(79, 70, 229, .035);
+  animation: gd-breathe 1.6s ease-in-out infinite;
+}
+
+/* 鼠标已经在本区域上方 → 更强提示 */
+.group-detail.hot {
+  background: rgba(79, 70, 229, .09);
+  box-shadow: inset 0 0 0 2px var(--primary-color) !important;
+  animation: none;
+}
+
+/* 放下瞬间的绿色反馈 */
+.group-detail.pop {
+  background: rgba(34, 197, 94, .07);
+  box-shadow: inset 0 0 0 2px rgba(34, 197, 94, .45) !important;
+  animation: none;
+}
+
+/* 提示条 */
+.gd-drop-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: rgba(79, 70, 229, .09);
+  border: 1px dashed rgba(79, 70, 229, .45);
+  flex-shrink: 0;
+}
+
+.gdb-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  flex-shrink: 0;
+  animation: gdb-pulse 1s ease-in-out infinite;
+}
+@keyframes gdb-pulse {
+  0%, 100% { opacity: .35; transform: scale(.85); }
+  50%      { opacity: 1;   transform: scale(1.15); }
 }
 
 .back-bar {
@@ -1850,52 +2244,45 @@ watch(() => accountStore.accounts, (newAccounts) => {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
+/* 分组视图里的账号卡片：复用账号列表的卡片结构 */
 .gd-member {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  margin-bottom: 3px;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: background-color .15s;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  position: relative;
+  background: transparent;
 }
-.gd-member:hover { background: rgba(79, 70, 229, .055); }
+.gd-member:hover {
+  background: var(--bg-detail);
+}
+.gd-member.dragging {
+  opacity: .45;
+  transform: scale(.95);
+  border-style: dashed;
+}
 
-.gdm-nick {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.gdm-status { margin-left: auto; font-size: 11px; white-space: nowrap; }
-.gdm-status.ok { color: var(--status-success); }
-.gdm-status.bad { color: var(--status-danger); }
-.gdm-status.none { color: var(--text-muted); opacity: .7; }
-.gdm-time {
-  font-size: 10.5px;
-  color: var(--text-muted);
-  opacity: .75;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
+/* .gdm-x 在 .acc-acts 容器内，受 .acc-act 样式支配，此处微调 */
 .gdm-x {
-  opacity: .3;
-  font-size: 12px;
-  padding: 0 3px;
-  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: .55;
   transition: all .15s;
 }
-.gdm-x:hover { opacity: 1; color: var(--status-danger); }
-
-.gd-empty {
-  padding: 26px 12px;
-  text-align: center;
-  font-size: 11.5px;
-  color: var(--text-muted);
+.gdm-x:hover {
+  opacity: 1;
+  color: var(--status-danger);
 }
 
 .gsp-empty {
@@ -1910,7 +2297,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
 }
 .gsp-empty-sub { font-size: 11px; opacity: .7; }
 
-.gsp-tip {
+.pane-tip {
   font-size: 11.5px;
   color: var(--text-muted);
   line-height: 1.6;
@@ -1920,19 +2307,78 @@ watch(() => accountStore.accounts, (newAccounts) => {
   flex-shrink: 0;
 }
 
-/* ── 账号卡片 ── */
-.acc-group-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
-.acc-gtag {
-  font-size: 9.5px; padding: 1px 6px; border-radius: 20px;
-  background: rgba(79,70,229,.09); color: var(--primary-color);
+/* ── 账号筛选 chips ── */
+.acc-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-shrink: 0;
 }
+
+.acc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all .15s;
+  user-select: none;
+}
+
+.acc-chip:hover:not(.disabled) {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.acc-chip.on {
+  border-color: var(--primary-color);
+  background: rgba(79, 70, 229, .09);
+  color: var(--primary-color);
+}
+
+.chip-n {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: rgba(79, 70, 229, .13);
+}
+
+/* danger chip */
+.acc-chip.danger { color: var(--status-danger, #dc2626); border-color: rgba(220, 38, 38, .30); }
+.acc-chip.danger .chip-n { background: rgba(220, 38, 38, .11); }
+.acc-chip.danger.on { border-color: var(--status-danger, #dc2626); background: rgba(220, 38, 38, .07); }
+.acc-chip.danger.on .chip-n { background: rgba(220, 38, 38, .18); }
+.acc-chip.danger.disabled { opacity: .5; cursor: default; }
+
+/* warn chip（未分组） */
+.acc-chip.warn { color: var(--status-warning, #d97706); border-color: rgba(217, 119, 6, .30); }
+.acc-chip.warn .chip-n { background: rgba(217, 119, 6, .11); }
+.acc-chip.warn.on { border-color: var(--status-warning, #d97706); background: rgba(217, 119, 6, .07); }
+.acc-chip.warn.on .chip-n { background: rgba(217, 119, 6, .18); }
+.acc-chip.warn.disabled { opacity: .5; cursor: default; }
+
+/* ── 账号卡片 ── */
 .acc-acts { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
 .acc-act { font-size: 13px; color: var(--text-muted); cursor: pointer; opacity: .55; }
 .acc-act:hover { opacity: 1; color: var(--primary-color); }
 .acc-act.spinning { animation: spin 1s linear infinite; opacity: 1; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.contact-item.dragging { opacity: .4; }
-.contact-card-item.dragging { opacity: .45; }
+.contact-item.dragging {
+  opacity: .4;
+  transform: scale(.95);
+  border-style: dashed;
+}
+.contact-card-item.dragging {
+  opacity: .45;
+  transform: scale(.95);
+}
 
 /* ── 滚动条统一样式（两栏） ── */
 .folder-grid::-webkit-scrollbar,
@@ -1958,24 +2404,39 @@ watch(() => accountStore.accounts, (newAccounts) => {
 }
 
 /* 拖拽跟随幽灵标签（pointer-events: none 避免 elementFromPoint 命中它自己） */
+/* ══════ 幽灵：摇摆 + 目标提示 ══════ */
+@keyframes ghost-wiggle {
+  0%, 100% { transform: rotate(-1.5deg); }
+  50%      { transform: rotate(1.5deg); }
+}
 .drag-ghost {
   position: fixed;
   z-index: 9999;
   pointer-events: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 11px;
-  border-radius: 8px;
-  background: var(--primary-color);
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--primary-color), #6366f1);
   color: #fff;
   font-size: 12px;
   font-weight: 600;
-  box-shadow: 0 6px 20px rgba(79, 70, 229, .38);
+  box-shadow: 0 10px 26px rgba(79, 70, 229, .42),
+              0 0 0 1px rgba(255, 255, 255, .14) inset;
+  animation: ghost-wiggle 1s ease-in-out infinite;
   white-space: nowrap;
 }
-.drag-ghost .dg-target { opacity: .95; }
-.drag-ghost .dg-hint { opacity: .75; font-weight: 400; }
+.drag-ghost .dg-target {
+  background: rgba(255, 255, 255, .22);
+  padding: 1px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+}
+.drag-ghost .dg-hint {
+  opacity: .75;
+  font-weight: 400;
+}
 
 /* ── 添加账号弹框 ── */
 .add-dlg-body { display: flex; flex-direction: column; gap: 12px; }
@@ -2002,67 +2463,78 @@ watch(() => accountStore.accounts, (newAccounts) => {
 /* 新建行 */
 .gd-create-row {
   display: flex; gap: 9px; align-items: center;
-  margin-bottom: 14px;
 }
 
-/* 汇总行 */
-.gd-summary {
+/* 已有的分组（只读提示） */
+.gd-existing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.gd-existing-label {
   font-size: 11.5px;
   color: var(--text-muted);
-  margin-bottom: 9px;
-  padding-left: 2px;
 }
-.gd-summary b { color: var(--text-main); font-weight: 700; }
-.gd-dot { opacity: .4; margin: 0 3px; }
-
-/* 分组列表 */
-.gd-list {
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.gd-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 11px 13px;
-  border-bottom: 1px solid var(--border-subtle);
-  transition: background-color .15s;
-}
-.gd-row:last-child { border-bottom: none; }
-.gd-row:hover { background: rgba(79, 70, 229, .05); }
-
-.gd-meta { min-width: 0; flex: 1; }
-.gd-name {
-  font-size: 12.5px; font-weight: 600; color: var(--text-main);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.gd-sub {
-  font-size: 10.5px; color: var(--text-muted);
-  margin-top: 1px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-
-.gd-count {
-  font-size: 11px; font-weight: 700;
-  padding: 2px 9px; border-radius: 20px;
-  background: rgba(79, 70, 229, .10);
+.gd-existing-tag {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 20px;
+  background: rgba(79, 70, 229, .08);
   color: var(--primary-color);
-  white-space: nowrap; flex-shrink: 0;
 }
 
-.gd-more {
-  width: 24px; height: 24px;
+/* ── 格子 ⋯ 操作菜单 ── */
+.fcell { position: relative; }
+
+/* hover 时右上角操作图标 */
+.fcell-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity .15s ease, transform .15s ease;
+  z-index: 3;
+}
+.fcell:hover .fcell-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 拖拽中隐藏操作图标，避免误点 */
+.folder-grid.dragging .fcell-actions {
+  display: none;
+}
+
+.fcell-act {
+  width: 21px;
+  height: 21px;
   border-radius: 6px;
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
   color: var(--text-muted);
+  background: rgba(255, 255, 255, .82);
   cursor: pointer;
-  opacity: .55;
-  flex-shrink: 0;
   transition: all .15s;
 }
-.gd-more:hover {
-  background: rgba(128, 128, 128, .12);
-  opacity: 1;
-  color: var(--text-main);
+
+.fcell-act:hover {
+  background: rgba(79, 70, 229, .13);
+  color: var(--primary-color);
+}
+
+/* 删除：hover 才变红，避免视觉上太"危险" */
+.fcell-act.danger:hover {
+  background: rgba(220, 38, 38, .12);
+  color: var(--status-danger);
 }
 
 /* 空状态 */
@@ -2070,6 +2542,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
   display: flex; flex-direction: column; align-items: center; gap: 9px;
   padding: 30px 0;
   color: var(--text-muted); font-size: 12px;
+  line-height: 1.9;
 }
 
 /* 底部提示 */
@@ -2079,4 +2552,15 @@ watch(() => accountStore.accounts, (newAccounts) => {
   color: var(--text-muted);
   line-height: 1.65;
 }
+</style>
+
+<!-- 全局：拖拽期间禁止选择文字（scoped 只能操作组件内，body 需要全局覆盖） -->
+<style>
+/* 拖拽进行中：禁止选中文字、光标变抓取 */
+body.dragging-active,
+body.dragging-active * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+body.dragging-active { cursor: grabbing !important; }
 </style>
