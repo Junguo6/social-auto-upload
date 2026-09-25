@@ -195,6 +195,13 @@ export function useMatrixPublish() {
       return null
     }
 
+    // 兼容：整个对应表为空（用户没进过对应表）→ 维持"所有账号都发"的老行为
+    const matrixEmpty = Object.keys(matrixMap || {}).length === 0
+
+    if (matrixEmpty && mediaList.length > 0 && selectedAccounts.length > 0) {
+      ElMessage.warning('尚未在「内容与账号对应表」里分配账号，本次将发给全部选中账号')
+    }
+
     const rawTasks: engine.AccountPublishTask[] = []
     const todayStr = new Date().toISOString().split('T')[0]
 
@@ -207,8 +214,11 @@ export function useMatrixPublish() {
         const accKey = `${acc.platform}:${acc.account}`
         const cell = matrixMap[media.id]?.[accKey]
 
-        // 若未配置或被用户标记为不发布，则跳过
-        if (cell && !cell.enabled) return
+        if (!matrixEmpty) {
+          // 对应表已配置：只发【分配过】的账号
+          if (!cell) return                          // 未分配 → 不发
+          if (cell.enabled === false) return         // 明确标记不发布 → 不发
+        }
 
         // 1. 计算该单元格最终标题
         let finalTitle = ''
