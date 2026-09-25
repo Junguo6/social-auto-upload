@@ -298,6 +298,12 @@ class TencentVideoUploadRequest:
     debug: bool = True
     headless: bool = True
     collection_name: str | None = None
+    declaration: str | None = None
+    location: str | None = None
+    link_type: str | None = None
+    link_url: str | None = None
+    link_title: str | None = None
+    activity_name: str | None = None
 
 
 @dataclass(slots=True)
@@ -837,6 +843,12 @@ async def upload_tencent_video(request: TencentVideoUploadRequest) -> Path:
         debug=request.debug,
         headless=request.headless,
         collection_name=request.collection_name,
+        content_label=request.declaration,
+        location=request.location,
+        link_type=request.link_type,
+        link_url=request.link_url,
+        link_title=request.link_title,
+        activity_name=request.activity_name,
     )
     await app.tencent_upload_video()
     return account_file
@@ -1157,6 +1169,12 @@ def build_parser() -> argparse.ArgumentParser:
     tencent_upload_video_parser.add_argument("--category", help="Optional original content category")
     tencent_upload_video_parser.add_argument("--draft", action="store_true", help="Save as draft instead of publishing")
     tencent_upload_video_parser.add_argument("--collection", default=None, help="Optional collection name to add the work into (must already exist)")
+    tencent_upload_video_parser.add_argument("--declaration", default=None, help="Optional WeChat Channels video statement/label")
+    tencent_upload_video_parser.add_argument("--location", default=None, help="Optional WeChat Channels location (auto/none)")
+    tencent_upload_video_parser.add_argument("--link-type", default=None, help="Optional WeChat Channels link type (article/redpacket/series/minidrama)")
+    tencent_upload_video_parser.add_argument("--link-url", default=None, help="Optional WeChat Channels link URL")
+    tencent_upload_video_parser.add_argument("--link-title", default=None, help="Optional WeChat Channels link keyword/title")
+    tencent_upload_video_parser.add_argument("--activity-name", default=None, help="Optional WeChat Channels activity name")
     add_runtime_flags(tencent_upload_video_parser)
 
     alipay_parser = platform_parsers.add_parser("alipay", help="Alipay life account operations")
@@ -1856,6 +1874,12 @@ async def dispatch(args: argparse.Namespace) -> int:
                 debug=args.debug,
                 headless=args.headless,
                 collection_name=getattr(args, "collection", None),
+                declaration=getattr(args, "declaration", None),
+                location=getattr(args, "location", None),
+                link_type=getattr(args, "link_type", None),
+                link_url=getattr(args, "link_url", None),
+                link_title=getattr(args, "link_title", None),
+                activity_name=getattr(args, "activity_name", None),
             )
             await upload_tencent_video(request)
             print(f"Tencent/WeChat Channels video upload submitted: {request.video_file}")

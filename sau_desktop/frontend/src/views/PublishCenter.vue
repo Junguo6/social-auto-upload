@@ -30,12 +30,12 @@
         <!-- 第三步：发布信息 -->
         <div
           class="config-tab"
-          :class="{ active: activeTab === 'info' }"
+          :class="{ active: activeTab === 'info', done: step3Done }"
           @click="activeTab = 'info'"
         >
-          <span class="tab-num">3</span>
+          <span class="tab-num">{{ step3Done ? '✓' : '3' }}</span>
           <span>发布信息</span>
-          <span class="tab-dot" v-if="!masterForm.title"></span>
+          <span class="tab-cnt" v-if="configuredPlatformCount > 0">{{ configuredPlatformCount }}</span>
         </div>
       </div>
 
@@ -52,12 +52,14 @@
           v-show="activeTab === 'account'"
           v-model:selected-keys="selectedAccountKeys"
         />
-        <!-- 第三步：发布信息 -->
-        <PublishRuleForm
+        <!-- 第三步：发布信息 (直接按平台 Tab 独立配置) -->
+        <PublishInfoHub
           v-show="activeTab === 'info'"
-          v-model:master-form="masterForm"
+          v-model:platform-configs="platformOverrides"
           v-model:rule-config="ruleConfig"
-          :media-list="activeMediaList"
+          :selected-accounts="activeAccounts"
+          :media-count="activeMediaList.length"
+          @switch-to-account="activeTab = 'account'"
         />
       </div>
     </div>
@@ -220,7 +222,7 @@ import type {
 // 子组件引入
 import MediaListCard from '../components/matrix/MediaListCard.vue'
 import AccountCardPicker from '../components/matrix/AccountCardPicker.vue'
-import PublishRuleForm from '../components/matrix/PublishRuleForm.vue'
+import PublishInfoHub from '../components/matrix/PublishInfoHub.vue'
 import CrossPublishMatrix from '../components/matrix/CrossPublishMatrix.vue'
 import ContentAccountTable from '../components/matrix/ContentAccountTable.vue'
 import SyncConfigModal from '../components/matrix/SyncConfigModal.vue'
@@ -329,7 +331,7 @@ const selectedAccountKeys = ref<string[]>([])
 // 发布设置当前 Tab：media=上传视频 / account=选择账号 / info=发布信息
 const activeTab = ref<'media' | 'account' | 'info'>('media')
 
-// 3. 通用基础主模板 (Master Form)
+// 3. 通用基础主模板 (保留作为全局安全兜底)
 const masterForm = reactive<MasterForm>({
   action: 'upload-video',
   filePath: '',
@@ -344,7 +346,11 @@ const masterForm = reactive<MasterForm>({
 // 步骤完成状态统一计算源
 const step1Done = computed(() => selectedAccountKeys.value.length > 0)
 const step2Done = computed(() => step1Done.value && mediaList.value.length > 0)
-const step3Done = computed(() => step2Done.value && !!masterForm.title.trim())
+const configuredPlatformCount = computed(() => {
+  const platforms = Array.from(new Set(activeAccounts.value.map(a => a.platform)))
+  return platforms.filter(p => !!platformOverrides[p]?.title?.trim()).length
+})
+const step3Done = computed(() => step2Done.value && (configuredPlatformCount.value > 0 || !!masterForm.title.trim()))
 
 // 预设模板（必须在 masterForm 之后创建，否则 TDZ 运行时崩溃）
 // 顶栏预设模板 UI 已下线；仅保留历史模板的加载（onMounted 调用，避免残留数据引发的状态不一致）
@@ -414,6 +420,18 @@ const activeAccounts = computed(() => {
       isValid: item?.isValid
     }
   })
+})
+
+// 平台差异化微调配置字典: platform -> PlatformOverrideSetting
+const platformOverrides = reactive<Record<string, PlatformOverrideSetting>>({})
+
+// 提取当前步骤 ② 所选账号涉及的平台列表
+const selectedPlatforms = computed<string[]>(() => {
+  const set = new Set<string>()
+  activeAccounts.value.forEach(acc => {
+    if (acc.platform) set.add(acc.platform)
+  })
+  return Array.from(set)
 })
 
 // 计算当前矩阵中已启用的有效发布任务总数
@@ -548,6 +566,7 @@ const handleStartPublish = async () => {
       matrixMap,
       masterForm,
       ruleConfig,
+      platformOverrides,
       concurrency: concurrency.value,
       isHeadless: isHeadless.value,
       batchName: batchName.value

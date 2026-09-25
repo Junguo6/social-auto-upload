@@ -530,12 +530,12 @@
                 -->
               </div>
 
-              <div class="standby-feature-tags">
+              <!-- <div class="standby-feature-tags">
                 <span>🚀 打开浏览器窗口</span>
                 <span>💎 100% 原始视网膜画质</span>
                 <span>🖱️ 支持键盘输入与鼠标操作</span>
                 <span>🔒 本地加密持久化</span>
-              </div>
+              </div> -->
             </div>
           </div>
 
