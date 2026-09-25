@@ -1,630 +1,512 @@
 <template>
   <div class="account-browser-workspace">
-    <!-- 👈 左侧：矩阵账号通讯录侧边栏 (WeChat-style Contact List) -->
-    <div class="account-sidebar-pane">
-      <!-- 1. 顶部操作与搜索中枢 -->
-      <div class="sidebar-header-section">
-        <div class="sidebar-title-bar">
-          <div class="title-with-pill">
-            <span class="sidebar-title">账号管理</span>
-            <span class="account-count-badge">{{ accountStore.accounts.length }}</span>
-          </div>
-
-          <el-button 
-            size="small" 
-            type="primary" 
-            class="add-account-gradient-btn"
-            @click="openNewTab"
-          >
-            <el-icon><Plus /></el-icon>
-            <span>添加账号</span>
-          </el-button>
-        </div>
-
-        <!-- 浏览器收起时的恢复入口 -->
-        <el-button
-          v-if="browserCollapsed"
-          size="small"
-          plain
-          class="expand-browser-btn"
-          @click="browserCollapsed = false"
+    <!-- 顶部汇总条：一眼看清整体状况 + 两个主入口 -->
+    <div class="account-summary-bar">
+      <div class="sum-left">
+        <span class="sum-total">共 {{ accountStore.accounts.length }} 个账号</span>
+        <span class="sum-sep">·</span>
+        <button
+          class="sum-invalid"
+          :class="{ zero: invalidCount === 0 }"
+          :disabled="invalidCount === 0"
+          @click="filterOnlyInvalid"
         >
-          <el-icon><ArrowLeft /></el-icon>
-          <span>展开浏览器</span>
-        </el-button>
-
-        <!-- 搜索框 (适配亮色与暗色模式) -->
-        <div class="sidebar-search-box">
-          <el-input 
-            v-model="searchKeyword" 
-            placeholder="搜索昵称 / 账号 / UID..." 
-            prefix-icon="Search" 
-            clearable 
-            size="default"
-          />
-        </div>
-
-        <!-- 平台与业务双维度快速筛选 -->
-        <div class="sidebar-filter-bar">
-          <el-select v-model="currentPlatformFilter" size="small" style="width: 110px;">
-            <el-option label="全部平台" value="all" />
-            <el-option 
-              v-for="plat in availablePlatforms" 
-              :key="plat.id" 
-              :label="plat.name" 
-              :value="plat.id" 
-            />
-          </el-select>
-
-          <el-select v-model="currentGroupFilter" size="small" style="flex: 1;">
-            <el-option label="全部分组" value="all" />
-            <el-option 
-              v-for="grp in accountStore.groups" 
-              :key="grp" 
-              :label="grp" 
-              :value="grp" 
-            />
-          </el-select>
-
-          <el-tooltip content="管理/新建分组" placement="top">
-            <el-button size="small" type="info" plain circle @click="showGroupDialog = true">
-              <el-icon><FolderAdd /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </div>
+          {{ invalidCount > 0 ? `${invalidCount} 个需重新登录` : '全部登录正常' }}
+        </button>
       </div>
 
-      <!-- 2. 账号联系人滚动列表 -->
-      <div class="sidebar-contact-list custom-scrollbar">
-        <!-- 空状态：仅在没有任何账号且无正在接入任务时显示 -->
-        <div v-if="filteredAccounts.length === 0 && pendingAccountLogins.length === 0" class="contact-empty-state">
-          <el-icon class="empty-icon"><UserFilled /></el-icon>
-          <p class="empty-title">未找到匹配的矩阵账号</p>
-          <el-button size="small" type="primary" link @click="openNewTab">
-            接入新账号
+      <!-- 有勾选 → 显示批量操作栏（无勾选时完全隐藏） -->
+      <div class="sum-batch" v-if="checkedAccounts.length > 0">
+        <span class="batch-count">已选 {{ checkedAccounts.length }} 个</span>
+
+        <el-button size="small" plain :loading="batchChecking" @click="handleBatchCheck">
+          <el-icon><Search /></el-icon><span>检测登录状态</span>
+        </el-button>
+
+        <el-dropdown trigger="click" @command="handleBatchMove">
+          <el-button size="small" plain>
+            <el-icon><FolderOpened /></el-icon><span>移动到分组</span>
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
-        </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="g in accountStore.groups"
+                :key="g"
+                :command="g"
+              >{{ g }}（{{ accountStore.groupCounts[g] || 0 }}）</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
 
-        <!-- 正在接入中的新账号临时卡片 (提供强烈的等待与操作反馈，伴随旋转 Loading 动效) -->
-        <div 
-          v-for="pending in pendingAccountLogins" 
-          :key="pending.id"
-          class="contact-card-item is-pending-login"
-        >
-          <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(pending.platform).gradient }">
-            <el-icon class="avatar-pending-spinner is-loading"><Loading /></el-icon>
-          </div>
+        <el-button size="small" plain type="danger" @click="handleBatchDelete">
+          <el-icon><Delete /></el-icon><span>删除</span>
+        </el-button>
 
-          <div class="contact-meta-content">
-            <div class="contact-first-row">
-              <span class="contact-name-text pending-title">
-                <span class="plat-chip" :title="getPlatformStyle(pending.platform).name">
-                  {{ platShort(pending.platform) }}
-                </span>
-                {{ pending.alias ? `正在接入 [${pending.alias}]...` : '正在接入新账号...' }}
-              </span>
-            </div>
+        <el-button size="small" text @click="checkedAccounts = []">取消</el-button>
+      </div>
 
-            <div class="contact-second-row">
-              <span class="contact-group-name">#{{ pending.alias ? pending.alias : '接入中' }}</span>
-              <span class="contact-status-label status-syncing">
-                <el-icon class="is-loading" style="margin-right: 2px;"><Loading /></el-icon>
-                <span>{{ pending.statusText }}</span>
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 账号联系人单元 (微信项风格，深度适配浅色/暗黑主题) -->
-        <div 
-          v-for="acc in filteredAccounts" 
-          :key="acc.platform + ':' + acc.account"
-          class="contact-card-item"
-          :class="{ 'is-active': activeTabId === `${acc.platform}:${acc.account}` }"
-          @click="openAccountTab(acc)"
-        >
-          <!-- 头像模块：优先展示平台真实头像，加载失败或无头像时优雅降级为字母 Monogram -->
-          <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(acc.platform).gradient }">
-            <img 
-              v-if="acc.avatar && !acc.avatarLoadFailed" 
-              :src="acc.avatar" 
-              class="contact-real-avatar" 
-              referrerpolicy="no-referrer"
-              @error="acc.avatarLoadFailed = true" 
-              :alt="acc.nickname || acc.account"
-            />
-            <span v-else class="avatar-char">{{ getAccountAvatarText(acc) }}</span>
-          </div>
-
-          <!-- 文本与状态信息 -->
-          <div class="contact-meta-content">
-            <div class="contact-first-row">
-              <span class="contact-name-text">
-                <span class="plat-chip" :title="getPlatformStyle(acc.platform).name">
-                  {{ platShort(acc.platform) }}
-                </span>
-                {{ acc.nickname || acc.account }}
-              </span>
-            </div>
-
-            <div class="contact-second-row">
-              <!-- 点这里直接改分组 -->
-              <el-popover
-                :width="200"
-                trigger="click"
-                placement="right-start"
-                popper-class="group-picker-popover"
-                @show="newGroupNameForAccount = ''"
-              >
-                <template #reference>
-                  <span class="contact-group-name clickable">
-                    #{{ acc.group || DEFAULT_GROUP }}
-                    <el-icon class="grp-caret"><ArrowDown /></el-icon>
-                  </span>
-                </template>
-
-                <div class="group-picker">
-                  <div class="gp-title">移动到分组</div>
-                  <div
-                    v-for="grp in accountStore.groups"
-                    :key="grp"
-                    class="gp-item"
-                    :class="{ on: (acc.group || DEFAULT_GROUP) === grp }"
-                    @click="assignGroup(acc, grp)"
-                  >
-                    <el-icon v-if="(acc.group || DEFAULT_GROUP) === grp" class="gp-check"><Check /></el-icon>
-                    <span v-else class="gp-check placeholder" />
-                    <span class="gp-name">{{ grp }}</span>
-                    <span class="gp-count">{{ accountStore.groupCounts[grp] || 0 }}</span>
-                  </div>
-
-                  <div class="gp-divider" />
-
-                  <div class="gp-new">
-                    <el-input
-                      v-model="newGroupNameForAccount"
-                      size="small"
-                      placeholder="新建分组…"
-                      @keyup.enter="createGroupAndAssign(acc)"
-                    />
-                    <el-button
-                      size="small"
-                      type="primary"
-                      :disabled="!newGroupNameForAccount.trim()"
-                      @click="createGroupAndAssign(acc)"
-                    >新建</el-button>
-                  </div>
-                </div>
-              </el-popover>
-
-              <span 
-                class="contact-status-label" 
-                :class="{ 'status-err': acc.checked && !acc.isValid, 'status-ok': acc.checked && acc.isValid, 'status-syncing': acc.isSyncing || acc.loading }"
-              >
-                <el-icon v-if="acc.isSyncing || acc.loading" class="is-loading" style="margin-right: 2px;"><Loading /></el-icon>
-                <span>{{ (acc.isSyncing || acc.loading) ? '同步中...' : (acc.checked ? (acc.isValid ? '登录正常' : '需重新扫码') : '待检测') }}</span>
-              </span>
-            </div>
-          </div>
-        </div>
+      <div class="sum-right">
+        <el-button type="primary" @click="openNewTab">
+          <el-icon><Plus /></el-icon>
+          <span>添加账号</span>
+        </el-button>
+        <el-button plain @click="showGroupDialog = true">
+          <el-icon><FolderOpened /></el-icon>
+          <span>分组管理</span>
+        </el-button>
       </div>
     </div>
 
-    <!-- 👉 右侧：完整拟真浏览器窗口 (Full-fledged Tabbed Browser Shell) -->
-    <div class="browser-window-pane" v-show="!browserCollapsed">
-      <!-- 1. 顶部浏览器多标签页栏 (Chrome/Edge Style Tabs Bar) -->
-      <div class="browser-tab-bar">
-        <div class="tab-list-wrapper">
-          <div 
-            v-for="tab in openTabs" 
-            :key="tab.id"
-            class="browser-tab-item"
-            :class="{ 'active': activeTabId === tab.id }"
-            @click="activateTab(tab.id)"
+    <!-- 左右两栏 -->
+    <div class="accounts-body" :class="{ 'collapsed': browserCollapsed }">
+      <!-- 👈 左侧：账号列表侧边栏 -->
+      <div class="account-sidebar-pane">
+        <!-- 1. 顶部操作与搜索中枢 -->
+        <div class="sidebar-header-section">
+          <!-- 浏览器收起时的恢复入口 -->
+          <el-button
+            v-if="browserCollapsed"
+            size="small"
+            plain
+            class="expand-browser-btn"
+            @click="browserCollapsed = false"
           >
-            <!-- 平台小图标 / Favicon -->
-            <span class="tab-favicon" v-if="tab.type === 'account'">
-              <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
-            </span>
-            <span class="tab-favicon tab-new-icon" v-else>
-              <el-icon><Compass /></el-icon>
-            </span>
+            <el-icon><ArrowLeft /></el-icon>
+            <span>展开浏览器</span>
+          </el-button>
 
-            <!-- 标签页标题 -->
-            <span class="tab-title">{{ tab.title }}</span>
-
-            <!-- 状态小绿点/红点 -->
-            <span 
-              v-if="tab.type === 'account' && tab.accountItem?.checked" 
-              class="tab-health-dot" 
-              :class="tab.accountItem?.isValid ? 'valid' : 'invalid'"
-            ></span>
-
-            <!-- 关闭标签页按钮 -->
-            <el-icon 
-              class="tab-close-btn" 
-              @click.stop="closeTab(tab.id)"
-              v-if="openTabs.length > 1"
-            >
-              <Close />
-            </el-icon>
+          <!-- 搜索框 -->
+          <div class="sidebar-search-box">
+            <el-input
+              v-model="searchKeyword"
+              placeholder="搜索昵称 / 账号 / UID..."
+              prefix-icon="Search"
+              clearable
+              size="default"
+            />
           </div>
 
-          <!-- 新建标签页按钮 (+) -->
-          <button class="new-tab-plus-btn" @click="openNewTab" title="打开新标签页 / 接入新账号">
-            <el-icon><Plus /></el-icon>
-          </button>
-        </div>
+          <!-- 平台与业务双维度快速筛选 -->
+          <div class="sidebar-filter-bar">
+            <el-select v-model="currentPlatformFilter" size="small" style="width: 110px;">
+              <el-option label="全部平台" value="all" />
+              <el-option
+                v-for="plat in availablePlatforms"
+                :key="plat.id"
+                :label="plat.name"
+                :value="plat.id"
+              />
+            </el-select>
 
-        <!-- 视窗辅助控件 -->
-        <div class="browser-window-controls">
-          <span class="traffic-dot red" @click="closeCurrentTab" title="关闭当前标签"></span>
-          <span class="traffic-dot yellow" @click="isInteractive = !isInteractive" :title="isInteractive ? '已可在此操作浏览器' : '已锁定，不可操作浏览器'"></span>
-          <span class="traffic-dot green" title="浏览器状态良好"></span>
+            <el-select v-model="currentGroupFilter" size="small" style="flex: 1;">
+              <el-option label="全部分组" value="all" />
+              <el-option
+                v-for="grp in accountStore.groups"
+                :key="grp"
+                :label="grp"
+                :value="grp"
+              />
+            </el-select>
 
-          <!-- 收起 / 展开浏览器 -->
-          <el-tooltip :content="browserCollapsed ? '展开浏览器' : '收起浏览器'" placement="bottom">
-            <el-button size="small" text class="ghost-btn" @click="browserCollapsed = !browserCollapsed">
-              <el-icon>
-                <ArrowRight v-if="browserCollapsed" />
-                <ArrowLeft v-else />
-              </el-icon>
-            </el-button>
-          </el-tooltip>
-        </div>
-      </div>
-
-      <!-- 2. 浏览器导航与地址工具栏 (Omnibox Navigation Bar) -->
-      <div class="browser-navigation-bar">
-        <!-- 导航按钮 -->
-        <div class="nav-button-group">
-          <button class="nav-icon-btn" title="后退" disabled>
-            <el-icon><Back /></el-icon>
-          </button>
-          <button class="nav-icon-btn" title="前进" disabled>
-            <el-icon><Right /></el-icon>
-          </button>
-          <button class="nav-icon-btn" @click="handleReloadPage" title="重新刷新网页">
-            <el-icon :class="{ 'is-loading': currentActiveTab?.isStartingSession }"><Refresh /></el-icon>
-          </button>
-          <button class="nav-icon-btn" @click="handleGoHome" title="返回创作者首页">
-            <el-icon><HomeFilled /></el-icon>
-          </button>
-        </div>
-
-        <!-- 拟真 URL 地址栏 (Omnibox) -->
-        <div class="browser-omnibox">
-          <el-icon class="ssl-lock-icon"><Lock /></el-icon>
-          <span class="omnibox-url-text">{{ currentActiveTab?.url || 'sau://new-tab' }}</span>
-
-          <!-- 地址栏内部状态胶囊 -->
-          <div class="omnibox-badges" v-if="currentActiveTab?.type === 'account'">
-            <span class="platform-omnibox-tag" :style="{ background: getPlatformStyle(currentActiveTab.platform).gradient }">
-              {{ getPlatformStyle(currentActiveTab.platform).name }}
-            </span>
-            <el-tag 
-              size="small" 
-              :type="isTabSyncing(currentActiveTab) ? 'warning' : (currentActiveTab.accountItem?.isValid ? 'success' : 'danger')" 
-              effect="dark" 
-              round
-              class="omnibox-status-tag"
-            >
-              <el-icon v-if="isTabSyncing(currentActiveTab)" class="is-loading" style="margin-right: 4px;"><Loading /></el-icon>
-              <span>{{ isTabSyncing(currentActiveTab) ? '正在检查登录状态…' : (currentActiveTab.accountItem?.isValid ? '✅ 登录状态正常' : '⚠️ 登录已失效，请重新扫码') }}</span>
-            </el-tag>
-          </div>
-        </div>
-
-        <!-- 工具栏右侧操作按钮组 -->
-        <div class="browser-toolbar-actions">
-          <template v-if="currentActiveTab?.type === 'account' && currentActiveTab.accountItem">
-            <el-button 
-              size="small" 
-              type="primary" 
-              plain
-              :loading="currentActiveTab.accountItem.loading"
-              @click="checkStatus(currentActiveTab.accountItem)"
-            >
-              <el-icon><Search /></el-icon>
-              <span>检测登录状态</span>
-            </el-button>
-
-            <el-button 
-              size="small" 
-              type="warning" 
-              class="relogin-toolbar-btn"
-              :loading="currentActiveTab.isStartingSession"
-              @click="startAppWindowForTab(currentActiveTab)"
-            >
-              <el-icon><RefreshRight /></el-icon>
-              <span>{{ currentActiveTab.isSessionActive ? '重新载入' : '打开浏览器' }}</span>
-            </el-button>
-
-            <el-button 
-              v-if="currentActiveTab.isSessionActive"
-              size="small" 
-              type="danger" 
-              plain
-              @click="stopSessionForTab(currentActiveTab)"
-            >
-              <el-icon><CircleClose /></el-icon>
-              <span>关闭浏览器</span>
-            </el-button>
-
-            <!-- 暂时注释：内嵌投屏模式反向交互切换按钮 (原生独立视窗直接支持原生输入与鼠标)
-            <el-tooltip :content="isInteractive ? '已开启双向鼠标反向操作' : '已禁用鼠标反向操作'" placement="top">
-              <el-button 
-                size="small" 
-                :type="isInteractive ? 'primary' : 'info'" 
-                link
-                @click="isInteractive = !isInteractive"
-              >
-                <el-icon><Pointer /></el-icon>
-                <span>{{ isInteractive ? '交互开' : '只读' }}</span>
+            <el-tooltip content="管理/新建分组" placement="top">
+              <el-button size="small" type="info" plain circle @click="showGroupDialog = true">
+                <el-icon><FolderAdd /></el-icon>
               </el-button>
             </el-tooltip>
-            -->
+          </div>
+        </div>
 
-            <el-button 
-              size="small" 
-              type="danger" 
-              link
-              @click="confirmDelete(currentActiveTab.platform, currentActiveTab.account)"
-            >
-              <el-icon><Delete /></el-icon>
+        <!-- 2. 账号联系人滚动列表 -->
+        <div class="sidebar-contact-list custom-scrollbar">
+          <!-- 空状态：仅在没有任何账号且无正在接入任务时显示 -->
+          <div v-if="filteredAccounts.length === 0 && pendingAccountLogins.length === 0" class="contact-empty-state">
+            <el-icon class="empty-icon"><UserFilled /></el-icon>
+            <p class="empty-title">未找到匹配的账号</p>
+            <el-button size="small" type="primary" link @click="openNewTab">
+              接入新账号
             </el-button>
-          </template>
+          </div>
+
+          <!-- 正在接入中的新账号临时卡片 -->
+          <div
+            v-for="pending in pendingAccountLogins"
+            :key="pending.id"
+            class="contact-card-item is-pending-login"
+          >
+            <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(pending.platform).gradient }">
+              <el-icon class="avatar-pending-spinner is-loading"><Loading /></el-icon>
+            </div>
+
+            <div class="contact-meta-content">
+              <div class="contact-first-row">
+                <span class="contact-name-text pending-title">
+                  <span class="plat-chip" :title="getPlatformStyle(pending.platform).name">
+                    {{ platShort(pending.platform) }}
+                  </span>
+                  {{ pending.alias ? `正在接入 [${pending.alias}]...` : '正在接入新账号...' }}
+                </span>
+              </div>
+
+              <div class="contact-second-row">
+                <span class="contact-group-name">#{{ pending.alias ? pending.alias : '接入中' }}</span>
+                <span class="contact-status-label status-syncing">
+                  <el-icon class="is-loading" style="margin-right: 2px;"><Loading /></el-icon>
+                  <span>{{ pending.statusText }}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 账号联系人单元 -->
+          <div
+            v-for="acc in filteredAccounts"
+            :key="acc.platform + ':' + acc.account"
+            class="contact-card-item"
+            :class="{ 'is-active': activeTabId === `${acc.platform}:${acc.account}` }"
+            @click="openAccountTab(acc)"
+          >
+            <!-- 左侧勾选框 (批量操作) -->
+            <el-checkbox
+              class="acc-check"
+              :model-value="checkedAccounts.includes(accKey(acc))"
+              @click.stop
+              @change="(v: any) => toggleAccountCheck(acc, !!v)"
+            />
+
+            <!-- 头像模块 -->
+            <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(acc.platform).gradient }">
+              <img
+                v-if="acc.avatar && !acc.avatarLoadFailed"
+                :src="acc.avatar"
+                class="contact-real-avatar"
+                referrerpolicy="no-referrer"
+                @error="acc.avatarLoadFailed = true"
+                :alt="acc.nickname || acc.account"
+              />
+              <span v-else class="avatar-char">{{ getAccountAvatarText(acc) }}</span>
+            </div>
+
+            <!-- 文本与状态信息 -->
+            <div class="contact-meta-content">
+              <div class="contact-first-row">
+                <span class="contact-name-text">
+                  <span class="plat-chip" :title="getPlatformStyle(acc.platform).name">
+                    {{ platShort(acc.platform) }}
+                  </span>
+                  {{ acc.nickname || acc.account }}
+                </span>
+              </div>
+
+              <div class="contact-second-row">
+                <!-- 点这里直接改分组 -->
+                <el-popover
+                  :width="200"
+                  trigger="click"
+                  placement="right-start"
+                  popper-class="group-picker-popover"
+                  @show="newGroupNameForAccount = ''"
+                >
+                  <template #reference>
+                    <span class="contact-group-name clickable">
+                      #{{ acc.group || DEFAULT_GROUP }}
+                      <el-icon class="grp-caret"><ArrowDown /></el-icon>
+                    </span>
+                  </template>
+
+                  <div class="group-picker">
+                    <div class="gp-title">移动到分组</div>
+                    <div
+                      v-for="grp in accountStore.groups"
+                      :key="grp"
+                      class="gp-item"
+                      :class="{ on: (acc.group || DEFAULT_GROUP) === grp }"
+                      @click="assignGroup(acc, grp)"
+                    >
+                      <el-icon v-if="(acc.group || DEFAULT_GROUP) === grp" class="gp-check"><Check /></el-icon>
+                      <span v-else class="gp-check placeholder" />
+                      <span class="gp-name">{{ grp }}</span>
+                      <span class="gp-count">{{ accountStore.groupCounts[grp] || 0 }}</span>
+                    </div>
+
+                    <div class="gp-divider" />
+
+                    <div class="gp-new">
+                      <el-input
+                        v-model="newGroupNameForAccount"
+                        size="small"
+                        placeholder="新建分组…"
+                        @keyup.enter="createGroupAndAssign(acc)"
+                      />
+                      <el-button
+                        size="small"
+                        type="primary"
+                        :disabled="!newGroupNameForAccount.trim()"
+                        @click="createGroupAndAssign(acc)"
+                      >新建</el-button>
+                    </div>
+                  </div>
+                </el-popover>
+
+                <span
+                  class="contact-status-label"
+                  :class="{ 'status-err': acc.checked && !acc.isValid, 'status-ok': acc.checked && acc.isValid, 'status-syncing': acc.isSyncing || acc.loading }"
+                >
+                  <el-icon v-if="acc.isSyncing || acc.loading" class="is-loading" style="margin-right: 2px;"><Loading /></el-icon>
+                  <span>{{ (acc.isSyncing || acc.loading) ? '同步中...' : (acc.checked ? (acc.isValid ? '登录正常' : '需重新扫码') : '待检测') }}</span>
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- 3. 浏览器视窗主内容区 (Browser Viewport) - 多标签各自拥有独立 DOM，切换时不销毁、不重新扫码 -->
-      <div class="browser-viewport-stage">
-        <div 
-          v-for="tab in openTabs" 
-          :key="tab.id"
-          v-show="activeTabId === tab.id"
-          class="tab-viewport-container"
-        >
-          <!-- A. 处于会话中 (统一采用原生超清 Chrome App 视窗模式 · 0 延迟) -->
-          <template v-if="tab.isSessionActive">
-            <!-- 原生 Chrome App 沉浸式真机视窗模式 (4K Retina · 0 延迟) -->
-            <div class="browser-appmode-hub">
-              <div class="appmode-card">
-                <div class="appmode-header">
-                  <div class="appmode-badge-live">
-                    <span class="live-pulse-dot"></span>
-                    <span>浏览器已打开</span>
+      <!-- 👉 右侧：单账号面板 -->
+      <div class="browser-window-pane" v-show="!browserCollapsed">
+        <!-- 面板标题行（替代原来的浏览器工具栏） -->
+        <div class="panel-head">
+          <div class="ph-left">
+            <span class="ph-title">
+              <template v-if="currentActiveTab?.type === 'new'">添加账号</template>
+              <template v-else-if="currentActiveTab?.accountItem">
+                {{ currentActiveTab.accountItem.nickname || currentActiveTab.accountItem.account }}
+              </template>
+              <template v-else>账号详情</template>
+            </span>
+            <span
+              v-if="currentActiveTab?.type === 'account' && currentActiveTab.accountItem"
+              class="ph-status"
+              :class="currentActiveTab.accountItem.isValid ? 'ok' : 'bad'"
+            >
+              {{ currentActiveTab.accountItem.isValid ? '✅ 登录正常' : '⚠️ 登录已失效' }}
+            </span>
+          </div>
+
+          <div class="ph-right">
+            <!-- 账号操作按钮 -->
+            <template v-if="currentActiveTab?.type === 'account' && currentActiveTab.accountItem">
+              <el-button size="small" plain :loading="currentActiveTab.accountItem.loading" @click="checkStatus(currentActiveTab.accountItem)">
+                <el-icon><Search /></el-icon><span>检测登录状态</span>
+              </el-button>
+              <el-button size="small" type="primary" plain :loading="currentActiveTab.isStartingSession" @click="startAppWindowForTab(currentActiveTab)">
+                <el-icon><Monitor /></el-icon>
+                <span>{{ currentActiveTab.isSessionActive ? '重新打开浏览器' : '打开浏览器登录' }}</span>
+              </el-button>
+              <el-button v-if="currentActiveTab.isSessionActive" size="small" type="danger" plain @click="stopSessionForTab(currentActiveTab)">
+                <el-icon><CircleClose /></el-icon><span>关闭浏览器</span>
+              </el-button>
+            </template>
+
+            <!-- 收起 / 展开 -->
+            <el-tooltip :content="browserCollapsed ? '展开' : '收起'" placement="bottom">
+              <el-button size="small" text @click="browserCollapsed = !browserCollapsed">
+                <el-icon><ArrowRight v-if="browserCollapsed" /><ArrowLeft v-else /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </div>
+        </div>
+
+        <!-- 面板内容区 -->
+        <div class="browser-viewport-stage">
+          <div
+            v-for="tab in openTabs"
+            :key="tab.id"
+            v-show="activeTabId === tab.id"
+            class="tab-viewport-container"
+          >
+            <!-- A. 处于会话中 -->
+            <template v-if="tab.isSessionActive">
+              <div class="browser-appmode-hub">
+                <div class="appmode-card">
+                  <div class="appmode-header">
+                    <div class="appmode-badge-live">
+                      <span class="live-pulse-dot"></span>
+                      <span>浏览器已打开</span>
+                    </div>
+                  </div>
+
+                  <div class="appmode-avatar-box" :style="{ background: getPlatformStyle(tab.platform).gradient }">
+                    <img
+                      v-if="tab.accountItem?.avatar && !tab.accountItem?.avatarLoadFailed"
+                      :src="tab.accountItem.avatar"
+                      class="appmode-real-avatar"
+                      referrerpolicy="no-referrer"
+                      @error="tab.accountItem ? tab.accountItem.avatarLoadFailed = true : null"
+                      :alt="tab.accountItem?.nickname || tab.accountItem?.account || tab.title"
+                    />
+                    <span v-else class="avatar-char">{{ getAccountAvatarText(tab.accountItem, tab.account || getPlatformConfig(tab.platform).name) }}</span>
+                    <span class="avatar-badge">
+                      <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
+                    </span>
+                  </div>
+
+                  <h3 class="appmode-title">{{ tab.accountItem?.nickname || tab.accountItem?.account || tab.title }}</h3>
+                  <p class="appmode-url">{{ tab.url }}</p>
+
+                  <div class="appmode-guide-tip">
+                    <el-icon><CircleCheck /></el-icon>
+                    <span>浏览器窗口已为您展开在桌面上，您可以在里面扫码登录、使用键盘打字、拖拽上传文件。登录状态每 30 秒自动保存一次。</span>
+                  </div>
+
+                  <div class="appmode-actions">
+                    <el-button
+                      type="primary"
+                      size="large"
+                      class="focus-window-btn"
+                      @click="startAppWindowForTab(tab)"
+                    >
+                      <el-icon><RefreshRight /></el-icon>
+                      <span>重新打开窗口</span>
+                    </el-button>
+
+                    <el-button
+                      type="danger"
+                      size="large"
+                      plain
+                      class="stop-session-btn"
+                      @click="stopSessionForTab(tab)"
+                    >
+                      <el-icon><CircleClose /></el-icon>
+                      <span>关闭并保存登录状态</span>
+                    </el-button>
                   </div>
                 </div>
+              </div>
+            </template>
 
-                <div class="appmode-avatar-box" :style="{ background: getPlatformStyle(tab.platform).gradient }">
-                  <img 
-                    v-if="tab.accountItem?.avatar && !tab.accountItem?.avatarLoadFailed" 
-                    :src="tab.accountItem.avatar" 
-                    class="appmode-real-avatar" 
+            <!-- B. 待机状态：账号就绪面板 -->
+            <div v-else-if="tab.type === 'account' && tab.accountItem" class="browser-standby-hub">
+              <div class="standby-card-content">
+                <div class="standby-brand-avatar" :style="{ background: getPlatformStyle(tab.platform).gradient }">
+                  <img
+                    v-if="tab.accountItem.avatar && !tab.accountItem.avatarLoadFailed"
+                    :src="tab.accountItem.avatar"
+                    class="standby-real-avatar"
                     referrerpolicy="no-referrer"
-                    @error="tab.accountItem ? tab.accountItem.avatarLoadFailed = true : null" 
-                    :alt="tab.accountItem?.nickname || tab.accountItem?.account || tab.title"
+                    @error="tab.accountItem.avatarLoadFailed = true"
+                    :alt="tab.accountItem.nickname || tab.accountItem.account"
                   />
-                  <span v-else class="avatar-char">{{ getAccountAvatarText(tab.accountItem, tab.account || getPlatformConfig(tab.platform).name) }}</span>
-                  <span class="avatar-badge">
+                  <span v-else class="avatar-huge-char">{{ getAccountAvatarText(tab.accountItem) }}</span>
+                  <span class="brand-sub-badge">
                     <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
                   </span>
                 </div>
 
-                <h3 class="appmode-title">{{ tab.accountItem?.nickname || tab.accountItem?.account || tab.title }}</h3>
-                <p class="appmode-url">{{ tab.url }}</p>
-
-                <div class="appmode-guide-tip">
-                  <el-icon><CircleCheck /></el-icon>
-                  <span>浏览器窗口已为您展开在桌面上，您可以在里面扫码登录、使用键盘打字、拖拽上传文件。登录状态每 30 秒自动保存一次。</span>
+                <h2 class="standby-account-title">{{ tab.accountItem.nickname || tab.accountItem.account }}</h2>
+                <div class="standby-meta-pills">
+                  <el-tag size="default" :type="isTabSyncing(tab) ? 'warning' : (tab.accountItem.isValid ? 'success' : 'danger')" effect="dark" round>
+                    <el-icon v-if="isTabSyncing(tab)" class="is-loading" style="margin-right: 4px;"><Loading /></el-icon>
+                    <span>{{ isTabSyncing(tab) ? '正在检查登录状态…' : (tab.accountItem.isValid ? '✅ 登录状态正常' : '⚠️ 登录已失效，请重新扫码') }}</span>
+                  </el-tag>
+                  <el-tag size="default" type="info" round v-if="tab.accountItem.finderUid">
+                    UID: {{ tab.accountItem.finderUid }}
+                  </el-tag>
+                  <el-tag size="default" type="warning" round>
+                    分组：{{ tab.accountItem.group || DEFAULT_GROUP }}
+                  </el-tag>
                 </div>
 
-                <div class="appmode-actions">
-                  <el-button 
-                    type="primary" 
-                    size="large" 
-                    class="focus-window-btn"
-                    @click="startAppWindowForTab(tab)"
-                  >
-                    <el-icon><RefreshRight /></el-icon>
-                    <span>重新打开窗口</span>
-                  </el-button>
+                <p class="standby-intro-desc" v-if="tab.accountItem.isValid">
+                  本账号登录状态健康，点击下方按钮即可直接在浏览器窗口打开创作者服务平台，享受清晰的画面与顺畅的交互。
+                </p>
+                <p class="standby-intro-desc warning-text" v-else>
+                  当前账号登录已失效，点击下方按钮将打开浏览器窗口并呈现扫码页面，手机微信/抖音扫码即可无缝完成绑定更新。
+                </p>
 
-                  <el-button 
-                    type="danger" 
-                    size="large" 
-                    plain
-                    class="stop-session-btn"
-                    @click="stopSessionForTab(tab)"
-                  >
-                    <el-icon><CircleClose /></el-icon>
-                    <span>关闭并保存登录状态</span>
-                  </el-button>
-                </div>
-
-                <!-- 暂时注释：内嵌投屏模式切换按钮
-                <div class="appmode-switch-mode">
-                  <el-button link type="info" size="small" @click="switchToScreencastMode(tab)">
-                    <el-icon><VideoPlay /></el-icon>
-                    <span>想在软件内直接查看浏览器画面？</span>
-                  </el-button>
-                </div>
-                -->
-              </div>
-            </div>
-
-            <!-- 暂时注释：A2. 轻量无头 Canvas 投屏流模式
-            <div v-else class="live-canvas-fill">
-              <LiveBrowserCanvas 
-                :taskId="tab.taskId"
-                :title="tab.title"
-              />
-            </div>
-            -->
-          </template>
-
-          <!-- B. 待机状态：账号创作者中心就绪面板 -->
-          <div v-else-if="tab.type === 'account' && tab.accountItem" class="browser-standby-hub">
-            <div class="standby-card-content">
-              <div class="standby-brand-avatar" :style="{ background: getPlatformStyle(tab.platform).gradient }">
-                <img 
-                  v-if="tab.accountItem.avatar && !tab.accountItem.avatarLoadFailed" 
-                  :src="tab.accountItem.avatar" 
-                  class="standby-real-avatar" 
-                  referrerpolicy="no-referrer"
-                  @error="tab.accountItem.avatarLoadFailed = true" 
-                  :alt="tab.accountItem.nickname || tab.accountItem.account"
-                />
-                <span v-else class="avatar-huge-char">{{ getAccountAvatarText(tab.accountItem) }}</span>
-                <span class="brand-sub-badge">
-                  <el-icon><component :is="getPlatformStyle(tab.platform).icon" /></el-icon>
-                </span>
-              </div>
-
-              <h2 class="standby-account-title">{{ tab.accountItem.nickname || tab.accountItem.account }}</h2>
-              <div class="standby-meta-pills">
-                <el-tag size="default" :type="isTabSyncing(tab) ? 'warning' : (tab.accountItem.isValid ? 'success' : 'danger')" effect="dark" round>
-                  <el-icon v-if="isTabSyncing(tab)" class="is-loading" style="margin-right: 4px;"><Loading /></el-icon>
-                  <span>{{ isTabSyncing(tab) ? '正在检查登录状态…' : (tab.accountItem.isValid ? '✅ 登录状态正常' : '⚠️ 登录已失效，请重新扫码') }}</span>
-                </el-tag>
-                <el-tag size="default" type="info" round v-if="tab.accountItem.finderUid">
-                  UID: {{ tab.accountItem.finderUid }}
-                </el-tag>
-                <el-tag size="default" type="warning" round>
-                  分组：{{ tab.accountItem.group || DEFAULT_GROUP }}
-                </el-tag>
-              </div>
-
-              <p class="standby-intro-desc" v-if="tab.accountItem.isValid">
-                本账号登录状态健康，点击下方按钮即可直接在浏览器窗口打开创作者服务平台，享受清晰的画面与顺畅的交互。
-              </p>
-              <p class="standby-intro-desc warning-text" v-else>
-                当前账号登录已失效，点击下方按钮将打开浏览器窗口并呈现扫码页面，手机微信/抖音扫码即可无缝完成绑定更新。
-              </p>
-
-              <div class="standby-action-launch">
-                <el-button 
-                  type="primary" 
-                  class="launch-stream-large-btn" 
-                  size="large"
-                  :loading="tab.isStartingSession"
-                  @click="startAppWindowForTab(tab)"
-                >
-                  <el-icon><Monitor /></el-icon>
-                  <span>{{ tab.accountItem.isValid ? '🚀 打开浏览器窗口' : '🚀 打开浏览器扫码登录' }}</span>
-                </el-button>
-
-                <!-- 暂时注释内嵌投屏模式
-                <el-button 
-                  type="info" 
-                  plain 
-                  size="default" 
-                  class="launch-screencast-sub-btn"
-                  :loading="tab.isStartingSession"
-                  @click="startScreencastForTab(tab)"
-                >
-                  <el-icon><VideoPlay /></el-icon>
-                  <span>在软件内打开（可选）</span>
-                </el-button>
-                -->
-              </div>
-
-              <!-- <div class="standby-feature-tags">
-                <span>🚀 打开浏览器窗口</span>
-                <span>💎 100% 原始视网膜画质</span>
-                <span>🖱️ 支持键盘输入与鼠标操作</span>
-                <span>🔒 本地加密持久化</span>
-              </div> -->
-            </div>
-          </div>
-
-          <!-- C. 新标签页 (New Tab) / 快速接入向导 -->
-          <div v-else class="browser-newtab-hub">
-            <div class="newtab-content-box">
-              <div class="newtab-logo-box">
-                <el-icon class="newtab-logo"><Compass /></el-icon>
-              </div>
-              <h2 class="newtab-heading">添加账号</h2>
-              <p class="newtab-sub">选择要添加的平台，点下方按钮后会打开浏览器，用手机扫码登录即可</p>
-
-              <!-- 平台选择卡片网格 -->
-              <div class="newtab-platforms-grid">
-                <div 
-                  v-for="plat in platformList" 
-                  :key="plat.id"
-                  class="newtab-platform-card"
-                  :class="{ 'selected': newTabSelectedPlatform === plat.id }"
-                  @click="newTabSelectedPlatform = plat.id"
-                >
-                  <div class="card-plat-icon" :style="{ background: plat.gradient }">
-                    <el-icon><component :is="plat.icon" /></el-icon>
-                  </div>
-                  <span class="card-plat-name">{{ plat.name }}</span>
-                </div>
-              </div>
-
-              <!-- 备注名 + 分组 + 启动按钮 -->
-              <div class="newtab-launch-form">
-                <div class="form-row">
-                  <span class="row-label">账号备注名</span>
-                  <el-input
-                    v-model="newTabAccountAlias"
-                    placeholder="选填：留空则自动读取平台昵称"
-                    size="default"
-                    style="flex: 1;"
-                    clearable
-                  />
-                </div>
-
-                <div class="form-row">
-                  <span class="row-label">分组</span>
-                  <el-select
-                    v-model="newTabGroup"
-                    placeholder="选填：默认归入「默认分组」"
-                    size="default"
-                    style="flex: 1;"
-                    filterable
-                    allow-create
-                    clearable
-                    default-first-option
-                  >
-                    <el-option
-                      v-for="g in accountStore.groups"
-                      :key="g"
-                      :label="g"
-                      :value="g"
-                    />
-                  </el-select>
-                </div>
-
-                <div class="newtab-form-hint">
-                  💡 分组用于在「发布工作台」里批量勾选账号；也可直接输入新名称创建分组
-                </div>
-
-                <div class="form-action-row">
+                <div class="standby-action-launch">
                   <el-button
                     type="primary"
                     class="launch-stream-large-btn"
-                    size="default"
+                    size="large"
                     :loading="tab.isStartingSession"
-                    @click="startNewTabLoginForTab(tab)"
+                    @click="startAppWindowForTab(tab)"
                   >
                     <el-icon><Monitor /></el-icon>
-                    <span>🚀 打开浏览器扫码登录</span>
+                    <span>{{ tab.accountItem.isValid ? '🚀 打开浏览器窗口' : '🚀 打开浏览器扫码登录' }}</span>
                   </el-button>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
 
-      <!-- 4. 浏览器底部状态栏 (Browser Status Footer) -->
-      <div class="browser-footer-bar" v-if="currentActiveTab?.isSessionActive">
-        <div class="footer-status-left">
-          <span class="active-pulse-dot"></span>
-          <span>{{ currentActiveTab.sessionStatusText }}</span>
+            <!-- C. 新标签页 / 快速接入向导 -->
+            <div v-else class="browser-newtab-hub">
+              <div class="newtab-content-box">
+                <div class="newtab-logo-box">
+                  <el-icon class="newtab-logo"><Compass /></el-icon>
+                </div>
+                <h2 class="newtab-heading">添加账号</h2>
+                <p class="newtab-sub">选择要添加的平台，点下方按钮后会打开浏览器，用手机扫码登录即可</p>
+
+                <!-- 平台选择卡片网格 -->
+                <div class="newtab-platforms-grid">
+                  <div
+                    v-for="plat in platformList"
+                    :key="plat.id"
+                    class="newtab-platform-card"
+                    :class="{ 'selected': newTabSelectedPlatform === plat.id }"
+                    @click="newTabSelectedPlatform = plat.id"
+                  >
+                    <div class="card-plat-icon" :style="{ background: plat.gradient }">
+                      <el-icon><component :is="plat.icon" /></el-icon>
+                    </div>
+                    <span class="card-plat-name">{{ plat.name }}</span>
+                  </div>
+                </div>
+
+                <!-- 备注名 + 分组 + 启动按钮 -->
+                <div class="newtab-launch-form">
+                  <div class="form-row">
+                    <span class="row-label">账号备注名</span>
+                    <el-input
+                      v-model="newTabAccountAlias"
+                      placeholder="选填：留空则自动读取平台昵称"
+                      size="default"
+                      style="flex: 1;"
+                      clearable
+                    />
+                  </div>
+
+                  <div class="form-row">
+                    <span class="row-label">分组</span>
+                    <el-select
+                      v-model="newTabGroup"
+                      placeholder="选填：默认归入「默认分组」"
+                      size="default"
+                      style="flex: 1;"
+                      filterable
+                      allow-create
+                      clearable
+                      default-first-option
+                    >
+                      <el-option
+                        v-for="g in accountStore.groups"
+                        :key="g"
+                        :label="g"
+                        :value="g"
+                      />
+                    </el-select>
+                  </div>
+
+                  <div class="newtab-form-hint">
+                    💡 分组用于在「发布工作台」里批量勾选账号；也可直接输入新名称创建分组
+                  </div>
+
+                  <div class="form-action-row">
+                    <el-button
+                      type="primary"
+                      class="launch-stream-large-btn"
+                      size="default"
+                      :loading="tab.isStartingSession"
+                      @click="startNewTabLoginForTab(tab)"
+                    >
+                      <el-icon><Monitor /></el-icon>
+                      <span>🚀 打开浏览器扫码登录</span>
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -639,9 +521,9 @@
     >
       <div class="group-dialog-body">
         <div class="new-group-input">
-          <el-input 
-            v-model="newGroupName" 
-            placeholder="输入新分组名称 (如: 探店组、科技出海组)" 
+          <el-input
+            v-model="newGroupName"
+            placeholder="输入新分组名称 (如: 探店组、科技出海组)"
             @keyup.enter="handleCreateGroup"
           >
             <template #append>
@@ -680,15 +562,14 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { PLATFORMS, getPlatformConfig } from '../config/platforms'
 import { useAccountStore, AccountItem, DEFAULT_GROUP } from '../stores/accountStore'
-import { LoginAccountWithAppWindow, LoginAccountWithScreencast, StopTaskById } from '../../wailsjs/go/main/App'
+import { LoginAccountWithAppWindow, StopTaskById } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
-// import LiveBrowserCanvas from '../components/matrix/LiveBrowserCanvas.vue'
 
 const accountStore = useAccountStore()
 
-// 浏览器标签页结构定义 (每个标签页独立维护自己的会话与画面状态)
+// 浏览器标签页结构定义 (单面板模式：只保留一个标签页)
 interface BrowserTab {
-  id: string // e.g. "douyin:account_1" 或 "new_tab_..."
+  id: string
   type: 'account' | 'new'
   title: string
   platform: string
@@ -696,7 +577,6 @@ interface BrowserTab {
   url: string
   accountItem?: AccountItem
   isSessionActive: boolean
-  sessionMode?: 'app' | 'screencast'
   isStartingSession: boolean
   taskId: string
   sessionStatusText: string
@@ -711,7 +591,8 @@ const currentPlatformFilter = ref('all')
 const currentGroupFilter = ref('all')
 const searchKeyword = ref('')
 
-const isInteractive = ref(true)
+/** 只看"需重新登录"的账号 */
+const filterOnlyInvalidFlag = ref(false)
 
 const newTabSelectedPlatform = ref('douyin')
 const newTabAccountAlias = ref('')
@@ -721,10 +602,10 @@ const newTabGroup = ref('')
 const showGroupDialog = ref(false)
 const newGroupName = ref('')
 
-/** 是否收起右侧浏览器（把屏幕让给账号列表） */
+/** 是否收起右侧浏览器 */
 const browserCollapsed = ref(false)
 
-// 正在接入中的新账号临时状态（提供即时可见的等待与操作反馈）
+// 正在接入中的新账号临时状态
 interface PendingAccountLogin {
   id: string
   platform: string
@@ -748,6 +629,9 @@ const currentActiveTab = computed<BrowserTab | null>(() => {
 // 筛选后的左侧账号列表
 const filteredAccounts = computed(() => {
   return accountStore.accounts.filter(acc => {
+    if (filterOnlyInvalidFlag.value) {
+      if (!acc.checked || acc.isValid) return false
+    }
     if (currentPlatformFilter.value !== 'all' && acc.platform !== currentPlatformFilter.value) {
       return false
     }
@@ -766,11 +650,23 @@ const filteredAccounts = computed(() => {
   })
 })
 
+/** 需重新登录的账号数（已检测且失效） */
+const invalidCount = computed(() =>
+  accountStore.accounts.filter(a => a.checked && !a.isValid).length
+)
+
+/** 点汇总条上的"N 个需重新登录" → 只筛失效账号 */
+function filterOnlyInvalid() {
+  currentPlatformFilter.value = 'all'
+  currentGroupFilter.value = 'all'
+  filterOnlyInvalidFlag.value = true
+}
+
 const getPlatformStyle = (platformId: string) => {
   return getPlatformConfig(platformId)
 }
 
-/** 平台简称（列表里用，避免"微信视频号""支付宝生活号"这类长名把一行撑破） */
+/** 平台简称 */
 function platShort(pid: string): string {
   const map: Record<string, string> = {
     douyin: '抖音',
@@ -810,44 +706,48 @@ const getAccountAvatarText = (acc?: AccountItem | null, fallbackName: string = '
   return name.trim().slice(0, 1).toUpperCase()
 }
 
-// 激活某个标签页 (平滑切换视窗，保留后台各标签页的投屏连接，绝不关闭会话)
+// 激活某个标签页
 const activateTab = (tabId: string) => {
   activeTabId.value = tabId
 }
 
-// 左侧点击用户卡片：在右侧打开或切换到该用户的浏览器标签页！
+// 左侧点击用户卡片：在右侧单账号面板中显示该账号（单面板模式：切换账号即替换）
 const openAccountTab = (acc: AccountItem) => {
   const tabId = `${acc.platform}:${acc.account}`
+
+  // 单面板模式：始终只保留一个账号标签，切换账号即替换
   const existing = openTabs.value.find(t => t.id === tabId)
   if (existing) {
     existing.accountItem = acc
     existing.title = `${getPlatformConfig(acc.platform).name} - ${acc.nickname || acc.account}`
+    openTabs.value = [existing]
     activeTabId.value = tabId
-  } else {
-    openTabs.value.push({
-      id: tabId,
-      type: 'account',
-      title: `${getPlatformConfig(acc.platform).name} - ${acc.nickname || acc.account}`,
-      platform: acc.platform,
-      account: acc.account,
-      url: getPlatformCreatorUrl(acc.platform),
-      accountItem: acc,
-      isSessionActive: false,
-      isStartingSession: false,
-      taskId: `login_${acc.platform}_${acc.account}`,
-      sessionStatusText: '等待打开浏览器...'
-    })
-    activeTabId.value = tabId
+    return
   }
+
+  openTabs.value = [{
+    id: tabId,
+    type: 'account',
+    title: `${getPlatformConfig(acc.platform).name} - ${acc.nickname || acc.account}`,
+    platform: acc.platform,
+    account: acc.account,
+    url: getPlatformCreatorUrl(acc.platform),
+    accountItem: acc,
+    isSessionActive: false,
+    isStartingSession: false,
+    taskId: `login_${acc.platform}_${acc.account}`,
+    sessionStatusText: '等待打开浏览器...'
+  }]
+  activeTabId.value = tabId
 }
 
-// 打开“新建标签页 / 接入新账号”
+// 打开"新建标签页 / 接入新账号"（单面板模式）
 const openNewTab = () => {
   const newTabId = `new_tab_${Date.now()}`
-  openTabs.value.push({
+  openTabs.value = [{
     id: newTabId,
     type: 'new',
-    title: '新建标签页',
+    title: '添加账号',
     platform: newTabSelectedPlatform.value,
     account: '',
     url: 'sau://new-tab',
@@ -855,7 +755,7 @@ const openNewTab = () => {
     isStartingSession: false,
     taskId: `login_new_${Date.now()}`,
     sessionStatusText: '就绪'
-  })
+  }]
   activeTabId.value = newTabId
 }
 
@@ -879,24 +779,17 @@ const closeTab = async (tabId: string) => {
   }
 }
 
-const closeCurrentTab = () => {
-  if (currentActiveTab.value) {
-    closeTab(currentActiveTab.value.id)
-  }
-}
-
-// 为指定标签页拉起原生 Chrome App 沉浸式真机视窗 (4K 原生画质与 0 延迟)
+// 为指定标签页拉起原生 Chrome App 沉浸式真机视窗
 const startAppWindowForTab = async (tab: BrowserTab) => {
   const platform = tab.platform
   const account = tab.account || 'auto'
   tab.taskId = `login_${platform}_${account}`
-  tab.sessionMode = 'app'
   tab.isSessionActive = true
   tab.isStartingSession = true
   if (tab.accountItem) {
     tab.accountItem.isSyncing = true
   } else {
-    // 初次新增账号：立即在左侧联系人列表展示接入中状态卡片，提供明确的等待反馈
+    // 初次新增账号：立即在左侧联系人列表展示接入中状态卡片
     pendingAccountLogins.value = pendingAccountLogins.value.filter(p => p.platform !== platform)
     pendingAccountLogins.value.push({
       id: `pending_${platform}_${Date.now()}`,
@@ -916,7 +809,6 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
       const savedAcc = accountStore.saveLoggedInAccount(platform, res.account, res.nickname, res.finderUid, true, res.avatar)
       pendingAccountLogins.value = pendingAccountLogins.value.filter(p => p.platform !== platform)
       if (savedAcc) {
-        // 接入向导里选过分组 → 登录成功后直接归入该组（同时确保分组已存在）
         const wantGroup = (tab.pendingGroup || '').trim()
         if (wantGroup) {
           if (!accountStore.groups.includes(wantGroup)) accountStore.addGroup(wantGroup)
@@ -932,7 +824,6 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
       const finishMsg = res?.msg || '操作完成'
       tab.sessionStatusText = `操作已完成: ${finishMsg}`
       if (account === 'auto') {
-        // 新建账号接入未完成扫码：保持在新标签页状态，绝不跨账号套用已有或已删除账号
         ElMessage.info('未完成扫码登录，您可以随时点击重新打开浏览器')
       } else {
         if (tab.accountItem) {
@@ -945,7 +836,7 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
     const errStr = err?.message || String(err)
     if (!errStr.includes('手动中止') && !errStr.includes('signal') && !errStr.includes('killed')) {
       tab.sessionStatusText = `操作异常: ${errStr}`
-      const cleanMsg = errStr.startsWith('拉起') ? errStr : `拉起浏览器异常: ${errStr}`
+      const cleanMsg = errStr.startsWith('打开浏览器失败') ? errStr : `打开浏览器失败：${errStr}`
       ElMessage.error({ message: cleanMsg, duration: 6000 })
     }
   } finally {
@@ -969,63 +860,11 @@ const startAppWindowForTab = async (tab: BrowserTab) => {
   }
 }
 
-// 暂时注释内嵌投屏方法，统一使用原生独立视窗模式
-/*
-const startScreencastForTab = async (tab: BrowserTab) => {
-  const platform = tab.platform
-  const account = tab.account || 'auto'
-  tab.taskId = `login_${platform}_${account}`
-  tab.sessionMode = 'screencast'
-  tab.isSessionActive = true
-  tab.isStartingSession = true
-  tab.sessionStatusText = '正在建立后台画面流...'
-
-  try {
-    const res = await LoginAccountWithScreencast(platform, account)
-    if (res && res.success) {
-      tab.sessionStatusText = `🎉 账号 [${res.nickname || res.account}] 登录状态已保存`
-      ElMessage.success(`账号 [${res.nickname || res.account}] 登录状态已保存`)
-      accountStore.saveLoggedInAccount(platform, res.account || account, res.nickname, res.finderUid, true)
-    } else {
-      tab.sessionStatusText = `操作已完成: ${res?.msg || '操作完成'}`
-      if (res?.msg && res.msg !== '操作完成') {
-        ElMessage.error({ message: `打开画面流失败: ${res.msg}`, duration: 8000 })
-      }
-    }
-  } catch (err: any) {
-    const errStr = err?.message || String(err)
-    if (!errStr.includes('手动中止') && !errStr.includes('signal') && !errStr.includes('killed')) {
-      tab.sessionStatusText = `操作异常: ${errStr}`
-      ElMessage.error({ message: `画面流异常: ${errStr}`, duration: 8000 })
-    }
-  } finally {
-    tab.isStartingSession = false
-    tab.isSessionActive = false
-    await accountStore.fetchAccounts()
-    const targetAcc = accountStore.accounts.find(a => a.platform === platform && (a.account === account || a.account === tab.account))
-    if (targetAcc && !targetAcc.isValid) {
-      await accountStore.checkAccount(targetAcc)
-    }
-  }
-}
-
-const switchToScreencastMode = async (tab: BrowserTab) => {
-  await stopSessionForTab(tab)
-  startScreencastForTab(tab)
-}
-*/
-
-// 在会话运行中动态切换为原生超清 App 视窗
-const switchToAppWindowMode = async (tab: BrowserTab) => {
-  await stopSessionForTab(tab)
-  startAppWindowForTab(tab)
-}
-
 // 新标签页中发起接入
 const startNewTabLoginForTab = (tab: BrowserTab) => {
   tab.platform = newTabSelectedPlatform.value
   tab.account = newTabAccountAlias.value.trim() || 'auto'
-  tab.pendingGroup = newTabGroup.value.trim()          // ← 暂存，登录成功后归组
+  tab.pendingGroup = newTabGroup.value.trim()
   tab.url = getPlatformCreatorUrl(tab.platform)
   tab.title = `${getPlatformConfig(tab.platform).name} - ${tab.account === 'auto' ? '扫码接入' : tab.account}`
   startAppWindowForTab(tab)
@@ -1042,35 +881,85 @@ const stopSessionForTab = async (tab: BrowserTab) => {
   ElMessage.info(`已关闭「${tab.title}」的浏览器`)
 }
 
-const handleReloadPage = () => {
-  if (currentActiveTab.value && currentActiveTab.value.type === 'account') {
-    startAppWindowForTab(currentActiveTab.value)
-  }
-}
-
-const handleGoHome = () => {
-  if (currentActiveTab.value && currentActiveTab.value.type === 'account') {
-    currentActiveTab.value.url = getPlatformCreatorUrl(currentActiveTab.value.platform)
-  }
-}
-
-// 严格判断标签页是否真正处于同步或加载中（防残留脏状态）
+// 严格判断标签页是否真正处于同步或加载中
 const isTabSyncing = (tab?: BrowserTab | null) => {
   if (!tab) return false
   if (tab.accountItem?.loading || tab.accountItem?.isSyncing) return true
-  // 仅当会话处于活跃状态且正在建立连接时才判定为 syncing
   if (tab.isSessionActive && tab.isStartingSession) return true
   return false
 }
 
-// 账号凭证检测 (具备全链路同步兜底与脏状态纠偏)
+/** 批量操作：账号唯一键 */
+const accKey = (a: AccountItem) => `${a.platform}:${a.account}`
+
+/** 批量勾选列表 */
+const checkedAccounts = ref<string[]>([])
+
+function toggleAccountCheck(acc: AccountItem, on: boolean) {
+  const k = accKey(acc)
+  if (on) {
+    if (!checkedAccounts.value.includes(k)) checkedAccounts.value.push(k)
+  } else {
+    checkedAccounts.value = checkedAccounts.value.filter(x => x !== k)
+  }
+}
+
+/** 勾选对应的账号对象 */
+const checkedAccountItems = computed(() =>
+  accountStore.accounts.filter(a => checkedAccounts.value.includes(accKey(a)))
+)
+
+/** 批量检测登录状态 */
+const batchChecking = ref(false)
+async function handleBatchCheck() {
+  if (batchChecking.value) return
+  batchChecking.value = true
+  const list = checkedAccountItems.value
+  let ok = 0, bad = 0
+  try {
+    for (const acc of list) {
+      try {
+        await checkStatus(acc)
+        if (acc.isValid) ok++; else bad++
+      } catch { bad++ }
+    }
+    ElMessage.success(`检测完成：${ok} 个正常${bad ? `，${bad} 个需重新登录` : ''}`)
+  } finally {
+    batchChecking.value = false
+  }
+}
+
+/** 批量移动到分组 */
+function handleBatchMove(groupName: string) {
+  const list = checkedAccountItems.value
+  list.forEach(acc => accountStore.updateAccountGroup(acc.platform, acc.account, groupName))
+  ElMessage.success(`已将 ${list.length} 个账号移动到「${groupName}」`)
+  checkedAccounts.value = []
+}
+
+/** 批量删除账号 */
+async function handleBatchDelete() {
+  const list = checkedAccountItems.value
+  if (list.length === 0) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除选中的 ${list.length} 个账号？删除后需要重新扫码登录。`,
+      '确认删除',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  list.forEach(acc => accountStore.removeAccount(acc.platform, acc.account))
+  ElMessage.success(`已删除 ${list.length} 个账号`)
+  checkedAccounts.value = []
+}
+
+// 账号凭证检测
 const checkStatus = async (acc: AccountItem) => {
   if (currentActiveTab.value) {
     currentActiveTab.value.isStartingSession = false
   }
   try {
     await accountStore.checkAccount(acc)
-    // 强制同步当前激活标签页的账号数据项，防止组件层副本脱节
     if (currentActiveTab.value && currentActiveTab.value.type === 'account') {
       const latest = accountStore.accounts.find(a => a.platform === acc.platform && a.account === acc.account)
       if (latest) {
@@ -1082,7 +971,7 @@ const checkStatus = async (acc: AccountItem) => {
     if (acc.isValid) {
       ElMessage.success(`[${displayName}] 登录状态正常`)
     } else {
-      ElMessage.warning(`[${displayName}] 登录已失效: ${acc.msg || 'invalid'}`)
+      ElMessage.warning(`[${displayName}] 登录已失效：${acc.msg || '请重新扫码登录'}`)
     }
   } catch (err: any) {
     ElMessage.error(`检测失败: ${err.message || err}`)
@@ -1099,22 +988,22 @@ const checkStatus = async (acc: AccountItem) => {
   }
 }
 
-// 解除账号绑定
+// 删除账号
 const confirmDelete = (platform: string, account: string) => {
   const accItem = accountStore.accounts.find(a => a.platform === platform && a.account === account)
   const displayName = accItem?.nickname || account
   ElMessageBox.confirm(
-    `确定要解除绑定账号「${displayName}」吗？解绑后将从本地移除该账号的登录信息。`,
-    '解除绑定确认',
+    `确定要删除账号「${displayName}」吗？删除后需要重新扫码登录。`,
+    '确认删除账号',
     {
-      confirmButtonText: '确认解绑',
+      confirmButtonText: '确认删除',
       cancelButtonText: '取消',
       type: 'warning'
     }
   ).then(async () => {
     const ok = await accountStore.removeAccount(platform, account)
     if (ok) {
-      ElMessage.success('账号已成功解绑并清理本地登录信息')
+      ElMessage.success('账号已删除，本机登录信息已清理')
       closeTab(`${platform}:${account}`)
     } else {
       ElMessage.error('本地登录文件删除失败，账号未移除，请检查文件权限后重试')
@@ -1129,20 +1018,17 @@ const handleCreateGroup = () => {
     return
   }
   accountStore.addGroup(newGroupName.value.trim())
-  ElMessage.success(`已创建矩阵分组「${newGroupName.value.trim()}」`)
+  ElMessage.success(`已创建分组「${newGroupName.value.trim()}」`)
   newGroupName.value = ''
 }
 
 /** 卡片上"改分组"弹层里新建分组的输入 */
 const newGroupNameForAccount = ref('')
-/** 当前打开弹层的账号（仅用于样式反馈） */
-const groupPickerTarget = ref<string>('')
 
 /** 把账号移到指定分组 */
 function assignGroup(acc: AccountItem, groupName: string) {
   accountStore.updateAccountGroup(acc.platform, acc.account, groupName)
   ElMessage.success(`已移动到「${groupName}」`)
-  groupPickerTarget.value = ''
 }
 
 /** 新建分组并把当前账号放进去 */
@@ -1197,31 +1083,27 @@ onMounted(() => {
     openNewTab()
   }
 
-  // 监听后端即时上报的登录/凭证就绪事件（扫码成功瞬间毫秒级写入，无需等待关闭浏览器）
+  // 监听后端即时上报的登录成功事件
   try {
     unlistenLoginSuccess = EventsOn('sau-login-success', (evt: any) => {
       const platform = evt?.platform
-      // 提取真实账号唯一标识：优先使用 account，其次 finderUid
       const realAccount = (evt?.account && evt.account !== 'auto') ? evt.account : (evt?.finderUid || '')
       if (!platform || !realAccount) return
 
-      // 1. 立即持久化并写入账号列表 (第一时间展示在列表中，0 毫秒延迟，携带真实头像)
       const updated = accountStore.saveLoggedInAccount(
-        platform, 
-        realAccount, 
-        evt?.nickname, 
-        evt?.finderUid, 
-        true, 
+        platform,
+        realAccount,
+        evt?.nickname,
+        evt?.finderUid,
+        true,
         evt?.avatar
       )
 
-      // 2. 移除对应的 pending 接入中卡片
       pendingAccountLogins.value = pendingAccountLogins.value.filter(p => p.platform !== platform)
 
-      // 3. 关联并转正对应的标签页
       const taskId = evt?.taskId
-      const targetTab = openTabs.value.find(t => 
-        (taskId && t.taskId === taskId) || 
+      const targetTab = openTabs.value.find(t =>
+        (taskId && t.taskId === taskId) ||
         (t.platform === platform && (t.account === realAccount || t.account === 'auto'))
       )
       if (targetTab) {
@@ -1238,7 +1120,7 @@ onMounted(() => {
       }
 
       ElMessage.success({
-        message: `🎉 账号 [${evt?.nickname || realAccount}] 扫码成功，已实时同步至矩阵账号列表！`,
+        message: `🎉 账号 [${evt?.nickname || realAccount}] 扫码成功，已实时同步至账号列表！`,
         duration: 4000
       })
     })
@@ -1275,23 +1157,97 @@ watch(() => accountStore.accounts, (newAccounts) => {
 </script>
 
 <style scoped>
-/* 一体化浏览器工作空间布局 */
+/* 一体化浏览器工作空间布局：顶部汇总条 + 下方左右两栏 */
 .account-browser-workspace {
   display: flex;
-  gap: 14px;
+  flex-direction: column;
+  gap: 0;
   width: 100%;
-  /* 与计划管理中心同一套做法：让高度链自然传递，不手算偏移 */
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-/* 👈 左侧：矩阵通讯录侧边栏 (完美适配浅色/深色主题，杜绝白底下看不清文字) */
+/* 左右两栏容器（横向排列） */
+.accounts-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 14px;
+  overflow: hidden;
+  padding: 14px 14px 14px 14px;
+  box-sizing: border-box;
+}
+
+/* 顶部汇总条 */
+.account-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.sum-left { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.sum-total { color: var(--text-main); font-weight: 600; }
+.sum-sep { opacity: .4; }
+.sum-invalid {
+  /* 完全重置原生 button 外观，呈文字链接样式 */
+  all: unset;
+  display: inline;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--status-danger);
+}
+.sum-invalid:hover { text-decoration: underline; }
+.sum-invalid.zero { color: var(--status-success); cursor: default; }
+.sum-invalid:disabled { cursor: default; }
+.sum-right { display: flex; align-items: center; gap: 8px; }
+
+.acc-check {
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.sum-batch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  margin-left: 4px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.batch-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--primary-color);
+  white-space: nowrap;
+}
+
+/* 面板标题行（替代原来的浏览器工具栏） */
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.ph-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ph-title { font-size: 14px; font-weight: 700; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-status { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.ph-status.ok { color: var(--status-success); }
+.ph-status.bad { color: var(--status-danger); }
+.ph-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* 👈 左侧：账号列表侧边栏 */
 .account-sidebar-pane {
-  width: 320px;
-  min-width: 320px;
-  max-width: 320px;
-  height: 100%;
+  width: 420px;
+  min-width: 420px;
+  max-width: 420px;
+  height: auto;
   display: flex;
   flex-direction: column;
   background: var(--bg-card);
@@ -1299,6 +1255,12 @@ watch(() => accountStore.accounts, (newAccounts) => {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: var(--shadow-card);
+}
+
+/* 收起浏览器时左侧撑满全宽，右边留空白 */
+.accounts-body.collapsed .account-sidebar-pane {
+  flex: 1;
+  max-width: none;
 }
 
 .sidebar-header-section {
@@ -1325,7 +1287,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .sidebar-title {
   font-size: 15px;
   font-weight: 800;
-  color: var(--text-main); /* 适配浅色为深黑，深色为纯白 */
+  color: var(--text-main);
 }
 
 .account-count-badge {
@@ -1384,7 +1346,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
   color: var(--text-secondary);
 }
 
-/* 单个账号联系人项 (微信同款，高对比度清晰排版) */
+/* 单个账号联系人项 */
 .contact-card-item {
   display: flex;
   align-items: center;
@@ -1469,7 +1431,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
   line-height: 1;
 }
 
-/* 文本信息 (高清晰度对比) */
+/* 文本信息 */
 .contact-meta-content {
   flex: 1;
   min-width: 0;
@@ -1488,13 +1450,12 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .contact-name-text {
   font-size: 13px;
   font-weight: 800;
-  color: var(--text-main); /* 浅色为极清晰深色，暗黑为纯白 */
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* 平台小标：克制中性色标签，不引入平台色 */
 .plat-chip {
   display: inline-block;
   padding: 0 5px;
@@ -1522,7 +1483,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
 }
 
 .contact-group-name {
-  color: var(--text-secondary); /* 保证浅色模式清晰 */
+  color: var(--text-secondary);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -1551,11 +1512,11 @@ watch(() => accountStore.accounts, (newAccounts) => {
   align-items: center;
 }
 
-/* 👉 右侧：完整拟真浏览器窗口 (Browser Window Pane) */
+/* 👉 右侧：单账号面板 */
 .browser-window-pane {
   flex: 1;
   min-width: 0;
-  height: 100%;
+  height: auto;
   display: flex;
   flex-direction: column;
   background: var(--bg-card);
@@ -1565,261 +1526,12 @@ watch(() => accountStore.accounts, (newAccounts) => {
   box-shadow: var(--shadow-card);
 }
 
-/* 1. Chrome 风格多标签栏 (Browser Tab Bar) */
-.browser-tab-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 38px;
-  min-height: 38px;
-  background: var(--bg-detail);
-  border-bottom: 1px solid var(--border-subtle);
-  padding: 0 10px 0 6px;
-  gap: 12px;
-}
-
-.tab-list-wrapper {
-  flex: 1;
-  display: flex;
-  align-items: flex-end;
-  height: 100%;
-  overflow-x: auto;
-  gap: 2px;
-}
-
-.tab-list-wrapper::-webkit-scrollbar {
+/* 收起浏览器时隐藏右侧面板 */
+.accounts-body.collapsed .browser-window-pane {
   display: none;
 }
 
-/* 单个浏览器标签页 (拟真 Chrome 标签页形态) */
-.browser-tab-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  max-width: 220px;
-  min-width: 120px;
-  padding: 0 12px;
-  border-radius: 8px 8px 0 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
-  border: 1px solid transparent;
-  border-bottom: none;
-  transition: all 0.15s ease;
-  position: relative;
-}
-
-.browser-tab-item:hover {
-  background: rgba(125, 125, 125, 0.08);
-  color: var(--text-main);
-}
-
-.browser-tab-item.active {
-  background: var(--bg-card);
-  color: var(--text-main);
-  font-weight: 700;
-  border-color: var(--border-subtle);
-  border-bottom: 1px solid var(--bg-card);
-  margin-bottom: -1px;
-  z-index: 2;
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
-}
-
-.tab-favicon {
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-}
-
-.tab-new-icon {
-  color: var(--primary-color);
-}
-
-.tab-title {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tab-health-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.tab-health-dot.valid {
-  background: #10b981;
-}
-
-.tab-health-dot.invalid {
-  background: #ef4444;
-}
-
-.tab-close-btn {
-  font-size: 11px;
-  border-radius: 50%;
-  padding: 2px;
-  color: var(--text-muted);
-  transition: all 0.2s;
-}
-
-.tab-close-btn:hover {
-  background: rgba(125, 125, 125, 0.2);
-  color: #ef4444;
-}
-
-.new-tab-plus-btn {
-  width: 28px;
-  height: 28px;
-  margin-bottom: 3px;
-  border: none;
-  background: transparent;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.new-tab-plus-btn:hover {
-  background: rgba(125, 125, 125, 0.15);
-  color: var(--text-main);
-}
-
-.browser-window-controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.traffic-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-.traffic-dot.red { background: #ef4444; }
-.traffic-dot.yellow { background: #f59e0b; }
-.traffic-dot.green { background: #10b981; }
-
-/* 2. 浏览器导航与地址工具栏 (Omnibox Bar) */
-.browser-navigation-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border-subtle);
-  gap: 12px;
-  z-index: 1;
-}
-
-.nav-button-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.nav-icon-btn {
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.nav-icon-btn:hover:not(:disabled) {
-  background: var(--bg-detail);
-  color: var(--text-main);
-}
-
-.nav-icon-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-/* 拟真 Omnibox 地址栏 */
-.browser-omnibox {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-detail);
-  border: 1px solid var(--border-subtle);
-  border-radius: 20px;
-  padding: 4px 12px;
-  font-size: 12px;
-  transition: all 0.2s;
-}
-
-.browser-omnibox:focus-within {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
-}
-
-.ssl-lock-icon {
-  color: #10b981;
-  font-size: 12px;
-}
-
-.omnibox-url-text {
-  flex: 1;
-  color: var(--text-main);
-  font-family: monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.omnibox-badges {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.platform-omnibox-tag {
-  font-size: 10px;
-  font-weight: 700;
-  color: #ffffff;
-  padding: 1px 6px;
-  border-radius: 10px;
-}
-
-.omnibox-status-tag {
-  height: 18px;
-  line-height: 18px;
-  padding: 0 6px;
-  font-size: 10px;
-}
-
-.browser-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.relogin-toolbar-btn {
-  background: var(--status-warning) !important;
-  border: none !important;
-  font-weight: 700;
-  color: #fff !important;
-}
-
-/* 3. 浏览器主内容区 (Viewport Stage) */
+/* 浏览器主内容区 */
 .browser-viewport-stage {
   flex: 1;
   position: relative;
@@ -1908,12 +1620,6 @@ watch(() => accountStore.accounts, (newAccounts) => {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
-.avatar-char {
-  font-size: 32px;
-  font-weight: 800;
-  color: #fff;
-}
-
 .avatar-badge {
   position: absolute;
   bottom: -2px;
@@ -1992,16 +1698,6 @@ watch(() => accountStore.accounts, (newAccounts) => {
 
 .stop-session-btn {
   font-weight: 700;
-}
-
-.appmode-switch-mode {
-  font-size: 12px;
-}
-
-.launch-screencast-sub-btn {
-  margin-top: 10px;
-  width: 100%;
-  border-style: dashed !important;
 }
 
 /* 创作者中心就绪待机面板 */
@@ -2105,7 +1801,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
   color: var(--text-muted);
 }
 
-/* 新标签页 (New Tab) 接入向导面板 */
+/* 新标签页接入向导面板 */
 .browser-newtab-hub {
   width: 100%;
   height: 100%;
@@ -2233,121 +1929,5 @@ watch(() => accountStore.accounts, (newAccounts) => {
   line-height: 1.6;
   margin: 2px 0 4px;
   padding-left: 2px;
-}
-
-/* 4. 浏览器底部状态栏 */
-.browser-footer-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 14px;
-  background: var(--bg-detail);
-  border-top: 1px solid var(--border-subtle);
-  font-size: 11px;
-}
-
-.footer-status-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--primary-color);
-  font-weight: 700;
-}
-
-.active-pulse-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 6px #10b981;
-}
-
-/* 分组管理弹窗 */
-.group-dialog-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.group-list-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.group-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* 展开浏览器按钮（收起时在左侧显示） */
-.expand-browser-btn {
-  width: 100%;
-  margin-top: 8px;
-}
-
-/* 浏览器工具栏幽灵按钮 */
-.ghost-btn {
-  padding: 4px 6px !important;
-  min-height: unset !important;
-  color: var(--text-secondary) !important;
-}
-.ghost-btn:hover {
-  color: var(--text-main) !important;
-  background: var(--bg-detail) !important;
-}
-
-/* ── 分组标签：看得出能点 ── */
-.contact-group-name.clickable {
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 4px;
-  border-radius: 4px;
-  transition: color .14s, background-color .14s;
-}
-.contact-group-name.clickable:hover {
-  color: var(--primary-color);
-  background: rgba(79, 70, 229, 0.10);
-}
-.grp-caret { font-size: 10px; opacity: .6; }
-
-/* ── 分组选择弹层 ── */
-.group-picker { display: flex; flex-direction: column; gap: 2px; }
-.gp-title { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
-.gp-item {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12.5px;
-}
-.gp-item:hover { background: var(--bg-input); }
-.gp-item.on { color: var(--primary-color); font-weight: 600; }
-.gp-check { font-size: 12px; width: 14px; flex-shrink: 0; }
-.gp-check.placeholder { display: inline-block; }
-.gp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gp-count { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.gp-divider { height: 1px; background: var(--border-subtle); margin: 6px 0; }
-.gp-new { display: flex; gap: 6px; }
-
-/* ── 分组管理弹窗增强 ── */
-.group-rows { display: flex; flex-direction: column; gap: 4px; }
-.group-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 9px; border-radius: 7px;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-input);
-  font-size: 12.5px;
-}
-.gr-ic { color: var(--primary-color); }
-.gr-name { flex: 1; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gr-count { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.gr-lock { font-size: 11px; color: var(--text-muted); opacity: .7; }
-.group-dialog-tip {
-  margin-top: 12px; padding: 8px 10px; border-radius: 6px;
-  font-size: 11.5px; color: var(--text-muted);
-  background: rgba(79, 70, 229, 0.06);
-  border: 1px dashed rgba(79, 70, 229, 0.25);
 }
 </style>
