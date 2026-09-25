@@ -17,6 +17,8 @@ export const useTaskStore = defineStore('task', () => {
   const batches = ref<TaskBatch[]>([])
   const lanes = ref<TaskLane[]>([])
   const isExecuting = ref(false)
+  /** 本次执行的开始时刻（毫秒时间戳）；0 表示当前未执行 */
+  const executionStartedAt = ref<number>(0)
   const currentRunningBatchId = ref<string | null>(null)
   const globalLiveLogs = ref<TaskLogItem[]>([])
 
@@ -205,7 +207,6 @@ export const useTaskStore = defineStore('task', () => {
   const runningTasksCount = computed(() => tasks.value.filter(t => t.status === 'running').length)
   const successTasksCount = computed(() => tasks.value.filter(t => t.status === 'success').length)
   const failedTasksCount = computed(() => tasks.value.filter(t => t.status === 'failed').length)
-  const activeTasksCount = computed(() => queuedTasksCount.value + runningTasksCount.value)
 
   // 待分配任务池 (凡是不在任何泳道中的任务都完整保留在此，杜绝任何任务卡片丢失)
   const unassignedTasks = computed(() => {
@@ -415,7 +416,9 @@ export const useTaskStore = defineStore('task', () => {
     const batchId = 'batch-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7)
     const nowStr = new Date().toLocaleString()
 
-    const effectiveConcurrency = Math.min(params.concurrency || 3, maxConcurrency.value)
+    // 当前产品策略：固定为「逐个发布」（一条发完再发下一条）。
+    // 想恢复多通道并发时，把下面这行改回 Math.min(params.concurrency || 3, maxConcurrency.value) 即可。
+    const effectiveConcurrency = 1
 
     const newBatch: TaskBatch = {
       id: batchId,
@@ -480,8 +483,18 @@ export const useTaskStore = defineStore('task', () => {
 
   // 内部辅助：将新创建的批次智能追加到泳道末尾 (平滑追加，绝不把正在执行的任务重置或打乱)
   const distributeNewBatchIntoLanes = (newTasks: PublishTask[], concurrency: number) => {
-    // 1. 确保已有足够的泳道
-    const targetLaneCount = Math.max(lanes.value.length, Math.min(concurrency, maxConcurrency.value))
+    // 当前策略：只保留 1 个发布通道（逐个发布）。
+    // 先把多余通道里的任务并回主通道，再删除多余通道。
+    if (lanes.value.length > 1) {
+      const primary = lanes.value[0]
+      lanes.value.slice(1).forEach((l) => {
+        if (l.tasks && l.tasks.length > 0) primary.tasks.push(...l.tasks)
+      })
+      lanes.value = [primary]
+    }
+
+    // 1. 确保至少有 1 个泳道
+    const targetLaneCount = 1
     while (lanes.value.length < targetLaneCount) {
       const idx = lanes.value.length + 1
       lanes.value.push({
@@ -493,42 +506,13 @@ export const useTaskStore = defineStore('task', () => {
       })
     }
 
-    // 2. 按平台对新任务分组
-    const platMap: Record<string, PublishTask[]> = {}
+    // 2. 所有新任务全部进入唯一的主通道
+    const primary = lanes.value[0]
     newTasks.forEach(t => {
-      if (!platMap[t.platform]) platMap[t.platform] = []
-      platMap[t.platform].push(t)
-    })
-
-    // 3. 为每个平台寻找最佳泳道 (优先寻找已有该平台任务的泳道；其次选任务数最少的泳道)
-    Object.keys(platMap).forEach(plat => {
-      const platTasks = platMap[plat]
-      
-      // 寻找已有同平台的泳道
-      let matchedLane = lanes.value.find(l => l.tasks.some(t => t.platform === plat))
-      if (!matchedLane) {
-        // 寻找当前任务数最少的泳道
-        let minCount = Infinity
-        lanes.value.forEach(l => {
-          if (l.tasks.length < minCount) {
-            minCount = l.tasks.length
-            matchedLane = l
-          }
-        })
-      }
-
-      if (!matchedLane && lanes.value.length > 0) {
-        matchedLane = lanes.value[0]
-      }
-
-      if (matchedLane) {
-        platTasks.forEach(t => {
-          t.laneId = matchedLane!.id
-          t.delaySeconds = matchedLane!.delayBetweenTasks || 15
-          t.orderIndex = matchedLane!.tasks.length + 1
-          matchedLane!.tasks.push(t)
-        })
-      }
+      t.laneId = primary.id
+      t.delaySeconds = primary.delayBetweenTasks || 15
+      t.orderIndex = primary.tasks.length + 1
+      primary.tasks.push(t)
     })
   }
 
@@ -681,8 +665,11 @@ export const useTaskStore = defineStore('task', () => {
       ? new Set(tasks.value.filter(t => t.batchId === activePlanId.value).map(t => t.id))
       : null
 
+    // 逐个发布策略：只使用第 1 个通道（历史数据可能残留多个通道，先收敛）
+    const onlyFirstLane = lanes.value.slice(0, 1)
+
     // 检查是否有排队中或运行中的任务
-    const activeLanesWithTasks = lanes.value
+    const activeLanesWithTasks = onlyFirstLane
       .map(l => ({
         ...l,
         tasks: planTaskIds ? l.tasks.filter(t => planTaskIds.has(t.id)) : l.tasks
@@ -706,10 +693,11 @@ export const useTaskStore = defineStore('task', () => {
     }
 
     isExecuting.value = true
+    executionStartedAt.value = Date.now()
     let hasExecutionError = false
 
-    // 设置泳道运行状态 (每个通道只让第 1 个待发任务就绪)
-    lanes.value.forEach(l => {
+    // 设置泳道运行状态（逐个发布：只处理第 1 个通道）
+    onlyFirstLane.forEach(l => {
       const hasPending = l.tasks.some(t => t.status === 'queued' || t.status === 'running')
       if (hasPending) {
         l.status = 'running'
@@ -837,6 +825,7 @@ export const useTaskStore = defineStore('task', () => {
       })
     } finally {
       isExecuting.value = false
+      executionStartedAt.value = 0
       refreshAllLanesStatus()
       saveTasksToStorage()
 
@@ -864,6 +853,7 @@ export const useTaskStore = defineStore('task', () => {
   const cancelWorkflow = async () => {
     await StopActivePublish()
     isExecuting.value = false
+    executionStartedAt.value = 0
     // 用户主动停止 → 清空执行队列，避免停下来又自动开下一个计划
     pendingPlanQueue.value = []
     activePlanId.value = ''
@@ -967,36 +957,7 @@ export const useTaskStore = defineStore('task', () => {
     })
     refreshAllLanesStatus()
     saveTasksToStorage()
-    ElMessage.success('已清理当前画板中的完成任务，完整数据已安全归档至「批次中心」')
-  }
-
-  // 9.1 重新发布整个历史批次
-  const republishBatch = (batchId: string): string | null => {
-    const batch = batches.value.find(b => b.id === batchId)
-    const taskList = batch?.tasksSnapshot && batch.tasksSnapshot.length > 0 
-      ? batch.tasksSnapshot 
-      : tasks.value.filter(t => t.batchId === batchId)
-
-    if (!batch || taskList.length === 0) {
-      ElMessage.warning('该批次暂无归档的任务数据')
-      return null
-    }
-
-    const rawTasks: engine.AccountPublishTask[] = taskList.map(t => ({
-      ...t.params,
-      status: 'queued'
-    }))
-
-    const newBatchId = enqueueBatch({
-      batchName: `${batch.name} (重新发布)`,
-      videoFileName: batch.videoFileName,
-      thumbnail: taskList[0]?.thumbnail,
-      rawTasks,
-      concurrency: batch.concurrency || 3
-    })
-
-    ElMessage.success(`已克隆并重新发布批次 [${batch.name}]`)
-    return newBatchId
+    ElMessage.success('已清理已完成的任务记录')
   }
 
   // 9.2 仅重新发布批次中失败/异常的任务
@@ -1185,13 +1146,13 @@ export const useTaskStore = defineStore('task', () => {
     latestBatchId,
     selectedBatchFilter,
     isExecuting,
+    executionStartedAt,
     currentRunningBatchId,
     globalLiveLogs,
     queuedTasksCount,
     runningTasksCount,
     successTasksCount,
     failedTasksCount,
-    activeTasksCount,
     initEventListener,
     enqueueBatch,
     addLane,
@@ -1206,7 +1167,6 @@ export const useTaskStore = defineStore('task', () => {
     retryTask,
     resumeAccountRisk,
     clearFinishedTasks,
-    republishBatch,
     republishFailedInBatch,
     deleteBatch,
     clearAllTasks,

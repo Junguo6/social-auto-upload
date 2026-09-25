@@ -9,7 +9,10 @@
         </div>
         <div class="brand-info" v-if="!isSidebarCollapsed">
           <div class="brand-title">小映分发助手</div>
-          <div class="brand-desc">矩阵发布桌面端</div>
+          <div class="brand-desc">
+            矩阵发布桌面端
+            <span class="ver-tag" :title="`当前版本 v${appVersion}`">{{ 'v' + (appVersion || '…') }}</span>
+          </div>
         </div>
       </div>
 
@@ -30,11 +33,11 @@
           <router-link to="/tasks" class="nav-link" exact-active-class="active">
             <div class="nav-icon nav-icon-badge-box">
               <el-icon><List /></el-icon>
-              <span class="task-badge-dot" v-if="taskStore.activeTasksCount > 0"></span>
+              <span class="task-badge-dot" v-if="taskStore.runningTasksCount > 0 || taskStore.queuedTasksCount > 0"></span>
             </div>
             <span class="nav-text" v-if="!isSidebarCollapsed">计划管理中心</span>
-            <span class="nav-badge" v-if="!isSidebarCollapsed && taskStore.activeTasksCount > 0">
-              {{ taskStore.activeTasksCount }}
+            <span class="nav-badge" v-if="!isSidebarCollapsed && (taskStore.runningTasksCount > 0 || taskStore.queuedTasksCount > 0)">
+              {{ taskStore.runningTasksCount + taskStore.queuedTasksCount }}
             </span>
           </router-link>
         </el-tooltip>
@@ -92,14 +95,14 @@
         </div>
 
         <div class="nav-actions">
-          <!-- 计划状态快捷胶囊 -->
-          <router-link 
-            to="/tasks" 
-            class="top-task-pill" 
-            v-if="taskStore.activeTasksCount > 0"
+          <!-- 正在执行时才显示（待发布属于正常状态，不需要在顶栏提醒） -->
+          <router-link
+            to="/tasks"
+            class="top-task-pill running"
+            v-if="taskStore.isExecuting"
           >
             <el-icon class="is-loading"><Loading /></el-icon>
-            <span>后台执行中 ({{ taskStore.activeTasksCount }})</span>
+            <span>后台执行中 ({{ taskStore.runningTasksCount }})</span>
           </router-link>
 
           <!-- 授权状态胶囊标签 -->
@@ -153,12 +156,15 @@ import { useThemeStore } from './stores/themeStore'
 import { useAuthStore } from './stores/authStore'
 import { useTaskStore } from './stores/taskStore'
 import { Medal, Lock, Moon, Sunny } from '@element-plus/icons-vue'
+import { GetAppVersion } from '../wailsjs/go/main/App'
 import AuthModal from './components/AuthModal.vue'
 
 const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const taskStore = useTaskStore()
+
+const appVersion = ref('')
 
 const currentRouteTitle = computed(() => (route.meta.title as string) || '控制台')
 
@@ -170,11 +176,17 @@ const toggleSidebar = () => {
   localStorage.setItem('sau_sidebar_collapsed', String(isSidebarCollapsed.value))
 }
 
-onMounted(() => {
+onMounted(async () => {
   // 初始化云端授权数据
   authStore.refreshAuth()
   // 初始化任务事件监听
   taskStore.initEventListener()
+  // 获取客户端版本号
+  try {
+    appVersion.value = await GetAppVersion()
+  } catch {
+    appVersion.value = ''
+  }
 })
 </script>
 
@@ -260,6 +272,23 @@ onMounted(() => {
   color: var(--text-muted);
   margin-top: 2px;
   white-space: nowrap;
+}
+
+/* 版本徽章：显眼但不抢视线（侧栏是深色底，用浅紫保证对比度） */
+.ver-tag {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 15px;
+  font-weight: 600;
+  color: #a5b4fc;                              /* 浅紫 */
+  background: rgba(99, 102, 241, 0.22);
+  border: 1px solid rgba(99, 102, 241, 0.42);
+  vertical-align: 1px;
+  user-select: text;                            /* 可直接选中复制给客服 */
+  cursor: default;
 }
 
 .nav-menu {
@@ -424,16 +453,21 @@ onMounted(() => {
   gap: 5px;
   padding: 4px 12px;
   border-radius: 16px;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  color: #60a5fa;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
   transition: all 0.15s;
 }
 
-.top-task-pill:hover {
+.top-task-pill.running {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+}
+.top-task-pill.running:hover {
   background: rgba(59, 130, 246, 0.25);
 }
 

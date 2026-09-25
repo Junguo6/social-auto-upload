@@ -22,6 +22,8 @@ export function DetectBrowserStatus():Promise<engine.BrowserEnvironmentInfo>;
 
 export function GetAccountRiskStatus(arg1:string,arg2:string):Promise<engine.RiskState>;
 
+export function GetAppVersion():Promise<string>;
+
 export function GetAuthOverview():Promise<auth.AuthOverview>;
 
 export function GetDeviceID():Promise<string>;

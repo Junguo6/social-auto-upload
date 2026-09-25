@@ -38,6 +38,10 @@ export function GetAccountRiskStatus(arg1, arg2) {
   return window['go']['main']['App']['GetAccountRiskStatus'](arg1, arg2);
 }
 
+export function GetAppVersion() {
+  return window['go']['main']['App']['GetAppVersion']();
+}
+
 export function GetAuthOverview() {
   return window['go']['main']['App']['GetAuthOverview']();
 }

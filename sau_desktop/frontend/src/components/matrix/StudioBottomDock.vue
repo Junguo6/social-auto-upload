@@ -28,9 +28,14 @@
     </div>
 
     <div class="dock-right-actions">
-      <router-link to="/tasks" class="view-tasks-link" v-if="taskStore.activeTasksCount > 0">
+      <!-- 执行中才转圈，待发布则静态 -->
+      <router-link to="/tasks" class="view-tasks-link" v-if="taskStore.isExecuting">
         <el-icon class="is-loading"><Loading /></el-icon>
-        <span>查看后台任务 ({{ taskStore.activeTasksCount }})</span>
+        <span>查看后台任务 ({{ taskStore.runningTasksCount }})</span>
+      </router-link>
+      <router-link to="/tasks" class="view-tasks-link queued" v-else-if="taskStore.queuedTasksCount > 0">
+        <el-icon><Clock /></el-icon>
+        <span>{{ taskStore.queuedTasksCount }} 个任务待发布</span>
       </router-link>
 
       <el-button 
@@ -126,6 +131,16 @@ defineEmits<{
 
 .view-tasks-link:hover {
   background: rgba(59, 130, 246, 0.2);
+}
+
+/* 待发布：安静态 */
+.view-tasks-link.queued {
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border-color: var(--border-subtle);
+}
+.view-tasks-link.queued:hover {
+  color: var(--primary-color);
 }
 
 .launch-btn {

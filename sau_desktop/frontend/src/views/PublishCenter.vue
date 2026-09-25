@@ -618,8 +618,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 13px 18px;
-  border-bottom: 1px solid var(--border-subtle);
+  /* 下边框从灰线改为主色细线：强化左右两块的分区感，同时不抢视线 */
+  padding: 13px 18px 11px;                      /* 底边加粗 1px，补回高度差 */
+  border-bottom: 2px solid rgba(79, 70, 229, 0.32);
 }
 
 .block-title {

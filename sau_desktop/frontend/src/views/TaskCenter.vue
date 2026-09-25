@@ -4,33 +4,110 @@
     <div class="task-stats-bar glass-card">
       <!-- 左：进度条 + 数字 -->
       <div class="progress-overview">
+        <!-- 行 1：编号 + 标题 + 正在执行的计划 + 队列位置 -->
         <div class="progress-head">
           <span class="idx">1</span>
           <span class="section-name">发布控制台</span>
-          <span class="progress-title">
-            {{ taskStore.successTasksCount + taskStore.failedTasksCount }} / {{ taskStore.tasks.length }} 已完成
+
+          <span class="head-plan" v-if="activePlanName">
+            正在执行：<b>{{ activePlanName }}</b>
+            <span class="queue-pos" v-if="planQueueTotal > 1">
+              （第 {{ planQueueIndex }}/{{ planQueueTotal }} 个）
+            </span>
           </span>
-          <span class="progress-sub" v-if="taskStore.isExecuting">
-            预计还需 {{ estimatedMinutes }} 分钟 · {{ taskStore.lanes.length }} 个通道同时发布
+        </div>
+
+        <!-- 未勾选计划：明确告诉用户下一步（否则「开始发布」置灰会让人困惑） -->
+        <div class="console-empty-hint" v-if="!hasSelection">
+          <el-icon class="hint-ic"><InfoFilled /></el-icon>
+          <span>
+            请在左侧「<b>发布计划</b>」中勾选要执行发布的计划
+            <span class="hint-sub">（可多选，勾选后点「开始发布」）</span>
           </span>
-          <span class="progress-sub" v-else-if="taskStore.queuedTasksCount > 0">
-            {{ taskStore.queuedTasksCount }} 个任务待发布，点「开始发布」即可执行
+        </div>
+
+        <!-- 行 2：完成进度 + 百分比 + 提示语（执行中不在这儿显示耗时，由 time-line 接管） -->
+        <div class="progress-line" v-if="hasSelection">
+          <span class="progress-title">{{ scopeStats.done }} / {{ scopeStats.total }} 已完成</span>
+          <span class="progress-pct">{{ scopeStats.percent }}%</span>
+
+          <span class="progress-eta muted" v-if="scopeStats.queued > 0">
+            {{ scopeStats.queued }} 个任务待发布，点「开始发布」即可执行
           </span>
-          <span class="progress-sub" v-else>全部计划已完成</span>
+          <span class="progress-eta muted" v-else-if="scopeStats.total > 0">
+            所选计划已全部完成
+          </span>
         </div>
 
         <el-progress
-          :percentage="overallPercent"
+          v-if="hasSelection"
+          :percentage="scopeStats.percent"
           :stroke-width="10"
           :show-text="false"
-          :color="progressColor"
+          :color="scopeStats.failed > 0 ? 'var(--status-warning)' : 'var(--primary-color)'"
         />
 
-        <div class="stat-chips">
-          <span class="chip ok">✅ 成功 {{ taskStore.successTasksCount }}</span>
-          <span class="chip running" v-if="taskStore.runningTasksCount > 0">🔄 发布中 {{ taskStore.runningTasksCount }}</span>
-          <span class="chip fail" v-if="taskStore.failedTasksCount > 0">❌ 失败 {{ taskStore.failedTasksCount }}</span>
-          <span class="chip queued" v-if="taskStore.queuedTasksCount > 0">⏸ 待发布 {{ taskStore.queuedTasksCount }}</span>
+        <!-- 行 3：状态统计（只在有勾选时显示） -->
+        <div class="stat-chips" v-if="hasSelection">
+          <span class="chip ok">✅ 成功 {{ scopeStats.success }}</span>
+          <span class="chip running" v-if="scopeStats.running > 0">🔄 发布中 {{ scopeStats.running }}</span>
+          <span class="chip fail" v-if="scopeStats.failed > 0">❌ 失败 {{ scopeStats.failed }}</span>
+          <span class="chip queued" v-if="scopeStats.queued > 0">⏸ 待发布 {{ scopeStats.queued }}</span>
+        </div>
+
+        <!-- 耗时行：仅执行中显示（真实测量，已耗时 + 平均速度 + 剩余预估） -->
+        <div class="time-line" v-if="taskStore.isExecuting">
+          <span class="tl-item">
+            ⏱ 已耗时 <b>{{ humanDuration(elapsedSeconds) }}</b>
+          </span>
+          <span class="tl-sep">·</span>
+          <span class="tl-item" v-if="etaSeconds > 0">
+            剩余约 <b>{{ humanDuration(etaSeconds) }}</b>
+          </span>
+          <span class="tl-sep" v-if="avgSecondsPerTask > 0">·</span>
+          <span class="tl-item muted" v-if="avgSecondsPerTask > 0">
+            {{ scopeDoneCount }} 条平均 {{ avgSecondsPerTask }} 秒/条
+          </span>
+          <span class="tl-sep" v-if="etaClock">·</span>
+          <span class="tl-item" v-if="etaClock">
+            预计 <b>{{ etaClock }}</b> 完成
+          </span>
+        </div>
+
+        <!-- 行 4：平台进度（有 2 个以上平台或有执行中任务时才显示） -->
+        <div class="plat-progress" v-if="platformStats.length > 0">
+          <span v-for="ps in platformStats" :key="ps.id" class="plat-item">
+            <span class="plat-name">{{ ps.name }}</span>
+            <span class="plat-bar">
+              <i :style="{ width: ps.percent + '%', background: ps.color }"></i>
+            </span>
+            <span class="plat-num" :class="{ bad: ps.failed > 0 }">{{ ps.done }}/{{ ps.total }}</span>
+          </span>
+        </div>
+
+        <!-- 行 5：正在发布 / 最后完成 -->
+        <div class="now-publishing" v-if="taskStore.isExecuting && currentTask">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span>正在发布：</span>
+          <b class="np-media">{{ taskMediaName(currentTask) }}</b>
+          <span class="np-arrow">→</span>
+          <span class="plat-dot" :style="{ background: platformColor(currentTask.platform) }" />
+          <span class="np-acct">{{ currentTask.nickname || currentTask.account }}</span>
+          <span class="np-prog" v-if="currentTask.progress">{{ currentTask.progress }}%</span>
+        </div>
+        <div class="now-publishing done" v-else-if="lastFinishedTask">
+          <el-icon :class="lastFinishedTask.status === 'success' ? 'ok' : 'bad'">
+            <CircleCheck v-if="lastFinishedTask.status === 'success'" />
+            <CircleClose v-else />
+          </el-icon>
+          <span>最后完成：</span>
+          <b class="np-media">{{ taskMediaName(lastFinishedTask) }}</b>
+          <span class="np-arrow">→</span>
+          <span class="plat-dot" :style="{ background: platformColor(lastFinishedTask.platform) }" />
+          <span class="np-acct">{{ lastFinishedTask.nickname || lastFinishedTask.account }}</span>
+          <span class="np-state" :class="lastFinishedTask.status === 'success' ? 'ok' : 'bad'">
+            {{ lastFinishedTask.status === 'success' ? '已发布' : '失败' }}
+          </span>
         </div>
       </div>
 
@@ -47,37 +124,26 @@
           <span>停止发布</span>
         </el-button>
 
-        <el-button
-          v-else
-          type="primary"
-          size="large"
-          class="exec-btn gradient-btn-matrix"
-          :disabled="taskStore.queuedTasksCount === 0"
-          @click="handleStartPublish"
+        <el-tooltip
+          v-if="!taskStore.isExecuting"
+          :content="!hasSelection ? '请先在左侧勾选要发布的计划' : (scopeStats.queued === 0 ? '选中计划中没有待发布的任务' : '')"
+          :disabled="hasSelection && scopeStats.queued > 0"
+          placement="top"
         >
-          <el-icon><Promotion /></el-icon>
-          <span>开始发布 ({{ taskStore.queuedTasksCount }} 个待发)</span>
-        </el-button>
+          <el-button
+            type="primary"
+            size="large"
+            class="exec-btn gradient-btn-matrix"
+            :disabled="!hasSelection || scopeStats.queued === 0"
+            @click="handleStartPublish"
+          >
+            <el-icon><Promotion /></el-icon>
+            <span>开始发布 ({{ scopeStats.queued }})</span>
+          </el-button>
+        </el-tooltip>
 
-        <!-- 次级设置：收纳成一条 -->
+        <!-- 次级设置：每条间隔 + 逐个发布提示 -->
         <div class="stats-secondary">
-          <el-dropdown trigger="click" @command="handleAutoDistribute">
-            <el-button size="small" text class="ghost-btn">
-              <el-icon><Setting /></el-icon>
-              <span class="ghost-text">分配方式</span>
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="anti-risk">🛡️ 按平台自动分配（同平台排队，不同平台同时）</el-dropdown-item>
-                <el-dropdown-item divided command="1">1 个通道（全部依次发布）</el-dropdown-item>
-                <el-dropdown-item command="2" v-if="taskStore.maxConcurrency >= 2">2 个通道（同时发布）</el-dropdown-item>
-                <el-dropdown-item command="3" v-if="taskStore.maxConcurrency >= 3">3 个通道（推荐）</el-dropdown-item>
-                <el-dropdown-item divided command="max">全部通道同时（按上限 {{ taskStore.maxConcurrency }} 个）</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-
           <span class="interval-box" title="同一通道内两个任务之间的等待秒数，间隔越大越不容易触发平台风控">
             <span class="interval-label">每条间隔</span>
             <el-input-number
@@ -92,6 +158,13 @@
             />
             <span class="interval-unit">秒</span>
           </span>
+
+          <el-tooltip content="当前为逐个发布（一条发完再发下一条）" placement="top">
+            <span class="ghost-hint">
+              <el-icon><InfoFilled /></el-icon>
+              逐个发布
+            </span>
+          </el-tooltip>
 
           <el-button size="small" text class="ghost-btn" @click="openGlobalLogs">
             <el-icon><Monitor /></el-icon>
@@ -131,13 +204,6 @@
             <el-tooltip content="清理已完成的计划" placement="top">
               <el-button size="small" text class="icon-btn" @click="taskStore.clearFinishedTasks">
                 <el-icon><Delete /></el-icon>
-              </el-button>
-            </el-tooltip>
-
-            <!-- 批次中心：历史批次归档与一键重发 -->
-            <el-tooltip content="批次中心（历史批次与一键重发）" placement="top">
-              <el-button size="small" text class="icon-btn" @click="showBatchDrawer = true">
-                <el-icon><CollectionTag /></el-icon>
               </el-button>
             </el-tooltip>
           </div>
@@ -239,16 +305,16 @@
             >
               {{ currentPlanStatusText }}
             </span>
-            <span class="detail-eta" v-if="selectedPlan.running > 0">
-              预计还需 {{ estimatedMinutes }} 分钟
+            <span class="detail-eta" v-if="selectedPlan.running > 0 && etaSeconds > 0">
+              预计还需 {{ humanDuration(etaSeconds) }}
             </span>
 
             <span class="unit-wrap" v-if="maxDetailDepth > 0">
-              以
+              按
               <select
                 :value="detailViewLevel"
                 class="level-select"
-                title="按这一层的文件夹分组展示明细"
+                title="按这一层的文件夹分组展示明细（只影响查看，不影响发布）"
                 @change="e => (detailViewLevel = Number((e.target as HTMLSelectElement).value))"
               >
                 <option v-for="lv in maxDetailDepth" :key="lv" :value="lv">
@@ -256,7 +322,7 @@
                 </option>
                 <option :value="0">每条明细</option>
               </select>
-              为单位
+              查看
             </span>
           </div>
 
@@ -290,8 +356,14 @@
                   </td>
 
                   <td class="col-account">
-                    <span class="plat-dot" :style="{ background: platformColor(t.platform) }" />
-                    <span>{{ t.nickname || t.account }}</span>
+                    <div class="acct-cell">
+                      <span class="acct" :class="t.status" :title="`${t.nickname || t.account} · ${statusText(t)}`">
+                        <span class="av" :style="{ background: platformMeta(t.platform).color }">
+                          {{ platformMeta(t.platform).short }}
+                        </span>
+                        <span class="acct-name">{{ t.nickname || t.account }}</span>
+                      </span>
+                    </div>
                   </td>
 
                   <td class="col-status">
@@ -341,7 +413,8 @@
                   <!-- 内容列：文件夹图标 + 名 + N 条 -->
                   <td class="col-content">
                     <div class="folder-cell" :title="g.label">
-                      <el-icon class="folder-ic"><Folder /></el-icon>
+                      <FolderIcon v-if="g.label && g.label !== '未分组'" :size="15" />
+                      <span v-else class="ic">🎬</span>
                       <span class="gname">{{ g.label }}</span>
                       <span class="cn">{{ g.total }} 条</span>
                     </div>
@@ -424,23 +497,17 @@
       :task="selectedTaskForDrawer"
       :initialTab="drawerInitialTab"
     />
-
-    <!-- 批次中心：历史批次归档与一键重发 -->
-    <BatchManagerDrawer
-      v-model="showBatchDrawer"
-      @republished="handleBatchRepublished"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick, onErrorCaptured } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, onErrorCaptured } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CircleCheck, CircleClose, Clock, CollectionTag, Delete, Document, Folder, Loading, Monitor, Promotion, Remove, Setting, WarningFilled } from '@element-plus/icons-vue'
+import { CircleCheck, CircleClose, Clock, Delete, Document, InfoFilled, Loading, Monitor, Promotion, Remove, WarningFilled } from '@element-plus/icons-vue'
+import FolderIcon from '../components/common/FolderIcon.vue'
 import { getPlatformConfig } from '../config/platforms'
 import { useTaskStore } from '../stores/taskStore'
 import TaskLogDrawer from '../components/matrix/TaskLogDrawer.vue'
-import BatchManagerDrawer from '../components/matrix/BatchManagerDrawer.vue'
 import type { PublishTask, TaskStatus } from '../types/task'
 
 /** 渲染错误边界：捕获组件内所有未处理异常，显示到界面上 */
@@ -470,27 +537,54 @@ const handleGlobalIntervalChange = (val: number | undefined) => {
   ElMessage.success(`每条间隔已设为 ${v} 秒，将在该通道内的任务之间生效`)
 }
 
-// 进度总览计算属性
-/** 完成率（成功 + 失败 视为已结束） */
-const overallPercent = computed(() => {
-  const total = taskStore.tasks.length
-  if (total === 0) return 0
-  return Math.round(((taskStore.successTasksCount + taskStore.failedTasksCount) / total) * 100)
-})
-
-/** 进度条颜色：有失败偏黄，否则主色渐变 */
-const progressColor = computed(() =>
-  taskStore.failedTasksCount > 0 ? 'var(--status-warning)' : 'var(--primary-color)'
+/** 预计完成时刻（HH:mm） */
+const currentTask = computed(() =>
+  taskStore.tasks.find((t: any) => t.status === 'running') || null
 )
 
-/** 粗略预计剩余分钟（按已用时间与完成比例外推） */
-const estimatedMinutes = computed(() => {
-  const done = taskStore.successTasksCount + taskStore.failedTasksCount
-  if (done === 0 || !taskStore.isExecuting) return 0
-  const remain = taskStore.tasks.length - done
-  if (remain <= 0) return 0
-  const avgSecPerTask = 90
-  return Math.max(1, Math.ceil((remain * avgSecPerTask) / 60 / Math.max(1, taskStore.lanes.length)))
+/** 最后完成的任务（没有在执行时展示，避免那一行空着） */
+const lastFinishedTask = computed(() => {
+  const list = taskStore.tasks.filter((t: any) => t.status === 'success' || t.status === 'failed')
+  return list.length > 0 ? list[list.length - 1] : null
+})
+
+/** 当前正在执行的计划名 */
+const activePlanName = computed(() => {
+  const id = taskStore.activePlanId
+  if (!id) return ''
+  return planGroups.value.find((p: any) => p.key === id)?.name || ''
+})
+
+/** 队列位置：第 N / 共 M 个计划 */
+const planQueueTotal = computed(() => taskStore.pendingPlanQueue.length)
+const planQueueIndex = computed(() => {
+  const i = taskStore.pendingPlanQueue.indexOf(taskStore.activePlanId)
+  return i >= 0 ? i + 1 : 0
+})
+
+/** 各平台的完成进度（用于平台进度条，数据源改为作用域） */
+const platformStats = computed(() => {
+  const map = new Map<string, { id: string; name: string; color: string; total: number; done: number; success: number; failed: number }>()
+
+  scopeTasks.value.forEach((t: any) => {
+    if (!map.has(t.platform)) {
+      map.set(t.platform, {
+        id: t.platform,
+        name: getPlatformStyle(t.platform).name || t.platform,
+        color: platformColor(t.platform),
+        total: 0, done: 0, success: 0, failed: 0
+      })
+    }
+    const it = map.get(t.platform)!
+    it.total++
+    if (t.status === 'success') { it.success++; it.done++ }
+    else if (t.status === 'failed' || t.status === 'cancelled') { it.failed++; it.done++ }
+  })
+
+  return Array.from(map.values()).map((it) => ({
+    ...it,
+    percent: it.total > 0 ? Math.round((it.done / it.total) * 100) : 0
+  }))
 })
 
 // ---- 左侧计划列表 ----
@@ -759,8 +853,6 @@ const handleRemovePlan = async (p: any) => {
 // 抽屉状态
 const showLogDrawer = ref(false)
 const selectedTaskForDrawer = ref<PublishTask | null>(null)
-/** 批次中心抽屉（历史批次与一键重发） */
-const showBatchDrawer = ref(false)
 /** 日志抽屉默认定位的标签页 */
 const drawerInitialTab = ref<'terminal' | 'live'>('terminal')
 
@@ -813,30 +905,6 @@ const openTaskLogs = (task: PublishTask, tab: 'terminal' | 'live' = 'terminal') 
   selectedTaskForDrawer.value = task
   drawerInitialTab.value = tab
   showLogDrawer.value = true
-}
-
-/** 批次中心一键重发后：把新生成的批次作为当前计划打开 */
-const handleBatchRepublished = (newBatchId: string) => {
-  openPlanTabs.value = [newBatchId]
-  activePlanTab.value = newBatchId
-  selectedPlanId.value = newBatchId
-  taskStore.setPlanQueue([newBatchId])
-}
-
-const handleAutoDistribute = (cmd: string) => {
-  if (cmd === 'anti-risk') {
-    taskStore.autoDistributeTasksToLanes()
-    ElMessage.success('已按平台分配：同平台排队，不同平台同时发布')
-  } else if (cmd === 'max') {
-    taskStore.autoDistributeTasksToLanes(undefined, taskStore.maxConcurrency)
-    ElMessage.success(`已按通道上限（${taskStore.maxConcurrency} 个）平均分配`)
-  } else {
-    const num = parseInt(cmd, 10)
-    if (!isNaN(num)) {
-      taskStore.autoDistributeTasksToLanes(undefined, num)
-      ElMessage.success(`已平均分配到 ${num} 个通道`)
-    }
-  }
 }
 
 // ---- 多选 ----
@@ -906,6 +974,80 @@ watch(activePlanTab, (id) => {
 
 /** 勾选的计划（多选） */
 const checkedPlanIds = ref<string[]>([])
+
+/** 控制台的作用域任务：勾选了计划 → 只算这些；没勾选 → 空（统计归零） */
+const scopeTasks = computed(() => {
+  if (checkedPlanIds.value.length === 0) return []
+  const set = new Set(checkedPlanIds.value)
+  return taskStore.tasks.filter((t: any) => set.has(t.batchId))
+})
+
+/** 作用域内的统计（发布控制台所有数字都用它） */
+const scopeStats = computed(() => {
+  const list = scopeTasks.value
+  const success = list.filter((t: any) => t.status === 'success').length
+  const failed  = list.filter((t: any) => t.status === 'failed' || t.status === 'cancelled').length
+  const running = list.filter((t: any) => t.status === 'running').length
+  const queued  = list.filter((t: any) => t.status === 'queued').length
+  const total = list.length
+  const done = success + failed
+  return {
+    total, success, failed, running, queued, done,
+    percent: total > 0 ? Math.round((done / total) * 100) : 0
+  }
+})
+
+/** 是否勾选了计划 */
+const hasSelection = computed(() => checkedPlanIds.value.length > 0)
+
+/** 心跳计时器：每秒更新一次，驱动 elapsedSeconds 刷新 */
+const nowTick = ref(Date.now())
+let tickTimer: number | undefined
+onMounted(() => { tickTimer = window.setInterval(() => { nowTick.value = Date.now() }, 1000) })
+onUnmounted(() => { if (tickTimer) window.clearInterval(tickTimer) })
+
+/** 本次执行已耗时（秒） */
+const elapsedSeconds = computed(() => {
+  if (!taskStore.isExecuting || !taskStore.executionStartedAt) return 0
+  // 引用 nowTick 以建立响应式依赖，保证每秒更新
+  void nowTick.value
+  return Math.max(0, Math.floor((Date.now() - taskStore.executionStartedAt) / 1000))
+})
+
+/** 当前作用域内已完成数（用于算平均速度） */
+const scopeDoneCount = computed(() => scopeStats.value.done)
+
+/** 平均每条任务耗时（秒）；样本不足时返回 0 */
+const avgSecondsPerTask = computed(() => {
+  const done = scopeDoneCount.value
+  if (done === 0 || elapsedSeconds.value === 0) return 0
+  return Math.round((elapsedSeconds.value * Math.max(1, taskStore.lanes.length)) / done)
+})
+
+/** 剩余预估秒数（按真实平均速度） */
+const etaSeconds = computed(() => {
+  const remain = scopeStats.value.total - scopeStats.value.done
+  if (remain <= 0) return 0
+  const avg = avgSecondsPerTask.value || 90
+  return Math.round((remain * avg) / Math.max(1, taskStore.lanes.length))
+})
+
+/** 人类可读的时长：1 分 32 秒 / 12 秒 / 1 小时 5 分 */
+function humanDuration(sec: number): string {
+  if (sec <= 0) return '0 秒'
+  if (sec < 60) return `${sec} 秒`
+  const m = Math.floor(sec / 60)
+  if (m < 60) return `${m} 分${sec % 60 > 0 ? ' ' + (sec % 60) + ' 秒' : ''}`
+  const h = Math.floor(m / 60)
+  return `${h} 小时 ${m % 60} 分`
+}
+
+/** 预计完成时刻（HH:mm） */
+const etaClock = computed(() => {
+  if (etaSeconds.value <= 0) return ''
+  const d = new Date(Date.now() + etaSeconds.value * 1000)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+})
 
 watch(checkedPlanIds, (ids) => {
   if (ids.length > 0) {
@@ -1005,7 +1147,82 @@ function handleStartPublish() {
 }
 
 .progress-overview { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.progress-head { display: flex; align-items: center; gap: 8px; }
+
+/* ---- 发布控制台：信息行 ---- */
+.progress-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.head-plan { font-size: 12px; color: var(--text-muted); margin-left: 4px; }
+.head-plan b { color: var(--text-main); font-weight: 600; }
+.queue-pos { color: var(--primary-color); font-weight: 600; }
+
+/* 未选计划时的空态提示（虚线框暗示"待完成"状态） */
+.console-empty-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--text-main);
+  background: rgba(79, 70, 229, 0.07);
+  border: 1px dashed rgba(79, 70, 229, 0.32);
+}
+.console-empty-hint .hint-ic {
+  font-size: 15px;
+  color: var(--primary-color);
+  flex-shrink: 0;
+}
+.console-empty-hint b { color: var(--primary-color); font-weight: 600; }
+.console-empty-hint .hint-sub { color: var(--text-muted); font-size: 11.5px; }
+
+.progress-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.progress-title { font-size: 15px; font-weight: 700; color: var(--text-main); }
+.progress-pct { font-size: 13px; font-weight: 700; color: var(--primary-color); font-variant-numeric: tabular-nums; }
+.progress-eta { font-size: 12px; color: var(--text-muted); }
+.progress-eta.muted { opacity: .8; }
+
+/* 耗时行：真实测量已耗时 + 剩余预估 */
+.time-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-main);
+}
+.tl-item b { color: var(--primary-color); font-variant-numeric: tabular-nums; }
+.tl-item.muted { color: var(--text-muted); }
+.tl-sep { color: var(--border-subtle); }
+
+/* 平台进度 */
+.plat-progress { display: flex; flex-wrap: wrap; gap: 14px; }
+.plat-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; }
+.plat-name { color: var(--text-muted); white-space: nowrap; }
+.plat-bar {
+  width: 54px; height: 5px; border-radius: 3px;
+  background: var(--bg-input); overflow: hidden; flex-shrink: 0;
+}
+.plat-bar > i { display: block; height: 100%; border-radius: 3px; transition: width .3s; }
+.plat-num { color: var(--text-main); font-weight: 600; font-variant-numeric: tabular-nums; }
+.plat-num.bad { color: var(--status-danger); }
+
+/* 正在发布 / 最后完成 */
+.now-publishing {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-muted);
+  padding: 6px 10px; border-radius: 7px;
+  background: rgba(79, 70, 229, 0.08);
+  border: 1px solid rgba(79, 70, 229, 0.18);
+  min-width: 0;
+}
+.now-publishing.done { background: var(--bg-input); border-color: var(--border-subtle); }
+.np-media { color: var(--text-main); font-weight: 600; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-arrow { color: var(--text-muted); }
+.np-acct { color: var(--text-main); }
+.np-prog { color: var(--primary-color); font-weight: 600; margin-left: 2px; }
+.np-state.ok  { color: var(--status-success); font-weight: 600; }
+.np-state.bad { color: var(--status-danger); font-weight: 600; }
+.now-publishing .el-icon.ok  { color: var(--status-success); }
+.now-publishing .el-icon.bad { color: var(--status-danger); }
 
 /* 区块编号：方形小标（与「发布工作台」保持同一形态） */
 .idx {
@@ -1038,9 +1255,6 @@ function handleStartPublish() {
   flex-shrink: 0;
 }
 
-.progress-title { font-size: 15px; font-weight: 700; color: var(--text-main); margin-left: 4px; }
-.progress-sub { font-size: 12px; color: var(--text-muted); }
-
 .stat-chips { display: flex; gap: 16px; font-size: 12px; }
 .chip { display: inline-flex; align-items: center; gap: 4px; }
 .chip.ok      { color: var(--status-success); }
@@ -1068,6 +1282,15 @@ function handleStartPublish() {
 .ghost-btn { color: var(--text-muted); font-size: 12.5px; }
 .ghost-btn:hover { color: var(--primary-color); background: rgba(79, 70, 229, 0.08); }
 .ghost-text { margin: 0 2px; }
+
+.ghost-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: default;
+}
 
 .log-indicator-dot {
   width: 6px;
@@ -1368,7 +1591,7 @@ function handleStartPublish() {
 
 /* 内容列 */
 .folder-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.folder-ic { font-size: 14px; color: var(--primary-color); flex-shrink: 0; }
+.folder-cell .ic { font-size: 14px; flex-shrink: 0; }
 .gname { font-size: 12px; font-weight: 600; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cn { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
 
@@ -1401,6 +1624,15 @@ function handleStartPublish() {
 .acct .st.bad { color: var(--status-danger); }
 .acct .st.run { color: var(--primary-color); }
 .acct .st.queued { color: var(--text-muted); }
+
+/* 表格单元格里的账号胶囊：不换行、不撑破列宽 */
+/* ⚠️ flex 不能加在 <td> 上，否则 td 失去 table-cell 身份导致行高/边框错位 */
+.acct-cell { display: flex; align-items: center; min-width: 0; }
+.col-account .acct { max-width: 100%; vertical-align: middle; }
+.col-account .acct-name { max-width: 110px; }
+
+/* 平台小圆点（正在发布行里还在用） */
+.plat-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
 /* 结果 badge */
 .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }

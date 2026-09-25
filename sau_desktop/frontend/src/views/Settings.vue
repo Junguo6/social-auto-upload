@@ -32,7 +32,7 @@
           <div class="setting-item">
             <div class="setting-meta">
               <span class="title">同时发布窗口数 (并发数)</span>
-              <span class="desc">控制矩阵发布时同时自动操作的浏览器窗口数量。数值越大分发越快，建议根据电脑内存配置调整（推荐 2~3）。</span>
+              <span class="desc">控制矩阵发布时同时自动操作的浏览器窗口数量。数值越大分发越快，建议根据电脑内存配置调整（推荐 2~3）。（当前版本固定为逐个发布，此项暂不生效）</span>
             </div>
             <div class="setting-control slider-box">
               <el-slider 
@@ -104,14 +104,16 @@
               <span class="desc">小映分发助手</span>
             </div>
             <div class="setting-control">
-              <el-tag size="default" type="success" effect="dark">v1.2.0 Pro Edition</el-tag>
+              <el-tag size="default" type="success" effect="dark">
+                v{{ appVersion || '…' }} Pro Edition
+              </el-tag>
             </div>
           </div>
 
           <div class="setting-item">
             <div class="setting-meta">
               <span class="title">设备识别码 (NewSN) 与授权</span>
-              <span class="desc">机器唯一标识：<code style="color: #38bdf8; font-weight: bold;">{{ authStore.overview.new_sn || '加载中...' }}</code></span>
+              <span class="desc">机器唯一标识：<code style="color: var(--primary-color); font-weight: bold;">{{ authStore.overview.new_sn || '加载中...' }}</code></span>
             </div>
             <div class="setting-control">
               <el-button type="primary" plain size="small" @click="authStore.openAuthModal">
@@ -142,7 +144,7 @@
 import { reactive, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Key } from '@element-plus/icons-vue'
-import { DetectBrowserStatus } from '../../wailsjs/go/main/App'
+import { DetectBrowserStatus, GetAppVersion } from '../../wailsjs/go/main/App'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePublishStore } from '../stores/publishStore'
 import { useAuthStore } from '../stores/authStore'
@@ -152,6 +154,7 @@ const publishStore = usePublishStore()
 const authStore = useAuthStore()
 
 const browserInfo = ref<any>(null)
+const appVersion = ref('')
 
 const checkBrowser = async () => {
   try {
@@ -168,12 +171,17 @@ const form = reactive({
   chromePath: ''
 })
 
-onMounted(() => {
+onMounted(async () => {
   form.concurrency = settingsStore.settings.concurrency
   form.headless = settingsStore.settings.headless
   form.autoRetryCount = settingsStore.settings.autoRetryCount
   form.chromePath = settingsStore.settings.chromePath
   checkBrowser()
+  try {
+    appVersion.value = await GetAppVersion()
+  } catch {
+    appVersion.value = ''
+  }
 })
 
 const handleSave = () => {

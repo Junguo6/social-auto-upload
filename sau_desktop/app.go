@@ -480,3 +480,10 @@ func (a *App) SelectLocalFolder(title string) (*FolderScanResult, error) {
 	return res, nil
 }
 
+// GetAppVersion 返回当前客户端版本号。
+// 界面用它显示版本、在线升级用它对比新旧版本；版本号只在 internal/auth/client.go 里维护一份。
+func (a *App) GetAppVersion() string {
+	defer a.PanicRecover("GetAppVersion", nil)
+	return auth.CurrentAppVersion
+}
+
