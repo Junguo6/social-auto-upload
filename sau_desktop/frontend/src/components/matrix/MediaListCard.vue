@@ -49,11 +49,12 @@
             @change="e => emit('update:unitLevel', Number((e.target as HTMLSelectElement).value))"
           >
             <option v-for="n in maxFolderDepth" :key="n" :value="n">
-              按第{{ n }}层目录（{{ folderCountAtLevel(n) }} 个）
+              第{{ n }}层目录
             </option>
-            <option :value="0">按每条视频（{{ mediaList.length }} 个）</option>
+            <option :value="0">每条视频</option>
           </select>
         </span>
+        为单位
       </span>
       <div class="quick-batch-ops">
         <el-tooltip content="清空已添加的全部视频" placement="top">
@@ -470,16 +471,6 @@ const isUnitLevelView = computed(
 
 /** 以「每条视频」为单位：上传区直接平铺全部视频（跨分支），不再逐层浏览 */
 const isAllVideoView = computed(() => props.unitLevel === 0)
-
-/** 第 n 层共有多少个文件夹（用于选项上标注数量） */
-function folderCountAtLevel(n: number): number {
-  const set = new Set<string>()
-  props.mediaList.forEach((m) => {
-    const crumbs = m.folderCrumbs || []
-    if (crumbs.length >= n) set.add(crumbs.slice(0, n).join('/'))
-  })
-  return set.size
-}
 
 /** 当前层级下的文件夹（含视频数）与视频（已应用搜索过滤） */
 const browseEntries = computed(() => {

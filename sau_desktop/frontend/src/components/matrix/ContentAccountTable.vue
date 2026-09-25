@@ -8,7 +8,7 @@
       <div class="unit-desc">
         <span class="unit-desc-text">
           <template v-if="isFolderMode">
-            <span class="level-badge">第 {{ unitLevel }} 层</span>
+            <span class="level-badge">第{{ unitLevel }}层目录</span>
             文件夹里的内容整体发给同一个账号
           </template>
           <template v-else>
