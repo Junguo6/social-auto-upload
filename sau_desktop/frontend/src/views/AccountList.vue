@@ -255,6 +255,16 @@
                   <el-icon v-if="acc.isSyncing || acc.loading" class="is-loading" style="margin-right: 2px;"><Loading /></el-icon>
                   <span>{{ (acc.isSyncing || acc.loading) ? '同步中...' : (acc.checked ? (acc.isValid ? '登录正常' : '需重新扫码') : '待检测') }}</span>
                 </span>
+
+                <!-- 上次检测时间 -->
+                <span
+                  v-if="acc.checkedAt"
+                  class="contact-checked-at"
+                  :class="{ stale: isStaleCheck(acc.checkedAt) }"
+                  :title="new Date(acc.checkedAt).toLocaleString('zh-CN')"
+                >
+                  {{ fmtCheckedAt(acc.checkedAt) }}
+                </span>
               </div>
             </div>
           </div>
@@ -393,6 +403,9 @@
                 </div>
 
                 <h2 class="standby-account-title">{{ tab.accountItem.nickname || tab.accountItem.account }}</h2>
+                <div class="standby-checked-at" v-if="tab.accountItem?.checkedAt">
+                  上次检测：{{ fmtCheckedAt(tab.accountItem.checkedAt) }}
+                </div>
                 <div class="standby-meta-pills">
                   <el-tag size="default" :type="isTabSyncing(tab) ? 'warning' : (tab.accountItem.isValid ? 'success' : 'danger')" effect="dark" round>
                     <el-icon v-if="isTabSyncing(tab)" class="is-loading" style="margin-right: 4px;"><Loading /></el-icon>
@@ -704,6 +717,36 @@ const getAccountAvatarText = (acc?: AccountItem | null, fallbackName: string = '
   }
   const name = acc.nickname || acc.account || fallbackName || 'U'
   return name.trim().slice(0, 1).toUpperCase()
+}
+
+/** 上次检测时间的友好显示 */
+function fmtCheckedAt(ts?: number): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+
+  if (sameDay) return `今天 ${hh}:${mm} 检测`
+
+  const days = Math.floor((now.getTime() - ts) / 86400000)
+  if (days === 1) return `昨天 ${hh}:${mm} 检测`
+  if (days < 7) return `${days} 天前检测`
+
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${mo}-${dd} 检测`
+}
+
+/** 检测时间是否已陈旧（超过 7 天）—— 用于变橙色提醒 */
+function isStaleCheck(ts?: number): boolean {
+  if (!ts) return false
+  return Date.now() - ts > 7 * 86400000
 }
 
 // 激活某个标签页
@@ -1512,6 +1555,22 @@ watch(() => accountStore.accounts, (newAccounts) => {
   align-items: center;
 }
 
+/* 上次检测时间（卡片第二行） */
+.contact-checked-at {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  opacity: .72;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+/* 超过 7 天未检测 → 橙色提醒 */
+.contact-checked-at.stale {
+  color: var(--status-warning, #d97706);
+  opacity: .95;
+  font-weight: 600;
+}
+
 /* 👉 右侧：单账号面板 */
 .browser-window-pane {
   flex: 1;
@@ -1758,6 +1817,12 @@ watch(() => accountStore.accounts, (newAccounts) => {
   font-size: 20px;
   font-weight: 800;
   color: var(--text-main);
+}
+
+.standby-checked-at {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
 }
 
 .standby-meta-pills {

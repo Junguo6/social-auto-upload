@@ -18,6 +18,8 @@ export interface AccountItem {
   msg?: string
   loading?: boolean
   isSyncing?: boolean   // 会话结束或状态校验中动画标识
+  /** 上次检测登录状态的时间戳（毫秒） */
+  checkedAt?: number
 }
 
 export const useAccountStore = defineStore('account', () => {
@@ -162,6 +164,7 @@ export const useAccountStore = defineStore('account', () => {
       row.isValid = res.isValid
       row.msg = res.msg
       row.checked = true
+      row.checkedAt = Date.now()
       if (res.avatar) {
         row.avatar = res.avatar
         row.avatarLoadFailed = false
@@ -176,6 +179,7 @@ export const useAccountStore = defineStore('account', () => {
         target.isValid = res.isValid
         target.msg = res.msg
         target.checked = true
+        target.checkedAt = Date.now()
         if (res.avatar) {
           target.avatar = res.avatar
           target.avatarLoadFailed = false
