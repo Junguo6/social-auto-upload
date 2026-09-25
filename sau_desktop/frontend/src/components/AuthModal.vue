@@ -27,7 +27,7 @@
               当前为试用模式，开通后可长期使用
             </template>
             <template v-else>
-              开通后可继续发布任务
+              开通后可继续发布计划
             </template>
           </div>
         </div>

@@ -2,7 +2,7 @@
   <div class="studio-bottom-dock glass-card">
     <div class="dock-left-settings">
       <div class="dock-setting-item">
-        <span class="label">待分配任务:</span>
+        <span class="label">待分配计划:</span>
         <el-input-number 
           :model-value="concurrency" 
           :min="1" 
@@ -41,7 +41,7 @@
         @click="$emit('start')"
       >
         <el-icon><Promotion /></el-icon>
-        <span>创建并加入发布任务 ({{ selectedCount }})</span>
+        <span>创建并加入发布计划 ({{ selectedCount }})</span>
       </el-button>
     </div>
   </div>

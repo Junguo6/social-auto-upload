@@ -107,7 +107,7 @@
           </div>
         </el-popover>
 
-        <el-tooltip content="按当前对应关系生成发布任务，创建后前往任务中心执行" placement="top">
+        <el-tooltip content="按当前对应关系生成发布计划，创建后前往计划管理中心执行" placement="top">
           <el-button
             type="primary"
             class="gradient-btn-lg publish-submit-btn"
@@ -115,7 +115,7 @@
             @click="handleStartPublish"
           >
             <el-icon><Promotion /></el-icon>
-            <span>创建发布任务 ({{ totalActivatedTaskCount }})</span>
+            <span>创建发布计划 ({{ totalActivatedTaskCount }})</span>
           </el-button>
         </el-tooltip>
       </div>
@@ -130,6 +130,70 @@
       :selected-targets="activeAccounts"
       @confirm-sync="handleExecuteSyncConfig"
     />
+
+    <!-- 创建发布计划确认框 -->
+    <el-dialog
+      v-model="createConfirmVisible"
+      title="确认创建发布计划"
+      width="440px"
+      align-center
+      :close-on-click-modal="false"
+      @close="handleCancelCreate"
+    >
+      <div class="create-confirm-body">
+        <div class="confirm-field">
+          <label>计划名称</label>
+          <el-input
+            v-model="batchName"
+            placeholder="给这批计划起个名字，方便日后查找"
+            maxlength="30"
+            show-word-limit
+            @keyup.enter="handleConfirmCreate"
+          />
+        </div>
+
+        <div class="confirm-summary">
+          <div class="summary-row">
+            <span>内容</span>
+            <span><b>{{ createSummary.medias }}</b> 组</span>
+          </div>
+          <div class="summary-row">
+            <span>账号</span>
+            <span><b>{{ createSummary.acctCount }}</b> 个（{{ createSummary.platformText }}）</span>
+          </div>
+          <div class="summary-row highlight" :class="{ 'limit-exceeded': isTrialTaskLimitExceeded }">
+            <span>合计</span>
+            <span>将创建 <b>{{ createSummary.total }}</b> 个发布计划</span>
+          </div>
+          <div class="summary-row">
+            <span>间隔</span>
+            <span>每条 {{ concurrency }} 并发 · 间隔见计划管理中心</span>
+          </div>
+        </div>
+        <!-- 试用版超标警告 -->
+        <div v-if="isTrialTaskLimitExceeded" class="trial-limit-warn">
+          <el-icon><WarningFilled /></el-icon>
+          <div>
+            <b>超出试用版任务数上限</b><br />
+            试用版单次最多 {{ authStore.TRIAL_TASK_LIMIT }} 个发布计划，开通后可解除限制
+            <el-button type="primary" link size="small" @click="authStore.openAuthModal(); createConfirmVisible = false">
+              了解详情
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="handleCancelCreate">取消</el-button>
+        <el-button
+          type="primary"
+          :disabled="!batchName.trim() || isTrialTaskLimitExceeded"
+          @click="handleConfirmCreate"
+        >
+          确认创建
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -137,11 +201,13 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Promotion, WarningFilled } from '@element-plus/icons-vue'
 import { useAccountStore } from '../stores/accountStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useAuthStore } from '../stores/authStore'
 import { useMatrixPresets } from '../composables/useMatrixPresets'
 import { useMatrixPublish } from '../composables/useMatrixPublish'
+import { getPlatformConfig } from '../config/platforms'
 import type {
   MediaItem,
   MasterForm,
@@ -164,6 +230,83 @@ const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
 const { createCrossMatrixPublishBatch } = useMatrixPublish()
+
+// ---- 创建确认框状态 ----
+const batchName = ref('')
+const createConfirmVisible = ref(false)
+let confirmResolve: ((v: boolean) => void) | null = null
+
+/**
+ * 默认计划名：用「被拖入的根文件夹名」（folderCrumbs[0]）。
+ * · 用户刚才拖入的就是这个文件夹，命名与动作一一对应，最直观
+ * · 不要用 folderCrumbs 的最后一节（那是内容子目录，一次创建可能含多个）
+ * · 多个根文件夹时用「主名 等 N 个」
+ */
+function defaultBatchName(): string {
+  const list = activeMediaList.value || []
+  if (list.length === 0) return `发布计划 ${fmtToday()}`
+
+  // 收集所有出现过的根文件夹名（保持出现顺序、去重）
+  const roots: string[] = []
+  list.forEach((m) => {
+    const root = m.folderCrumbs?.[0]
+    if (root && !roots.includes(root)) roots.push(root)
+  })
+
+  if (roots.length === 1) return roots[0]                           // 单根：直接用
+  if (roots.length > 1)  return `${roots[0]} 等 ${roots.length} 个` // 多根
+
+  // 没有目录层级（拖入的是单个文件）：退回文件名（去扩展名）
+  const name = list[0]?.fileName || ''
+  if (name) return name.replace(/\.[^.]+$/, '')
+
+  // 最后兜底
+  return `发布计划 ${fmtToday()}`
+}
+
+/** 今天 MM-DD */
+function fmtToday(): string {
+  const d = new Date()
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** 打开确认框，返回用户是否确认 */
+function confirmBatchCreation(): Promise<boolean> {
+  batchName.value = defaultBatchName()
+  createConfirmVisible.value = true
+  return new Promise((resolve) => { confirmResolve = resolve })
+}
+
+function handleConfirmCreate() {
+  createConfirmVisible.value = false
+  confirmResolve?.(true)
+  confirmResolve = null
+}
+
+function handleCancelCreate() {
+  createConfirmVisible.value = false
+  confirmResolve?.(false)
+  confirmResolve = null
+}
+
+/** 摘要：内容组数 / 账号数与平台分布 / 任务总数 */
+const createSummary = computed(() => {
+  const medias = activeMediaList.value.length
+  const accts = activeAccounts.value
+  const byPlatform = new Map<string, number>()
+  accts.forEach((a) => byPlatform.set(a.platform, (byPlatform.get(a.platform) || 0) + 1))
+  const platformText = Array.from(byPlatform.entries())
+    .map(([p, n]) => `${platformName(p)} ${n}`)
+    .join(' · ')
+  let total = 0
+  Object.values(matrixMap || {}).forEach((cells: any) => { total += Object.keys(cells || {}).length })
+  if (total === 0) total = medias * accts.length
+  return { medias, acctCount: accts.length, platformText, total }
+})
+
+function platformName(pid: string): string {
+  return getPlatformConfig(pid)?.name || pid
+}
 
 // 1. 待发视频清单与已选 ID
 const mediaList = ref<MediaItem[]>([])
@@ -253,6 +396,11 @@ const activeMediaList = computed(() => {
   }
   return mediaList.value
 })
+
+// 试用版任务数是否超标（单次最多 10 个发布任务）
+const isTrialTaskLimitExceeded = computed(() =>
+  authStore.isTrialTaskLimitExceeded(createSummary.value.total)
+)
 
 // 活跃的目标账号列表
 const activeAccounts = computed(() => {
@@ -378,10 +526,20 @@ const handleStartPublish = async () => {
   }
 
   // 前置鉴权校验，未激活友好拦截
-  const authorized = await authStore.ensurePublishAuth('创建发布任务')
+  const authorized = await authStore.ensurePublishAuth('创建发布计划')
   if (!authorized) {
     return
   }
+
+  // 试用版任务数上限拦截（在确认框之前拦截，避免弹了框才发现超限）
+  if (isTrialTaskLimitExceeded.value) {
+    ElMessage.warning(`试用版单次最多 ${authStore.TRIAL_TASK_LIMIT} 个发布计划，请精简内容或账号组合后重试`)
+    return
+  }
+
+  // 弹出确认框：命名 + 摘要确认（创建不可逆，值得停一下）
+  const confirmed = await confirmBatchCreation()
+  if (!confirmed) return
 
   try {
     const batchId = createCrossMatrixPublishBatch({
@@ -391,21 +549,22 @@ const handleStartPublish = async () => {
       masterForm,
       ruleConfig,
       concurrency: concurrency.value,
-      isHeadless: isHeadless.value
+      isHeadless: isHeadless.value,
+      batchName: batchName.value
     })
 
     if (batchId) {
-      ElMessage.success(`已创建 ${totalActivatedTaskCount.value} 个发布任务，正在前往任务中心…`)
-      // 延迟引导跳转到任务管理中心
+      ElMessage.success(`已创建 ${totalActivatedTaskCount.value} 个发布计划，正在前往计划管理中心…`)
+      // 延迟引导跳转到计划管理中心
       setTimeout(() => {
         router.push('/tasks')
       }, 600)
     } else {
-      ElMessage.warning('未能创建发布任务，请检查配置后重试')
+      ElMessage.warning('未能创建发布计划，请检查配置后重试')
     }
   } catch (err: any) {
-    console.error('发布任务提交失败:', err)
-    ElMessage.error(`任务提交失败: ${err?.message || '未知异常'}`)
+    console.error('发布计划提交失败:', err)
+    ElMessage.error(`计划提交失败: ${err?.message || '未知异常'}`)
   }
 }
 
@@ -659,5 +818,48 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 创建确认框 */
+.create-confirm-body { display: flex; flex-direction: column; gap: 14px; }
+.confirm-field { display: flex; flex-direction: column; gap: 6px; }
+.confirm-field label { font-size: 12px; color: var(--text-muted); }
+
+.confirm-summary {
+  background: var(--bg-input); border: 1px solid var(--border-subtle);
+  border-radius: 10px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.summary-row { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--text-muted); }
+.summary-row b { color: var(--text-main); }
+.summary-row.highlight b { color: var(--primary-color); font-size: 14px; }
+
+/* 超标时合计行变红 */
+.summary-row.limit-exceeded {
+  color: var(--status-danger);
+}
+.summary-row.limit-exceeded b {
+  color: var(--status-danger) !important;
+}
+
+/* 试用版超标警告 */
+.trial-limit-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(245, 108, 108, 0.08);
+  border: 1px solid rgba(245, 108, 108, 0.3);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--status-danger);
+  line-height: 1.5;
+}
+.trial-limit-warn .el-icon {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.trial-limit-warn b {
+  color: var(--status-danger);
 }
 </style>

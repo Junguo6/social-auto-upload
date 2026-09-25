@@ -29,8 +29,11 @@
 
     <!-- 分组过滤栏与搜索 -->
     <div class="filter-toolbar">
-      <span class="badge-count" v-if="selectedKeys.length > 0">
+      <span class="badge-count" v-if="selectedKeys.length > 0" :class="{ 'badge-warn': authStore.isTrialAccountLimitExceeded(selectedKeys.length) }">
         已选 {{ selectedKeys.length }} 个账号 · 覆盖 {{ activePlatformCount }} 个平台
+        <span v-if="authStore.isTrialAccountLimitExceeded(selectedKeys.length)" class="trial-limit-hint">
+          （试用版上限 {{ authStore.TRIAL_ACCOUNT_LIMIT }} 个）
+        </span>
         <span class="hint-clear">（点「清空」可重新选择，对应表会重新分配）</span>
       </span>
       <div class="group-tabs">
@@ -119,9 +122,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useAccountStore } from '../../stores/accountStore'
+import { useAuthStore } from '../../stores/authStore'
 import { PLATFORMS, getPlatformConfig } from '../../config/platforms'
 import type { SelectedTargetAccount } from '../../types/matrix'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 
 const props = defineProps<{
   selectedKeys: string[] // 格式: "platform:account"
@@ -132,6 +136,7 @@ const emit = defineEmits<{
 }>()
 
 const accountStore = useAccountStore()
+const authStore = useAuthStore()
 const currentGroup = ref('全部')
 const accountSearch = ref('')
 
@@ -204,8 +209,17 @@ const toggleAccount = (acc: any) => {
   const current = [...props.selectedKeys]
   const idx = current.indexOf(key)
   if (idx !== -1) {
+    // 取消选中：直接移除，无限制
     current.splice(idx, 1)
   } else {
+    // 尝试新增：先检查试用账号数上限
+    if (authStore.isTrialUser && current.length >= authStore.TRIAL_ACCOUNT_LIMIT) {
+      ElNotification.warning({
+        message: `试用版最多绑定 ${authStore.TRIAL_ACCOUNT_LIMIT} 个账号，开通后可解除限制`,
+        duration: 4000
+      })
+      return
+    }
     current.push(key)
   }
   emit('update:selectedKeys', current)
@@ -217,6 +231,16 @@ const selectAllValid = () => {
     .filter(a => a.isValid)
     .map(a => `${a.platform}:${a.account}`)
   const merged = Array.from(new Set([...props.selectedKeys, ...validKeys]))
+
+  // 试用用户：截断到上限
+  if (authStore.isTrialUser && merged.length > authStore.TRIAL_ACCOUNT_LIMIT) {
+    merged.length = authStore.TRIAL_ACCOUNT_LIMIT
+    ElNotification.warning({
+      message: `试用版最多绑定 ${authStore.TRIAL_ACCOUNT_LIMIT} 个账号，已自动截取前 ${authStore.TRIAL_ACCOUNT_LIMIT} 个`,
+      duration: 4000
+    })
+  }
+
   emit('update:selectedKeys', merged)
 }
 
@@ -295,12 +319,24 @@ const getPlatformColor = (pid: string) => {
 
 .badge-count {
   font-size: 12px;
-  color: var(--primary-color);
   background: rgba(99, 102, 241, 0.12);
   border: 1px solid rgba(99, 102, 241, 0.25);
   border-radius: 20px;
   padding: 1px 9px;
   font-weight: 600;
+  color: var(--primary-color);
+}
+
+/* 试用账号超限时徽标变红 */
+.badge-count.badge-warn {
+  background: rgba(245, 108, 108, 0.08);
+  border-color: rgba(245, 108, 108, 0.3);
+  color: var(--status-danger);
+}
+
+.trial-limit-hint {
+  color: var(--status-danger);
+  font-weight: 700;
 }
 
 .hint-clear {

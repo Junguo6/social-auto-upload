@@ -99,7 +99,12 @@ func (c *Client) FetchOverview(identity *DeviceIdentity, activeCode string) (*Au
 		overview.UserId = fmt.Sprintf("%v", uid)
 	}
 
-	// 解析模块 122 授权状态
+	// 用户级激活状态（服务端 jym_user_order.is_activated）
+	if val, ok := res["is_activated"]; ok {
+		overview.IsActivated = toBool(val)
+	}
+
+	// 解析模块授权状态（服务端目前只返回 m100_activated；m122_授权有效与否靠 m122_deadline 推导）
 	if val, ok := res["m122_activated"]; ok {
 		overview.M122Activated = toBool(val)
 	}
@@ -111,10 +116,21 @@ func (c *Client) FetchOverview(identity *DeviceIdentity, activeCode string) (*Au
 	if dl, ok := res["m122_deadline"]; ok {
 		overview.Deadline = fmt.Sprintf("%v", dl)
 		if t, err := time.ParseInLocation("20060102", overview.Deadline, time.Local); err == nil {
-			overview.DaysRemaining = int(time.Until(t).Hours() / 24)
+			// 按「自然日」计算：今天 00:00 → 到期日 00:00 的天数差。
+			// 不能用 time.Until(t)：它从当前时刻算到到期日的 00:00，
+			// 下午查询会得到 29.46 天，向下取整成 29（后台显示 30，少一天）。
+			now := time.Now()
+			todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+			overview.DaysRemaining = int(t.Sub(todayStart).Hours() / 24)
 			if overview.DaysRemaining < 0 {
 				overview.DaysRemaining = 0
 			}
+			// 到期日当天仍有效；次日零点才视为过期（与后台语义一致）
+			overview.IsExpired = todayStart.After(t)
+		}
+		// 服务端不返回 m122_activated，模块 122 授权是否有效靠 m122_deadline 推导
+		if overview.DaysRemaining > 0 {
+			overview.M122Activated = true
 		}
 	}
 
@@ -211,7 +227,15 @@ func (c *Client) ApplyActiveCode(identity *DeviceIdentity, code, userId string) 
 		return nil, err
 	}
 
-	if !newOverview.IsActivated {
+	// 授权判据与 manager.go / 前端 authStore 保持一致（四选一），
+	// 不能只看 IsActivated —— 服务端模块级字段命名不统一，且模块 122 是靠
+	// m122_deadline 体现的（DaysRemaining > 0），单看 IsActivated 会误判为失败。
+	// 额外用 IsExpired 做兜底：到期日次日才视为过期，到期日当天仍算有效。
+	if !newOverview.IsActivated &&
+		!newOverview.M100Activated &&
+		!newOverview.M122Activated &&
+		newOverview.DaysRemaining <= 0 &&
+		newOverview.IsExpired {
 		return nil, fmt.Errorf("激活码已核销，但未获取到自动发布授权，请联系管理员")
 	}
 

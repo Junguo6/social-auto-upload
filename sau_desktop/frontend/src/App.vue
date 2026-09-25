@@ -25,14 +25,14 @@
           </router-link>
         </el-tooltip>
 
-        <!-- 任务管理中心 -->
-        <el-tooltip :content="'任务管理中心'" placement="right" :disabled="!isSidebarCollapsed">
+        <!-- 计划管理中心 -->
+        <el-tooltip :content="'计划管理中心'" placement="right" :disabled="!isSidebarCollapsed">
           <router-link to="/tasks" class="nav-link" exact-active-class="active">
             <div class="nav-icon nav-icon-badge-box">
               <el-icon><List /></el-icon>
               <span class="task-badge-dot" v-if="taskStore.activeTasksCount > 0"></span>
             </div>
-            <span class="nav-text" v-if="!isSidebarCollapsed">任务管理中心</span>
+            <span class="nav-text" v-if="!isSidebarCollapsed">计划管理中心</span>
             <span class="nav-badge" v-if="!isSidebarCollapsed && taskStore.activeTasksCount > 0">
               {{ taskStore.activeTasksCount }}
             </span>
@@ -92,7 +92,7 @@
         </div>
 
         <div class="nav-actions">
-          <!-- 任务状态快捷胶囊 -->
+          <!-- 计划状态快捷胶囊 -->
           <router-link 
             to="/tasks" 
             class="top-task-pill" 

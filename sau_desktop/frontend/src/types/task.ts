@@ -17,6 +17,8 @@ export interface PublishTask {
   batchName: string             // 批次名称
   videoFileName?: string        // 关联的本地视频源文件名
   thumbnail?: string            // 封面缩略图路径
+  /** 该任务对应素材的目录层级（含被拖入的根文件夹），如 ['短剧发布计划_副本','帐号1','短剧1'] */
+  folderCrumbs?: string[]
   platform: string              // 平台 ID
   account: string               // 账号 ID/标识
   nickname: string              // 账号昵称

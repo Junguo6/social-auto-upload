@@ -124,11 +124,11 @@
           <div class="setting-item">
             <div class="setting-meta">
               <span class="title">清除本地缓存数据</span>
-              <span class="desc">清空本地历史发布任务记录与界面缓存，不会删除已保存的 Cookie 凭证。</span>
+              <span class="desc">清空本地历史发布计划记录与界面缓存，不会删除已保存的 Cookie 凭证。</span>
             </div>
             <div class="setting-control">
               <el-button type="danger" plain size="small" @click="handleClearHistory">
-                清空任务历史
+                清空计划历史
               </el-button>
             </div>
           </div>

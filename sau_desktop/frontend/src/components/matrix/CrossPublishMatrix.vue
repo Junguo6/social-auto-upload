@@ -16,7 +16,7 @@
         <!-- 主视图模式切换：流水线清单 vs 交叉大表格 -->
         <el-radio-group v-model="displayMode" size="small" class="mode-radios">
           <el-radio-button value="pipeline">
-            <el-icon><Tickets /></el-icon> ☰ 任务流水线 (推荐)
+            <el-icon><Tickets /></el-icon> ☰ 计划流水线 (推荐)
           </el-radio-button>
           <el-radio-button value="grid">
             <el-icon><Grid /></el-icon> ⊞ 交叉透视表
@@ -41,7 +41,7 @@
     <div class="perspective-hint">
       <el-icon class="hint-icon"><InfoFilled /></el-icon>
       <span v-if="displayMode === 'pipeline'">
-        <strong>任务流水线视图</strong>：以每个待发视频为主卡片，流式展开各渠道账号，直观清晰、不被横向拉宽，支持单视频一键批量调整。
+        <strong>计划流水线视图</strong>：以每个待发视频为主卡片，流式展开各渠道账号，直观清晰、不被横向拉宽，支持单视频一键批量调整。
       </span>
       <span v-else-if="currentView === 'video'">
         <strong>交叉大表 (按视频看)</strong>：行=待发视频，列=矩阵账号。适合横向全局核对跨平台分布。
@@ -57,7 +57,7 @@
     <!-- 2. 主体展示区 (双模式) -->
     <div v-if="mediaList.length > 0 && selectedAccounts.length > 0">
       <!-- ========================================== -->
-      <!-- 视图 A：【任务流水线清单 (Pipeline Flow)】 -->
+      <!-- 视图 A：【计划流水线清单 (Pipeline Flow)】 -->
       <!-- ========================================== -->
       <div v-if="displayMode === 'pipeline'" class="pipeline-list">
         <div
@@ -347,7 +347,7 @@ const emit = defineEmits<{
   (e: 'open-sync', cellData: CellDataWrap | null): void
 }>()
 
-// 主展现模式: 'pipeline' (任务流水线清单，默认推荐) | 'grid' (交叉透视大表)
+// 主展现模式: 'pipeline' (计划流水线清单，默认推荐) | 'grid' (交叉透视大表)
 const displayMode = ref<'pipeline' | 'grid'>('pipeline')
 
 // 大表下的子视角: 'video' (行=视频) | 'account' (行=账号)
@@ -613,7 +613,7 @@ const getPlatformColor = (pid: string) => getPlatformConfig(pid)?.brandColor || 
 }
 
 /* ======================================= */
-/* 视图 A：【任务流水线清单 (Pipeline)】    */
+/* 视图 A：【计划流水线清单 (Pipeline)】    */
 /* ======================================= */
 .pipeline-list {
   display: flex;

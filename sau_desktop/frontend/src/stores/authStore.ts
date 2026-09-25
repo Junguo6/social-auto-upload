@@ -32,8 +32,12 @@ export const useAuthStore = defineStore('auth', () => {
   // 判断剩余一律用 "上限 3 − 已用"（与服务端 jym_module.trial_limit_default 保持一致）。
   let consumingTrial = false
 
-  /** 免费试用上限常量 */
+  /** 免费试用次数上限常量 */
   const TRIAL_LIMIT = 3
+  /** 试用版单次最多创建的发布任务数 */
+  const TRIAL_TASK_LIMIT = 10
+  /** 试用期最多可绑定的矩阵账号数 */
+  const TRIAL_ACCOUNT_LIMIT = 3
 
   /** 已用次数（来自 overview，服务端权威值）。注意：不要与 trialLimit 混淆。 */
   const trialUsed = computed(() => {
@@ -43,6 +47,25 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** 剩余试用次数 = 上限 − 已用 */
   const trialRemaining = computed(() => Math.max(0, TRIAL_LIMIT - trialUsed.value))
+
+  /** 当前是否为试用期用户（未激活且还有试用次数） */
+  const isTrialUser = computed(() => trialRemaining.value > 0 && !isAuthorized.value)
+
+  /**
+   * 检查试用版单次任务数是否超标。
+   * 正式用户不受此限制。
+   */
+  function isTrialTaskLimitExceeded(taskCount: number): boolean {
+    return isTrialUser.value && taskCount > TRIAL_TASK_LIMIT
+  }
+
+  /**
+   * 检查试用版账号数是否超标（试用用户最多绑定 3 个账号）。
+   * 正式用户不受此限制。
+   */
+  function isTrialAccountLimitExceeded(accountCount: number): boolean {
+    return isTrialUser.value && accountCount > TRIAL_ACCOUNT_LIMIT
+  }
 
   // ============ 授权状态 ============
   const isAuthorized = computed(() => {
@@ -181,6 +204,11 @@ export const useAuthStore = defineStore('auth', () => {
     loading,
     authModalVisible,
     trialRemaining,
+    isTrialUser,
+    TRIAL_TASK_LIMIT,
+    TRIAL_ACCOUNT_LIMIT,
+    isTrialTaskLimitExceeded,
+    isTrialAccountLimitExceeded,
     ensurePublishAuth,
     refreshAuth,
     activate,

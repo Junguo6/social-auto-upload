@@ -1,132 +1,418 @@
 <template>
   <div class="task-center-workspace">
-    <!-- 1. 顶部数据看板与全局工作流调度控制台 -->
+    <!-- 1. 进度总览 + 主控 -->
     <div class="task-stats-bar glass-card">
-      <div class="stats-group">
-        <div class="stat-card">
-          <div class="stat-num">{{ taskStore.tasks.length }}</div>
-          <div class="stat-label">全部任务</div>
+      <!-- 左：进度条 + 数字 -->
+      <div class="progress-overview">
+        <div class="progress-head">
+          <span class="idx">1</span>
+          <span class="section-name">发布控制台</span>
+          <span class="progress-title">
+            {{ taskStore.successTasksCount + taskStore.failedTasksCount }} / {{ taskStore.tasks.length }} 已完成
+          </span>
+          <span class="progress-sub" v-if="taskStore.isExecuting">
+            预计还需 {{ estimatedMinutes }} 分钟 · {{ taskStore.lanes.length }} 个通道同时发布
+          </span>
+          <span class="progress-sub" v-else-if="taskStore.queuedTasksCount > 0">
+            {{ taskStore.queuedTasksCount }} 个任务待发布，点「开始发布」即可执行
+          </span>
+          <span class="progress-sub" v-else>全部计划已完成</span>
         </div>
-        <div class="stat-card running-card">
-          <div class="stat-num">{{ taskStore.runningTasksCount }}</div>
-          <div class="stat-label">正在发布</div>
-        </div>
-        <div class="stat-card queued-card">
-          <div class="stat-num">{{ taskStore.queuedTasksCount }}</div>
-          <div class="stat-label">排队待发</div>
-        </div>
-        <div class="stat-card success-card">
-          <div class="stat-num">{{ taskStore.successTasksCount }}</div>
-          <div class="stat-label">发布成功</div>
-        </div>
-        <div class="stat-card failed-card">
-          <div class="stat-num">{{ taskStore.failedTasksCount }}</div>
-          <div class="stat-label">失败/异常</div>
+
+        <el-progress
+          :percentage="overallPercent"
+          :stroke-width="10"
+          :show-text="false"
+          :color="progressColor"
+        />
+
+        <div class="stat-chips">
+          <span class="chip ok">✅ 成功 {{ taskStore.successTasksCount }}</span>
+          <span class="chip running" v-if="taskStore.runningTasksCount > 0">🔄 发布中 {{ taskStore.runningTasksCount }}</span>
+          <span class="chip fail" v-if="taskStore.failedTasksCount > 0">❌ 失败 {{ taskStore.failedTasksCount }}</span>
+          <span class="chip queued" v-if="taskStore.queuedTasksCount > 0">⏸ 待发布 {{ taskStore.queuedTasksCount }}</span>
         </div>
       </div>
 
+      <!-- 右：主控按钮 -->
       <div class="stats-actions">
-        <!-- 启动/中止多线程工作流 -->
-        <el-button 
-          v-if="taskStore.isExecuting" 
-          type="danger" 
-          size="default" 
+        <el-button
+          v-if="taskStore.isExecuting"
+          type="danger"
+          size="large"
           class="exec-btn"
           @click="taskStore.cancelWorkflow"
         >
           <el-icon class="is-loading"><Loading /></el-icon>
-          <span>中止工作流</span>
+          <span>停止发布</span>
         </el-button>
 
-        <el-button 
-          v-else 
-          type="primary" 
-          size="default" 
+        <el-button
+          v-else
+          type="primary"
+          size="large"
           class="exec-btn gradient-btn-matrix"
           :disabled="taskStore.queuedTasksCount === 0"
-          @click="taskStore.triggerMultiLaneExecution"
+          @click="handleStartPublish"
         >
           <el-icon><Promotion /></el-icon>
-          <span>开始批量发布 ({{ taskStore.lanes.length }} 个通道)</span>
+          <span>开始发布 ({{ taskStore.queuedTasksCount }} 个待发)</span>
         </el-button>
 
-        <el-tooltip 
-          :content="taskStore.canAddLane ? '新建一个独立的发布通道' : `已达系统设置的最大通道数 (${taskStore.maxConcurrency} 个)，可前往「系统设置」调整`" 
-          placement="top"
-        >
-          <el-button 
-            size="small" 
-            plain 
-            :disabled="!taskStore.canAddLane"
-            @click="taskStore.addLane"
-          >
-            <el-icon><Plus /></el-icon> 新增发布通道
+        <!-- 次级设置：收纳成一条 -->
+        <div class="stats-secondary">
+          <el-dropdown trigger="click" @command="handleAutoDistribute">
+            <el-button size="small" text class="ghost-btn">
+              <el-icon><Setting /></el-icon>
+              <span class="ghost-text">分配方式</span>
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="anti-risk">🛡️ 按平台自动分配（同平台排队，不同平台同时）</el-dropdown-item>
+                <el-dropdown-item divided command="1">1 个通道（全部依次发布）</el-dropdown-item>
+                <el-dropdown-item command="2" v-if="taskStore.maxConcurrency >= 2">2 个通道（同时发布）</el-dropdown-item>
+                <el-dropdown-item command="3" v-if="taskStore.maxConcurrency >= 3">3 个通道（推荐）</el-dropdown-item>
+                <el-dropdown-item divided command="max">全部通道同时（按上限 {{ taskStore.maxConcurrency }} 个）</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
+          <span class="interval-box" title="同一通道内两个任务之间的等待秒数，间隔越大越不容易触发平台风控">
+            <span class="interval-label">每条间隔</span>
+            <el-input-number
+              v-model="globalInterval"
+              :min="0"
+              :max="3600"
+              :step="5"
+              size="small"
+              style="width: 76px"
+              controls-position="right"
+              @change="handleGlobalIntervalChange"
+            />
+            <span class="interval-unit">秒</span>
+          </span>
+
+          <el-button size="small" text class="ghost-btn" @click="openGlobalLogs">
+            <el-icon><Monitor /></el-icon>
+            <span class="ghost-text">日志</span>
+            <span class="log-indicator-dot" v-if="taskStore.runningTasksCount > 0"></span>
           </el-button>
-        </el-tooltip>
-
-        <el-dropdown trigger="click" @command="handleAutoDistribute">
-          <el-button size="small" plain>
-            <el-icon><MagicStick /></el-icon> 分配方式
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="anti-risk">🛡️ 按平台自动分配（同平台排队，不同平台同时）</el-dropdown-item>
-              <el-dropdown-item divided command="1" v-if="taskStore.maxConcurrency >= 1">1 个通道（全部依次发布）</el-dropdown-item>
-              <el-dropdown-item command="2" v-if="taskStore.maxConcurrency >= 2">2 个通道（同时发布）</el-dropdown-item>
-              <el-dropdown-item command="3" v-if="taskStore.maxConcurrency >= 3">3 个通道（推荐）</el-dropdown-item>
-              <el-dropdown-item command="4" v-if="taskStore.maxConcurrency >= 4">4 个通道</el-dropdown-item>
-              <el-dropdown-item command="5" v-if="taskStore.maxConcurrency >= 5">5 个通道</el-dropdown-item>
-              <el-dropdown-item divided command="max">全部通道同时（按上限 {{ taskStore.maxConcurrency }} 个）</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-
-        <el-button size="small" type="primary" plain class="log-trigger-btn" @click="openGlobalLogs">
-          <el-icon><Monitor /></el-icon> 控制台日志
-          <span class="log-indicator-dot" v-if="taskStore.runningTasksCount > 0"></span>
-        </el-button>
-
-        <el-button size="small" plain @click="taskStore.clearFinishedTasks">
-          <el-icon><Delete /></el-icon> 清理已完成
-        </el-button>
+        </div>
       </div>
     </div>
 
-    <!-- 2. 批次过滤器与防风控冲突提示栏 -->
-    <div class="batch-filter-bar glass-card" v-if="taskStore.batches.length > 0">
-      <div class="batch-filter-left">
-        <el-icon><CollectionTag /></el-icon>
-        <span class="filter-label">按批次查看:</span>
-        <div class="batch-pills-scroll custom-scrollbar">
-          <span 
-            class="batch-pill" 
-            :class="{ active: selectedBatch === 'all' }"
-            @click="selectedBatch = 'all'"
-          >
-            全部任务 ({{ taskStore.tasks.length }})
-          </span>
+    <!-- 2. 计划工作台：左计划列表 + 右发布明细 -->
+    <div class="task-workspace" v-if="taskStore.tasks.length > 0">
 
-          <span 
-            v-for="(batch, bIdx) in taskStore.batches.slice(0, 8)" 
-            :key="batch.id"
-            class="batch-pill"
-            :class="{ 
-              active: selectedBatch === batch.id,
-              'is-latest': batch.id === taskStore.latestBatchId 
-            }"
-            @click="selectedBatch = batch.id"
+      <!-- 左：计划列表 -->
+      <div class="task-list-panel glass-card">
+        <!-- 工具栏 -->
+        <div class="list-toolbar">
+          <div class="toolbar-left">
+            <span class="idx">2</span>
+            <span class="section-name">发布计划</span>
+            <span class="list-count">{{ planGroups.length }} 个</span>
+          </div>
+
+          <div class="toolbar-right">
+            <!-- 筛选：收成下拉，省横向空间 -->
+            <el-select v-model="listFilter" size="small" class="filter-select">
+              <el-option value="all" label="全部计划" />
+              <el-option
+                value="failed"
+                :label="`只看失败 (${taskStore.failedTasksCount})`"
+                :disabled="taskStore.failedTasksCount === 0"
+              />
+              <el-option value="running" label="进行中" />
+            </el-select>
+
+            <!-- 清理已完成：图标按钮 + tooltip -->
+            <el-tooltip content="清理已完成的计划" placement="top">
+              <el-button size="small" text class="icon-btn" @click="taskStore.clearFinishedTasks">
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </div>
+        </div>
+
+        <!-- 计划列表（1 行 = 1 个计划 = 1 个 batchId） -->
+        <div class="plan-list-wrap custom-scrollbar">
+          <div
+            v-for="p in planGroups"
+            :key="p.key"
+            class="plan-item"
+            :class="[p.planStatus, { 'is-selected': selectedPlanId === p.key }]"
+            @click="handleSelectPlan(p.key)"
           >
-            <span v-if="batch.id === taskStore.latestBatchId" class="latest-sparkle">✨ 刚刚提交:</span>
-            <span v-else class="batch-idx-label">批次 #{{ bIdx + 1 }}:</span>
-            <span class="batch-name-text" :title="batch.name">{{ batch.name }}</span>
-            <span class="batch-count-tag">{{ getBatchTaskCount(batch.id) }}</span>
-          </span>
+            <!-- 多选勾选框 -->
+            <el-checkbox
+              class="plan-check"
+              :model-value="checkedPlanIds.includes(p.key)"
+              @click.stop
+              @change="(v: any) => {
+                if (v) checkedPlanIds = Array.from(new Set([...checkedPlanIds, p.key]))
+                else checkedPlanIds = checkedPlanIds.filter(id => id !== p.key)
+              }"
+            />
+
+            <div class="plan-body">
+              <div class="plan-title" :title="p.name">{{ p.name }}</div>
+              <div class="plan-sub">
+                <span class="plan-progress">{{ p.done }}/{{ p.total }}</span>
+                <span class="p-chip ok"     v-if="p.success">✅ {{ p.success }}</span>
+                <span class="p-chip run"    v-if="p.running">🔄 {{ p.running }}</span>
+                <span class="p-chip bad"    v-if="p.failed">❌ {{ p.failed }}</span>
+                <span
+                  class="p-chip queued"
+                  v-if="p.queued"
+                  :title="`${p.queued} 条待发布`"
+                >待发 {{ p.queued }}</span>
+              </div>
+            </div>
+
+            <el-button
+              v-if="p.running === 0"
+              class="plan-del-btn"
+              size="small"
+              text
+              @click.stop="handleRemovePlan(p)"
+            >
+              <el-icon><Delete /></el-icon>
+            </el-button>
+          </div>
+
+          <div v-if="planGroups.length === 0" class="list-empty">
+            {{ listFilter === 'failed' ? '没有失败的计划 🎉' : '当前筛选条件下没有计划' }}
+          </div>
         </div>
       </div>
 
-      <!-- 防风控并发冲突警告 -->
-      <div class="risk-alert-box" v-if="taskStore.platformConflicts.length > 0">
+      <!-- 右：发布明细表 -->
+      <div class="plan-detail-panel glass-card">
+        <div v-if="tabPlans.length > 0">
+          <!-- ③ 区头 -->
+          <div class="section-head">
+            <span class="idx">3</span>
+            <span class="section-name">发布明细</span>
+          </div>
+
+          <!-- 计划 Tab 栏 -->
+          <el-tabs
+            v-model="activePlanTab"
+            class="plan-tabs"
+            type="card"
+            @tab-remove="closePlanTab"
+            closable
+          >
+            <el-tab-pane
+              v-for="p in tabPlans"
+              :key="p.key"
+              :name="p.key"
+              :closable="tabPlans.length > 1"
+            >
+              <template #label>
+                <span
+                  class="tab-label"
+                  :title="`${p.name} · ${planStatusText(p)} ${p.done}/${p.total}`"
+                >
+                  <span class="tab-dot" :class="p.planStatus"></span>
+                  <span class="tab-name">{{ p.name }}</span>
+                </span>
+              </template>
+            </el-tab-pane>
+          </el-tabs>
+
+          <!-- 状态条：计划名已在 Tab 上，此处不再重复（含查看视角，合并成一行） -->
+          <div class="detail-bar" v-if="selectedPlan">
+            <span
+              v-if="currentPlanStatusText"
+              class="detail-status"
+              :class="selectedPlan.planStatus"
+            >
+              {{ currentPlanStatusText }}
+            </span>
+            <span class="detail-eta" v-if="selectedPlan.running > 0">
+              预计还需 {{ estimatedMinutes }} 分钟
+            </span>
+
+            <div class="detail-bar-right" v-if="maxDetailDepth > 0">
+              <span class="vlb-label">查看视角</span>
+              <el-select v-model="detailViewLevel" size="small" class="view-select">
+                <el-option :value="0" label="逐条明细" />
+                <el-option
+                  v-for="lv in maxDetailDepth"
+                  :key="lv"
+                  :value="lv"
+                  :label="`按第 ${lv} 层目录${levelSampleName(lv) ? '（' + levelSampleName(lv) + '）' : ''}`"
+                />
+              </el-select>
+            </div>
+          </div>
+
+          <!-- 逐条明细（视角 = 逐条） -->
+          <div class="plan-detail-table custom-scrollbar" v-if="!detailGroups">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 44px">#</th>
+                  <th>内容</th>
+                  <th style="width: 190px">发布账号</th>
+                  <th style="width: 130px">状态</th>
+                  <th style="width: 130px">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(t, idx) in (selectedPlan?.tasks || [])"
+                  :key="t.id"
+                  class="detail-row"
+                  :class="[t.status, { 'is-selected': selectedTaskId === t.id }]"
+                  @click="selectedTaskId = t.id"
+                >
+                  <td class="col-order">{{ idx + 1 }}</td>
+
+                  <td class="col-content">
+                    <div class="cell-main" :title="t.videoFileName || t.title">
+                      {{ t.videoFileName || t.title || '—' }}
+                    </div>
+                    <div class="cell-sub" v-if="t.batchName">{{ t.batchName }}</div>
+                  </td>
+
+                  <td class="col-account">
+                    <span class="plat-dot" :style="{ background: platformColor(t.platform) }" />
+                    <span>{{ t.nickname || t.account }}</span>
+                  </td>
+
+                  <td class="col-status">
+                    <span class="status-pill" :class="t.status">
+                      <el-icon v-if="t.status === 'running'" class="is-loading"><Loading /></el-icon>
+                      <el-icon v-else-if="t.status === 'success'"><CircleCheck /></el-icon>
+                      <el-icon v-else-if="t.status === 'failed'"><CircleClose /></el-icon>
+                      <el-icon v-else><Clock /></el-icon>
+                      <span>{{ statusText(t) }}</span>
+                    </span>
+                    <div class="fail-line" v-if="t.status === 'failed' && failureReason(t)" :title="failureReason(t)">
+                      {{ failureReason(t) }}
+                    </div>
+                  </td>
+
+                  <td class="col-actions">
+                    <template v-if="t.status === 'failed' || t.status === 'cancelled'">
+                      <el-button size="small" type="primary" link @click.stop="taskStore.retryTask(t.id)">重试</el-button>
+                    </template>
+                    <template v-else-if="t.status === 'running'">
+                      <el-button size="small" type="danger" link @click.stop="taskStore.cancelTask(t.id)">中止</el-button>
+                    </template>
+                    <el-button size="small" link @click.stop="openTaskLogs(t)">日志</el-button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 分组明细（视角 = 按第 N 层） -->
+          <div class="plan-detail-table custom-scrollbar" v-else>
+            <div v-for="g in detailGroups" :key="g.key" class="detail-group">
+              <!-- 分组头 -->
+              <div class="detail-group-head" @click="toggleDetailGroup(g.key)">
+                <el-icon class="dg-arrow" :class="{ open: expandedDetailGroups.includes(g.key) }">
+                  <ArrowRight />
+                </el-icon>
+                <span class="dg-label">{{ g.label }}</span>
+                <span class="dg-progress">{{ g.done }}/{{ g.total }}</span>
+                <span class="dg-chip ok"     v-if="g.success">✅ {{ g.success }}</span>
+                <span class="dg-chip run"    v-if="g.running">🔄 {{ g.running }}</span>
+                <span class="dg-chip bad"    v-if="g.failed">❌ {{ g.failed }}</span>
+                <span class="dg-chip queued" v-if="g.queued">⏸ {{ g.queued }}</span>
+              </div>
+
+              <!-- 分组内明细（复用同一套行模板） -->
+              <table v-if="expandedDetailGroups.includes(g.key)">
+                <thead>
+                  <tr>
+                    <th style="width: 40px">#</th>
+                    <th>内容</th>
+                    <th style="width: 170px">发布账号</th>
+                    <th style="width: 130px">状态</th>
+                    <th style="width: 140px">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(t, idx) in g.tasks"
+                    :key="t.id"
+                    class="detail-row"
+                    :class="[t.status, { 'is-selected': selectedTaskId === t.id }]"
+                    @click="selectedTaskId = t.id"
+                  >
+                    <td class="col-order">{{ idx + 1 }}</td>
+
+                    <td class="col-content">
+                      <div class="cell-main" :title="t.videoFileName || t.title">
+                        {{ t.videoFileName || t.title || '—' }}
+                      </div>
+                      <div class="cell-sub" v-if="t.batchName">{{ t.batchName }}</div>
+                    </td>
+
+                    <td class="col-account">
+                      <span class="plat-dot" :style="{ background: platformColor(t.platform) }" />
+                      <span>{{ t.nickname || t.account }}</span>
+                    </td>
+
+                    <td class="col-status">
+                      <span class="status-pill" :class="t.status">
+                        <el-icon v-if="t.status === 'running'" class="is-loading"><Loading /></el-icon>
+                        <el-icon v-else-if="t.status === 'success'"><CircleCheck /></el-icon>
+                        <el-icon v-else-if="t.status === 'failed'"><CircleClose /></el-icon>
+                        <el-icon v-else><Clock /></el-icon>
+                        <span>{{ statusText(t) }}</span>
+                      </span>
+                      <div class="fail-line" v-if="t.status === 'failed' && failureReason(t)" :title="failureReason(t)">
+                        {{ failureReason(t) }}
+                      </div>
+                    </td>
+
+                    <td class="col-actions">
+                      <template v-if="t.status === 'failed' || t.status === 'cancelled'">
+                        <el-button size="small" type="primary" link @click.stop="taskStore.retryTask(t.id)">重试</el-button>
+                      </template>
+                      <template v-else-if="t.status === 'running'">
+                        <el-button size="small" type="danger" link @click.stop="taskStore.cancelTask(t.id)">中止</el-button>
+                      </template>
+                      <el-button size="small" link @click.stop="openTaskLogs(t)">日志</el-button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 选中某条时的日志 -->
+          <div class="detail-logs" v-if="selectedTask">
+            <div class="logs-title">
+              执行日志 · {{ selectedTask.nickname || selectedTask.account }}
+            </div>
+            <div class="logs-list custom-scrollbar">
+              <div v-for="(l, i) in (selectedTask.logs || []).slice(-30)" :key="i" class="log-line" :class="l.type">
+                <span class="log-time">{{ l.time || '' }}</span>
+                <span class="log-text">{{ l.message }}</span>
+              </div>
+              <div v-if="!selectedTask.logs || selectedTask.logs.length === 0" class="logs-empty">暂无日志</div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="detail-empty">
+          <el-icon :size="26"><Document /></el-icon>
+          <span>点击左侧计划查看发布明细</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. 防风控冲突提示栏（仅在有冲突时显示） -->
+    <div class="risk-bar glass-card" v-if="taskStore.platformConflicts.length > 0">
+      <div class="risk-alert-box">
         <el-icon class="risk-icon"><WarningFilled /></el-icon>
         <span class="risk-text">
           检测到 <strong>{{ taskStore.platformConflicts.map(p => getPlatformStyle(p).name).join('、') }}</strong> 的任务分散在多个通道里同时发布，可能触发平台频次风控
@@ -137,295 +423,8 @@
       </div>
     </div>
 
-    <!-- 3. 可视化多协程任务流泳道画板 (Multi-Lane Workflow Canvas) -->
-    <div class="workflow-canvas-panel glass-card">
-      <div class="canvas-header">
-        <div class="header-left">
-          <span class="canvas-tag">TASK WORKBENCH</span>
-          <span class="canvas-title">发布任务工作台</span>
-          <span class="canvas-hint">通道之间同时发布，通道内按顺序依次执行；卡片可自由拖到其他通道调整顺序</span>
-        </div>
-
-        <div class="header-right">
-          <span class="lane-counter">
-            当前激活 <strong>{{ taskStore.lanes.length }}</strong> / {{ taskStore.maxConcurrency }} 个发布通道
-            <router-link to="/settings" class="settings-link" title="前往系统设置修改最大并发数">
-              <el-icon><Setting /></el-icon> 配置上限
-            </router-link>
-          </span>
-        </div>
-      </div>
-
-      <!-- 泳道容器列表 -->
-      <div class="lanes-scroll-container custom-scrollbar">
-        <div 
-          v-for="(lane, laneIdx) in taskStore.lanes" 
-          :key="lane.id"
-          class="workflow-lane-card"
-          :class="lane.status"
-          @dragover.prevent
-          @drop="handleDropOnLane(lane.id, $event)"
-        >
-          <!-- 泳道头部控制栏 -->
-          <div class="lane-header">
-            <div class="lane-title-meta">
-              <span class="lane-index-pill">通道 {{ laneIdx + 1 }}</span>
-              <span class="lane-name">{{ lane.name }}</span>
-              <span class="lane-status-badge" :class="lane.status">
-                <el-icon v-if="lane.status === 'running'" class="is-loading"><Loading /></el-icon>
-                <el-icon v-else-if="lane.status === 'completed'"><Check /></el-icon>
-                <el-icon v-else-if="lane.status === 'failed'"><WarningFilled /></el-icon>
-                <span>{{ getLaneStatusText(lane.status) }}</span>
-              </span>
-            </div>
-
-            <div class="lane-actions">
-              <div class="delay-setting-box" title="该通道内各任务节点的默认基准防风控延时秒数">
-                <span class="delay-label">通道默认延时:</span>
-                <el-input-number 
-                  v-model="lane.delayBetweenTasks" 
-                  :min="0" 
-                  :max="3600" 
-                  :step="5" 
-                  size="small" 
-                  style="width: 95px" 
-                  controls-position="right"
-                  @change="handleLaneDelayChange(lane)"
-                />
-                <span class="delay-unit">秒</span>
-              </div>
-
-              <el-button 
-                v-if="taskStore.lanes.length > 1" 
-                size="small" 
-                type="danger" 
-                link 
-                title="删除该通道（其中任务将退回待分配区）"
-                @click="taskStore.removeLane(lane.id)"
-              >
-                <el-icon><Close /></el-icon>
-              </el-button>
-            </div>
-          </div>
-
-          <!-- 泳道卡片箭头流 (Card & Arrow Stream) -->
-          <div class="lane-track-body custom-scrollbar">
-            <!-- 泳道卡片群 -->
-            <div 
-              v-for="(task, taskIdx) in lane.tasks" 
-              :key="task.id"
-              class="lane-node-item"
-              :class="{ 'is-faded': selectedBatch !== 'all' && task.batchId !== selectedBatch }"
-            >
-              <!-- 任务卡片 (状态机保护: 执行中的任务锁定禁止拖拽，可中止后拖拽) -->
-              <div 
-                class="flow-card"
-                :class="[task.status, { 
-                  'is-drag-source': draggingTaskId === task.id,
-                  'is-running-locked': task.status === 'running',
-                  'is-latest-highlight': task.batchId === taskStore.latestBatchId
-                }]"
-                :draggable="task.status !== 'running'"
-                @dragstart="task.status !== 'running' ? handleDragStart(task.id, lane.id, taskIdx, $event) : $event.preventDefault()"
-                @dragend="handleDragEnd"
-              >
-                <!-- 卡片顶部标识栏 -->
-                <div class="card-drag-bar" :title="task.status === 'running' ? '该任务正在发布中，暂时锁定。可先点「中止」再拖拽调整。' : '按住拖拽以移动卡片或调序'">
-                  <div class="drag-bar-left">
-                    <el-icon v-if="task.status === 'running'" class="is-loading"><Loading /></el-icon>
-                    <el-icon v-else><Rank /></el-icon>
-                    <span class="card-step-num">#{{ taskIdx + 1 }}</span>
-                    <span v-if="task.batchId === taskStore.latestBatchId" class="latest-badge-pill">✨ 最新</span>
-                  </div>
-                  <span class="locked-hint" v-if="task.status === 'running'">执行中锁定</span>
-                  <span class="cancelled-hint" v-else-if="task.status === 'cancelled'">已中止(可拖拽)</span>
-                </div>
-
-                <!-- 批次/来源视频信息 -->
-                <div class="card-source-row" v-if="task.videoFileName || task.batchName" :title="task.videoFileName || task.batchName">
-                  <el-icon class="source-icon"><Film /></el-icon>
-                  <span class="source-text">{{ task.videoFileName || task.batchName }}</span>
-                </div>
-
-                <div class="card-plat-row">
-                  <span class="card-plat-badge" :style="{ background: getPlatformStyle(task.platform).brandColor }">
-                    {{ getPlatformStyle(task.platform).name }}
-                  </span>
-                  <span class="card-acc-name" :title="task.nickname || task.account">
-                    {{ task.nickname || task.account }}
-                  </span>
-                </div>
-
-                <div class="card-title-row" :title="task.title">
-                  <span class="card-action-tag">{{ task.action === 'upload-video' ? '视频' : '图文' }}</span>
-                  <span class="card-title-text">{{ task.title }}</span>
-                </div>
-
-                <!-- 风险熔断与准入拦截横幅 -->
-                <div class="card-risk-banner" v-if="task.isPaused || task.errorMsg?.includes('熔断') || task.errorMsg?.includes('准入')">
-                  <el-icon class="risk-icon"><WarningFilled /></el-icon>
-                  <span class="risk-banner-text" :title="task.pauseReason || task.errorMsg">
-                    {{ task.pauseReason || task.errorMsg }}
-                  </span>
-                  <el-button size="small" type="danger" link @click.stop="taskStore.resumeAccountRisk(task.platform, task.account)">
-                    解除熔断
-                  </el-button>
-                </div>
-
-                <div class="card-footer-row">
-                  <span class="card-status-pill" :class="task.status">
-                    <el-icon v-if="task.status === 'running'" class="is-loading"><Loading /></el-icon>
-                    <el-icon v-else-if="task.status === 'success'"><Check /></el-icon>
-                    <el-icon v-else-if="task.status === 'failed'"><WarningFilled /></el-icon>
-                    <el-icon v-else-if="task.status === 'queued'"><Clock /></el-icon>
-                    <el-icon v-else-if="task.status === 'cancelled'"><CircleClose /></el-icon>
-                    <span>{{ getStatusText(task.status) }}</span>
-                  </span>
-
-                  <div class="card-btns" @click.stop>
-                    <!-- 执行中提供中止按钮 -->
-                    <el-button 
-                      v-if="task.status === 'running'"
-                      size="small" 
-                      type="danger" 
-                      link 
-                      title="中止该任务，中止后可自由拖拽调序"
-                      @click="taskStore.cancelTask(task.id)"
-                    >
-                      <el-icon><CircleClose /></el-icon> 中止
-                    </el-button>
-
-                    <!-- 已中止或失败提供恢复重试按钮 -->
-                    <el-button 
-                      v-if="task.status === 'failed' || task.status === 'cancelled'"
-                      size="small" 
-                      type="warning" 
-                      link 
-                      title="重新排队恢复此任务"
-                      @click="taskStore.retryTask(task.id)"
-                    >
-                      <el-icon><RefreshRight /></el-icon> 恢复
-                    </el-button>
-
-                    <el-button size="small" type="primary" link @click="openTaskLogs(task)">
-                      <el-icon><Monitor /></el-icon> 日志
-                    </el-button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 步骤间箭头连接器 (Arrow Connector，独立调节单步骤专属延时，不影响通道全局延时) -->
-              <div class="step-connector" v-if="taskIdx < lane.tasks.length - 1">
-                <div class="connector-line"></div>
-                <el-popover placement="top" :width="190" trigger="click">
-                  <template #reference>
-                    <span 
-                      class="connector-delay-pill clickable" 
-                      title="点击仅修改此连接处的专属延时 (不影响通道全局默认延时)"
-                    >
-                      延时 {{ getStepDelay(task, lane) }}s
-                    </span>
-                  </template>
-                  <div class="pop-delay-editor">
-                    <div class="pop-delay-title">步骤专属延时设置</div>
-                    <div class="pop-delay-hint">当前卡片发布后，等待多少秒再启动下一个任务 (仅影响此连接)</div>
-                    <div class="pop-delay-control">
-                      <el-input-number 
-                        v-model="task.delaySeconds" 
-                        :min="0" 
-                        :max="3600" 
-                        :step="5" 
-                        size="small" 
-                        controls-position="right"
-                        style="width: 110px"
-                        @change="handleStepDelayChange(task)"
-                      />
-                      <span class="pop-delay-unit">秒</span>
-                    </div>
-                    <div class="pop-delay-footer">
-                      <el-button size="small" link type="primary" @click="resetStepDelay(task, lane)">
-                        重置为通道默认 ({{ lane.delayBetweenTasks ?? 15 }}s)
-                      </el-button>
-                    </div>
-                  </div>
-                </el-popover>
-                <el-icon class="connector-arrow-icon"><Right /></el-icon>
-              </div>
-            </div>
-
-            <!-- 空泳道放置提示卡片 -->
-            <div 
-              class="lane-drop-placeholder"
-              :class="{ 'is-drag-target': isDragging && draggingFromLaneId !== lane.id }"
-            >
-              <el-icon><Plus /></el-icon>
-              <span>{{ lane.tasks.length === 0 ? '把任务拖到这里，放入该通道' : '拖入任务会追加到末尾' }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 4. 待分配任务停靠池 (Unassigned Task Dock，支持随时拖回与查看) -->
-    <div 
-      class="unassigned-dock glass-card"
-      :class="{ 'is-drag-over-dock': isDragging && draggingFromLaneId !== null }"
-      @dragover.prevent
-      @drop="handleDropOnUnassigned($event)"
-    >
-      <div class="dock-title-row">
-        <div class="title-left">
-          <el-icon><Box /></el-icon>
-          <span class="title-text">待分配任务池 ({{ taskStore.unassignedTasks.length }})</span>
-          <span class="title-sub">可把上方通道里的任务拖回这里暂存，或点「分配方式」自动排布</span>
-        </div>
-        <div class="title-right" v-if="taskStore.unassignedTasks.length > 0">
-          <el-button size="small" type="primary" link @click="taskStore.autoDistributeTasksToLanes()">
-            按平台自动分配（防风控）
-          </el-button>
-        </div>
-      </div>
-
-      <div class="dock-cards-tray custom-scrollbar" v-if="taskStore.unassignedTasks.length > 0">
-        <div 
-          v-for="task in taskStore.unassignedTasks" 
-          :key="task.id"
-          class="unassigned-card"
-          :class="[task.status, { 'is-drag-source': draggingTaskId === task.id }]"
-          :draggable="task.status !== 'running'"
-          @dragstart="task.status !== 'running' ? handleDragStart(task.id, null, -1, $event) : $event.preventDefault()"
-          @dragend="handleDragEnd"
-        >
-          <div class="card-left">
-            <span class="dock-plat-badge" :style="{ background: getPlatformStyle(task.platform).brandColor }">
-              {{ getPlatformStyle(task.platform).name }}
-            </span>
-            <span class="dock-acc-name">{{ task.nickname || task.account }}</span>
-            <span class="dock-title-snippet" :title="task.title">{{ task.title }}</span>
-            <span class="card-status-pill" :class="task.status">
-              <el-icon v-if="task.status === 'success'"><Check /></el-icon>
-              <el-icon v-else-if="task.status === 'failed'"><WarningFilled /></el-icon>
-              <el-icon v-else-if="task.status === 'queued'"><Clock /></el-icon>
-              <el-icon v-else-if="task.status === 'cancelled'"><CircleClose /></el-icon>
-              <span>{{ getStatusText(task.status) }}</span>
-            </span>
-          </div>
-          <div class="card-right-tools">
-            <el-button size="small" type="primary" link @click.stop="openTaskLogs(task)">
-              <el-icon><Monitor /></el-icon>
-            </el-button>
-            <el-icon class="drag-icon"><Rank /></el-icon>
-          </div>
-        </div>
-      </div>
-
-      <div class="dock-empty-hint" v-else>
-        <span>全部任务都已在通道中。想暂存某个任务，把卡片拖到这里即可。</span>
-      </div>
-    </div>
-
     <!-- 5. 抽屉式任务详情与实时终端日志控制台 -->
-    <TaskLogDrawer 
+    <TaskLogDrawer
       v-model="showLogDrawer"
       :task="selectedTaskForDrawer"
     />
@@ -433,26 +432,304 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed, onMounted, watch, nextTick, onErrorCaptured } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowRight, ArrowDown, CircleCheck, CircleClose, Clock, Delete, Document, Loading, Monitor, Promotion, Remove, Setting, WarningFilled } from '@element-plus/icons-vue'
 import { getPlatformConfig } from '../config/platforms'
 import { useTaskStore } from '../stores/taskStore'
 import TaskLogDrawer from '../components/matrix/TaskLogDrawer.vue'
 import type { PublishTask, TaskStatus } from '../types/task'
 
+/** 渲染错误边界：捕获组件内所有未处理异常，显示到界面上 */
+onErrorCaptured((err) => {
+  console.error('[TaskCenter 渲染错误]', err)
+  ElMessage.error('页面渲染异常：' + ((err as any)?.message || err?.message || String(err)))
+  return false
+})
+
 const taskStore = useTaskStore()
 
-// 批次聚焦状态
-const selectedBatch = ref<string>('all')
+/** 全局间隔（读写所有通道的 delayBetweenTasks；未设置时默认 15 秒） */
+const globalInterval = ref<number>(15)
+
+/** 初始化：取首个通道的间隔作为显示值 */
+onMounted(() => {
+  const first = taskStore.lanes[0]
+  if (first) globalInterval.value = first.delayBetweenTasks ?? 15
+})
+
+/** 改间隔 → 同步到所有通道（并提示） */
+const handleGlobalIntervalChange = (val: number | undefined) => {
+  const v = Number(val) || 0
+  taskStore.lanes.forEach((lane: any) => {
+    lane.delayBetweenTasks = v
+  })
+  ElMessage.success(`每条间隔已设为 ${v} 秒，将在该通道内的任务之间生效`)
+}
+
+// 进度总览计算属性
+/** 完成率（成功 + 失败 视为已结束） */
+const overallPercent = computed(() => {
+  const total = taskStore.tasks.length
+  if (total === 0) return 0
+  return Math.round(((taskStore.successTasksCount + taskStore.failedTasksCount) / total) * 100)
+})
+
+/** 进度条颜色：有失败偏黄，否则主色渐变 */
+const progressColor = computed(() =>
+  taskStore.failedTasksCount > 0 ? 'var(--status-warning)' : 'var(--primary-color)'
+)
+
+/** 粗略预计剩余分钟（按已用时间与完成比例外推） */
+const estimatedMinutes = computed(() => {
+  const done = taskStore.successTasksCount + taskStore.failedTasksCount
+  if (done === 0 || !taskStore.isExecuting) return 0
+  const remain = taskStore.tasks.length - done
+  if (remain <= 0) return 0
+  const avgSecPerTask = 90
+  return Math.max(1, Math.ceil((remain * avgSecPerTask) / 60 / Math.max(1, taskStore.lanes.length)))
+})
+
+// ---- 左侧计划列表 ----
+type ListFilter = 'all' | 'failed' | 'running'
+const listFilter = ref<ListFilter>('all')
+
+/** 按筛选条件过滤后的任务 */
+const filteredTasks = computed(() => {
+  let list = taskStore.tasks
+
+  if (listFilter.value === 'failed') {
+    list = list.filter((t) => t.status === 'failed')
+  } else if (listFilter.value === 'running') {
+    list = list.filter((t) => t.status === 'running' || t.status === 'queued')
+  }
+
+  return list
+})
+
+// ---- 计划列表（1 行 = 1 个计划 = 1 个 batchId）----
+
+/** 计划列表：按 batchId 聚合，附战果统计 */
+const planGroups = computed(() => {
+  const map = new Map<string, {
+    key: string
+    name: string
+    createdAt: string
+    tasks: any[]
+  }>()
+
+  filteredTasks.value.forEach((t) => {
+    const key = t.batchId || 'unknown'
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        name: t.batchName || '未命名计划',
+        createdAt: t.createdAt || '',
+        tasks: []
+      })
+    }
+    map.get(key)!.tasks.push(t)
+  })
+
+  return Array.from(map.values()).map((g) => {
+    const success = g.tasks.filter((t) => t.status === 'success').length
+    const failed  = g.tasks.filter((t) => t.status === 'failed').length
+    const running = g.tasks.filter((t) => t.status === 'running').length
+    const queued  = g.tasks.filter((t) => t.status === 'queued').length
+    return {
+      ...g,
+      total: g.tasks.length,
+      success, failed, running, queued,
+      done: success + failed,
+      /** 计划整体状态：有执行中→蓝；有失败→红；全成功→绿；否则灰 */
+      planStatus: running > 0 ? 'running'
+                : failed > 0  ? 'failed'
+                : success === g.tasks.length ? 'success'
+                : 'queued'
+    }
+  })
+})
+
+/** 当前选中的计划 */
+const selectedPlanId = ref<string>('')
+const selectedPlan = computed(() =>
+  planGroups.value.find((g) => g.key === selectedPlanId.value) || null
+)
+
+// ---- 右侧发布明细：查看视角 ----
+/** 0 = 逐条明细（不分组）；N = 按第 N 层目录分组 */
+const detailViewLevel = ref<number>(0)
+/** 展开的分组 */
+const expandedDetailGroups = ref<string[]>([])
+
+/** 当前计划里素材的最大目录深度（用于动态生成选项） */
+const maxDetailDepth = computed(() => {
+  let max = 0
+  selectedPlan.value?.tasks.forEach((t: any) => {
+    const n = (t.folderCrumbs || []).length
+    if (n > max) max = n
+  })
+  return max
+})
+
+/** 第 N 层目录的示例名（给下拉选项做提示，如「帐号1」） */
+function levelSampleName(level: number): string {
+  const t = selectedPlan.value?.tasks.find((x: any) => (x.folderCrumbs || []).length >= level)
+  return t?.folderCrumbs?.[level - 1] || ''
+}
+
+/** 分组结果（detailViewLevel === 0 时为 null，表示逐条展示） */
+const detailGroups = computed(() => {
+  const plan = selectedPlan.value
+  if (!plan || detailViewLevel.value === 0) return null
+
+  const lv = detailViewLevel.value
+  const map = new Map<string, { key: string; label: string; tasks: any[] }>()
+
+  plan.tasks.forEach((t: any) => {
+    const crumbs: string[] = t.folderCrumbs || []
+    const parts = crumbs.slice(0, lv)
+    const label = parts.length > 0 ? parts.join(' / ') : '未分组'
+    if (!map.has(label)) map.set(label, { key: label, label, tasks: [] })
+    map.get(label)!.tasks.push(t)
+  })
+
+  return Array.from(map.values()).map((g) => {
+    const success = g.tasks.filter((t) => t.status === 'success').length
+    const failed  = g.tasks.filter((t) => t.status === 'failed').length
+    const running = g.tasks.filter((t) => t.status === 'running').length
+    const queued  = g.tasks.filter((t) => t.status === 'queued').length
+    return {
+      ...g,
+      total: g.tasks.length,
+      success, failed, running, queued,
+      done: success + failed,
+      groupStatus: running > 0 ? 'running'
+                 : failed > 0  ? 'failed'
+                 : success === g.tasks.length ? 'success'
+                 : 'queued'
+    }
+  })
+})
+
+/** 切换视角时默认展开所有分组 */
+watch(detailViewLevel, () => {
+  expandedDetailGroups.value = detailGroups.value?.map((g) => g.key) || []
+})
+
+/** 展开/折叠某个分组 */
+const toggleDetailGroup = (key: string) => {
+  const i = expandedDetailGroups.value.indexOf(key)
+  if (i >= 0) expandedDetailGroups.value.splice(i, 1)
+  else expandedDetailGroups.value.push(key)
+}
+
+/** 切换计划时重置视角 */
+watch(selectedPlanId, () => {
+  detailViewLevel.value = 0
+  expandedDetailGroups.value = []
+  selectedTaskId.value = ''
+})
+
+// ---- 右侧发布明细 ----
+/** 当前选中的任务 ID（点击明细某行时更新） */
+const selectedTaskId = ref<string>('')
+
+/** 日志区 DOM ref（用于自动滚动到底） */
+const logScrollEl = ref<HTMLElement | null>(null)
+
+/** 当前选中的任务对象（找不到时为空） */
+const selectedTask = computed(() =>
+  taskStore.tasks.find((t) => t.id === selectedTaskId.value) || null
+)
+
+/** 选中计划 key 变化时自动选中该计划的第一条 */
+watch(
+  () => selectedPlanId.value,
+  () => {
+    if (!selectedPlan.value) return
+    // 保持 selectedTaskId 不变（用户可能在看某条日志）
+    // 如果当前选中任务不在新计划内，则切到第一条
+    const stillInPlan = selectedPlan.value.tasks.some((t: any) => t.id === selectedTaskId.value)
+    if (!stillInPlan && selectedPlan.value.tasks.length > 0) {
+      selectedTaskId.value = selectedPlan.value.tasks[0].id
+    }
+    // 切计划时重置视角
+    detailViewLevel.value = 0
+    expandedDetailGroups.value = []
+  }
+)
+
+/** 选中任务时或日志更新时自动滚动到底 */
+watch(
+  [selectedTaskId, () => selectedTask.value?.logs?.length],
+  async () => {
+    await nextTick()
+    const el = document.querySelector('.logs-list') as HTMLElement | null
+    if (el) el.scrollTop = el.scrollHeight
+  }
+)
+
+/** 计划状态文案（待发布返回空字符串，由右侧徽章的 v-if 隐藏） */
+function planStatusText(p: any): string {
+  if (p.running > 0) return '发布中'
+  if (p.failed > 0)  return `${p.failed} 条失败`
+  if (p.total > 0 && p.success === p.total) return '已完成'
+  // 待发布：不显示徽章（Tab 的空心环已表达，顶部控制台也有行动指引）
+  return ''
+}
+
+/** computed 版，避免模板中重复调用两次 */
+const currentPlanStatusText = computed(() =>
+  selectedPlan.value ? planStatusText(selectedPlan.value) : ''
+)
+
+/** 状态文案 */
+function statusText(t: any): string {
+  switch (t.status) {
+    case 'running': return `发布中${t.progress ? ' ' + t.progress + '%' : ''}`
+    case 'success': return '已发布'
+    case 'failed':  return '失败'
+    case 'cancelled': return '已中止'
+    case 'queued':  return '待发布'
+    default:        return t.status
+  }
+}
+
+/** 失败原因：优先取最后一条 error 级日志 */
+function failureReason(t: any): string {
+  const logs = t.logs || []
+  for (let i = logs.length - 1; i >= 0; i--) {
+    if (logs[i].type === 'error') return logs[i].message
+  }
+  return ''
+}
+
+/** 删除整个计划（二次确认） */
+const handleRemovePlan = async (p: any) => {
+  try {
+    await ElMessageBox.confirm(
+      `将删除计划「${p.name}」及其 ${p.total} 条发布，删除后不可恢复。`,
+      '确认删除计划？',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  taskStore.removeTasks(p.tasks.map((t: any) => t.id))
+  checkedTaskIds.value = []
+  if (selectedPlanId.value === p.key) selectedPlanId.value = ''
+  if (p.tasks.some((t: any) => t.id === selectedTaskId.value)) selectedTaskId.value = ''
+}
 
 // 抽屉状态
 const showLogDrawer = ref(false)
 const selectedTaskForDrawer = ref<PublishTask | null>(null)
 
-// 拖拽状态
-const isDragging = ref(false)
-const draggingTaskId = ref<string | null>(null)
-const draggingFromLaneId = ref<string | null>(null)
+/** 平台色 */
+function platformColor(platform: string): string {
+  return getPlatformStyle(platform).brandColor || 'var(--text-muted)'
+}
 
 const getPlatformStyle = (platformId: string) => {
   return getPlatformConfig(platformId)
@@ -469,19 +746,6 @@ const getStatusText = (status: TaskStatus) => {
   }
 }
 
-const getLaneStatusText = (status: string) => {
-  switch (status) {
-    case 'running': return '正在发布'
-    case 'completed': return '全部执行完成'
-    case 'failed': return '存在异常'
-    default: return '空闲待命'
-  }
-}
-
-const getBatchTaskCount = (batchId: string) => {
-  return taskStore.tasks.filter(t => t.batchId === batchId).length
-}
-
 const openGlobalLogs = () => {
   selectedTaskForDrawer.value = null
   showLogDrawer.value = true
@@ -490,36 +754,6 @@ const openGlobalLogs = () => {
 const openTaskLogs = (task: PublishTask) => {
   selectedTaskForDrawer.value = task
   showLogDrawer.value = true
-}
-
-const getStepDelay = (task: PublishTask, lane: any) => {
-  if (task.delaySeconds !== undefined && task.delaySeconds !== null) {
-    return task.delaySeconds
-  }
-  return lane.delayBetweenTasks ?? 15
-}
-
-const handleLaneDelayChange = (lane: any) => {
-  if (lane && lane.id) {
-    const val = Number(lane.delayBetweenTasks) || 0
-    taskStore.setLaneDelay(lane.id, val)
-    ElMessage.success(`已更新「${lane.name}」通道默认延时为 ${val} 秒`)
-  }
-}
-
-const handleStepDelayChange = (task: PublishTask) => {
-  if (task && task.id) {
-    const val = Number(task.delaySeconds) || 0
-    taskStore.setTaskDelay(task.id, val)
-    ElMessage.success(`已设置该步骤专属延时为 ${val} 秒`)
-  }
-}
-
-const resetStepDelay = (task: PublishTask, lane: any) => {
-  const defaultVal = lane.delayBetweenTasks ?? 15
-  task.delaySeconds = defaultVal
-  taskStore.setTaskDelay(task.id, defaultVal)
-  ElMessage.info(`已重置该步骤延时为通道默认 (${defaultVal}秒)`)
 }
 
 const handleAutoDistribute = (cmd: string) => {
@@ -538,58 +772,145 @@ const handleAutoDistribute = (cmd: string) => {
   }
 }
 
-// -----------------------------------------------------------------------------
-// HTML5 拖拽流状态管理
-// -----------------------------------------------------------------------------
-const handleDragStart = (taskId: string, fromLaneId: string | null, _idx: number, e: DragEvent) => {
-  isDragging.value = true
-  draggingTaskId.value = taskId
-  draggingFromLaneId.value = fromLaneId
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', taskId)
+// ---- 多选 ----
+const checkedTaskIds = ref<string[]>([])
+
+/** 切换单个任务勾选状态 */
+const toggleTaskCheck = (taskId: string, checked: boolean) => {
+  if (checked) {
+    checkedTaskIds.value = Array.from(new Set([...checkedTaskIds.value, taskId]))
+  } else {
+    checkedTaskIds.value = checkedTaskIds.value.filter((id) => id !== taskId)
   }
 }
 
-const handleDragEnd = () => {
-  isDragging.value = false
-  draggingTaskId.value = null
-  draggingFromLaneId.value = null
+// ---- 计划 Tab（多计划逐个串行执行）----
+/** 已打开的计划 Tab（batchId 列表，顺序 = 执行顺序） */
+const openPlanTabs = ref<string[]>([])
+/** 当前激活的 Tab */
+const activePlanTab = ref<string>('')
+
+/** Tab 对应的计划对象 */
+const tabPlans = computed(() =>
+  openPlanTabs.value
+    .map((id) => planGroups.value.find((p) => p.key === id))
+    .filter(Boolean) as any[]
+)
+
+/** 打开一个计划 Tab（已存在则只激活） */
+function openPlanTab(batchId: string) {
+  if (!openPlanTabs.value.includes(batchId)) openPlanTabs.value.push(batchId)
+  activePlanTab.value = batchId
+  selectedPlanId.value = batchId
+  taskStore.setPlanQueue(openPlanTabs.value)
 }
 
-const handleDropOnLane = (targetLaneId: string, _e: DragEvent) => {
-  if (!draggingTaskId.value) return
+/** 关闭一个计划 Tab（从队列移除） */
+function closePlanTab(batchId: string) {
+  const i = openPlanTabs.value.indexOf(batchId)
+  if (i < 0) return
+  openPlanTabs.value.splice(i, 1)
+  taskStore.removeFromPlanQueue(batchId)
 
-  const targetLane = taskStore.lanes.find(l => l.id === targetLaneId)
-  if (!targetLane) return
-
-  taskStore.moveTask({
-    taskId: draggingTaskId.value,
-    fromLaneId: draggingFromLaneId.value,
-    toLaneId: targetLaneId,
-    newIndex: targetLane.tasks.length
-  })
-
-  ElMessage.success(`已将任务移入「${targetLane.name}」`)
-  handleDragEnd()
+  if (activePlanTab.value === batchId) {
+    const next = openPlanTabs.value[Math.max(0, i - 1)]
+    activePlanTab.value = next || ''
+    selectedPlanId.value = next || ''
+  }
 }
 
-const handleDropOnUnassigned = (_e: DragEvent) => {
-  if (!draggingTaskId.value) return
+/** 默认选中第一个计划（自动打开 Tab） */
+watch(
+  () => planGroups.value.length,
+  () => {
+    if (!selectedPlanId.value && planGroups.value.length > 0) {
+      const first = planGroups.value[0]
+      selectedPlanId.value = first.key
+      openPlanTab(first.key)
+    }
+  },
+  { immediate: true }
+)
 
-  taskStore.moveTask({
-    taskId: draggingTaskId.value,
-    fromLaneId: draggingFromLaneId.value,
-    toLaneId: null,
-    newIndex: 0
-  })
+/** 切换 Tab（只切视图，不动执行） */
+watch(activePlanTab, (id) => {
+  if (id && openPlanTabs.value.includes(id)) selectedPlanId.value = id
+})
 
-  ElMessage.info('已将任务移入待分配池')
-  handleDragEnd()
+/** 勾选的计划（多选） */
+const checkedPlanIds = ref<string[]>([])
+
+watch(checkedPlanIds, (ids) => {
+  if (ids.length > 0) {
+    openPlanTabs.value = [...ids]
+    if (!ids.includes(activePlanTab.value)) activePlanTab.value = ids[0]
+    taskStore.setPlanQueue(ids)
+  }
+})
+
+/**
+ * 左侧点击计划：
+ * · 没有任何勾选 → 打开单个 Tab（替换全部）
+ * · 有勾选 → 只切换激活的 Tab（多选模式由勾选驱动）
+ */
+function handleSelectPlan(batchId: string) {
+  // 多选模式下：只切激活 Tab，绝不重建列表
+  if (checkedPlanIds.value.length > 0) {
+    if (openPlanTabs.value.includes(batchId) && activePlanTab.value !== batchId) {
+      activePlanTab.value = batchId
+    }
+    return
+  }
+
+  // 已经是当前唯一 Tab → 直接返回（避免无意义的数组重建）
+  if (openPlanTabs.value.length === 1 && openPlanTabs.value[0] === batchId) {
+    if (selectedPlanId.value !== batchId) selectedPlanId.value = batchId
+    return
+  }
+
+  openPlanTabs.value = [batchId]
+  activePlanTab.value = batchId
+  selectedPlanId.value = batchId
+  taskStore.setPlanQueue([batchId])
+}
+
+/** 执行时自动切到正在执行的计划 Tab */
+watch(
+  () => taskStore.activePlanId,
+  (id) => {
+    if (id && openPlanTabs.value.includes(id)) {
+      activePlanTab.value = id
+      selectedPlanId.value = id
+    }
+  }
+)
+
+/** 计划列表变化时，清理已消失的 Tab */
+watch(
+  () => planGroups.value.map((p) => p.key).join(','),
+  () => {
+    const alive = new Set(planGroups.value.map((p) => p.key))
+    openPlanTabs.value = openPlanTabs.value.filter((id) => alive.has(id))
+    if (!openPlanTabs.value.includes(activePlanTab.value)) {
+      activePlanTab.value = openPlanTabs.value[0] || ''
+      selectedPlanId.value = activePlanTab.value
+    }
+  }
+)
+
+/** 开始发布：有队列走队列，无队列走老行为 */
+function handleStartPublish() {
+  if (openPlanTabs.value.length > 0) {
+    taskStore.setPlanQueue(openPlanTabs.value)
+    taskStore.startPlanQueue()
+  } else {
+    taskStore.triggerMultiLaneExecution()
+  }
 }
 </script>
 
 <style scoped>
+/* ===== 整体布局 ===== */
 .task-center-workspace {
   display: flex;
   flex-direction: column;
@@ -599,11 +920,12 @@ const handleDropOnUnassigned = (_e: DragEvent) => {
   box-sizing: border-box;
 }
 
-/* 1. 顶部数据看板与操作栏 */
+/* ===== 顶部总览 ===== */
 .task-stats-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 10px 18px;
   border-radius: 12px;
   flex-shrink: 0;
@@ -612,814 +934,386 @@ const handleDropOnUnassigned = (_e: DragEvent) => {
   backdrop-filter: blur(16px);
 }
 
-.stats-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
+.progress-overview { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.progress-head { display: flex; align-items: center; gap: 8px; }
 
-.stat-card {
-  display: flex;
-  flex-direction: column;
+/* 区块编号：方形小标（与「发布工作台」保持同一形态） */
+.idx {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 5px 12px;
-  border-radius: 8px;
-  background: var(--bg-detail);
-  border: 1px solid var(--border-subtle);
-  min-width: 64px;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-color);
+  background: rgba(79, 70, 229, 0.10);
+  border: 1px solid rgba(79, 70, 229, 0.28);
+  flex-shrink: 0;
 }
 
-.stat-num {
-  font-size: 16px;
+.section-name {
+  font-size: 13px;
   font-weight: 700;
   color: var(--text-main);
-  line-height: 1.2;
 }
 
-.stat-label {
-  font-size: 10px;
-  color: var(--text-secondary);
-  margin-top: 1px;
-}
-
-.running-card .stat-num { color: #3b82f6; }
-.queued-card .stat-num { color: #eab308; }
-.success-card .stat-num { color: #10b981; }
-.failed-card .stat-num { color: #ef4444; }
-
-.stats-actions {
+/* ③ 区头 */
+.section-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
-.exec-btn {
-  font-weight: 700;
-  padding: 7px 18px;
-  border-radius: 7px;
+.progress-title { font-size: 15px; font-weight: 700; color: var(--text-main); margin-left: 4px; }
+.progress-sub { font-size: 12px; color: var(--text-muted); }
+
+.stat-chips { display: flex; gap: 16px; font-size: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; }
+.chip.ok      { color: var(--status-success); }
+.chip.fail    { color: var(--status-danger); }
+.chip.running { color: var(--primary-color); }
+.chip.queued  { color: var(--text-muted); }
+
+/* ===== 主控按钮区 ===== */
+.stats-actions { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+.stats-secondary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 14px;
+  border-left: 1px solid var(--border-subtle);
 }
 
+.exec-btn { min-width: 140px; font-weight: 600; }
 .gradient-btn-matrix {
-  background: var(--primary-color) !important;
-  border: none !important;
+  background: linear-gradient(135deg, var(--primary-color), #6366f1);
+  border: none;
   box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
 }
 
-.log-trigger-btn {
-  position: relative;
-}
+.ghost-btn { color: var(--text-muted); font-size: 12.5px; }
+.ghost-btn:hover { color: var(--primary-color); background: rgba(79, 70, 229, 0.08); }
+.ghost-text { margin: 0 2px; }
 
 .log-indicator-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #10b981;
-  position: absolute;
-  top: 4px;
-  right: 4px;
+  background: var(--status-success);
+  margin-left: 4px;
+  display: inline-block;
+  animation: pulse-dot 1.4s ease-in-out infinite;
 }
+@keyframes pulse-dot { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
 
-/* 2. 批次过滤器与冲突提示 */
-.batch-filter-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
-  border-radius: 10px;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-card);
-  gap: 12px;
-  flex-shrink: 0;
-}
+/* ===== 间隔设置 ===== */
+.interval-box { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); }
+.interval-label { white-space: nowrap; }
+.interval-unit { white-space: nowrap; }
 
-.batch-filter-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  overflow: hidden;
-}
-
-.filter-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.batch-pills-scroll {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow-x: auto;
-  padding: 2px 0;
-}
-
-.batch-pill {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: 6px;
-  background: var(--bg-detail);
-  border: 1px solid var(--border-subtle);
-  font-size: 11px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-  user-select: none;
-}
-
-.batch-pill:hover {
-  border-color: var(--primary-light);
-  color: var(--text-main);
-}
-
-.batch-pill.active {
-  background: rgba(99, 102, 241, 0.18);
-  border-color: var(--primary-light);
-  color: #c7d2fe;
-  font-weight: 700;
-}
-
-.batch-pill.is-latest {
-  border-color: rgba(168, 85, 247, 0.4);
-}
-
-.latest-sparkle {
-  color: #c084fc;
-  font-weight: 700;
-}
-
-.batch-idx-label {
-  color: var(--text-muted);
-}
-
-.batch-name-text {
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.batch-count-tag {
-  font-size: 10px;
-  padding: 0 4px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
+/* ===== 防风控冲突提示栏 ===== */
+.risk-bar { display: flex; align-items: center; justify-content: center; padding: 8px 16px; flex-shrink: 0; }
 .risk-alert-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 10px;
-  border-radius: 6px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 10px; border-radius: 6px;
   background: rgba(245, 158, 11, 0.12);
   border: 1px solid rgba(245, 158, 11, 0.3);
-  font-size: 11px;
-  color: #fbbf24;
-  white-space: nowrap;
+  font-size: 11px; color: var(--status-warning); white-space: nowrap;
 }
+.risk-icon { font-size: 13px; color: var(--status-warning); }
 
-.risk-icon {
-  font-size: 13px;
-  color: #f59e0b;
-}
-
-/* 3. 多泳道画板 */
-.workflow-canvas-panel {
-  flex: 1;
+/* ===== 左侧计划列表 ===== */
+.task-list-panel {
+  flex: 0 0 360px;
+  max-width: 360px;
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-card);
-  backdrop-filter: blur(16px);
-  overflow: hidden;
   min-height: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
-.canvas-header {
+.list-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 18px;
+  gap: 10px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border-subtle);
-  background: rgba(0, 0, 0, 0.06);
   flex-shrink: 0;
 }
+.toolbar-left { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.toolbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+.filter-select { width: 118px; }
+.filter-select :deep(.el-select__wrapper) { font-size: 12.5px; }
 
-.canvas-tag {
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.35);
-  color: #818cf8;
-  font-weight: 700;
-}
+.icon-btn { color: var(--text-muted); padding: 4px 6px; }
+.icon-btn:hover { color: var(--status-danger); background: rgba(239, 68, 68, 0.08); }
 
-.canvas-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-main);
-}
+.list-count { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.section-name { font-size: 14px; font-weight: 700; color: var(--text-main); white-space: nowrap; }
 
-.canvas-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.lane-counter {
-  font-size: 11px;
-  color: var(--text-secondary);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.lane-counter strong {
-  color: #818cf8;
-}
-
-.settings-link {
-  font-size: 10px;
-  color: var(--primary-light);
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: rgba(99, 102, 241, 0.1);
-}
-
-.settings-link:hover {
-  background: rgba(99, 102, 241, 0.2);
-}
-
-.lanes-scroll-container {
+.plan-list-wrap {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 14px 18px;
+  padding: 6px;
+}
+
+.plan-check { flex-shrink: 0; margin-right: 2px; }
+
+.plan-item {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 11px;
+  margin-bottom: 2px;
+  border-radius: 9px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background-color .14s, border-color .14s;
+}
+.plan-item:hover { background: var(--bg-input); }
+.plan-item.is-selected {
+  background: rgba(79, 70, 229, 0.10);
+  border-left-color: var(--primary-color);
+}
+.plan-item.running { border-left-color: var(--primary-color); }
+.plan-item.failed  { border-left-color: var(--status-danger); }
+
+.plan-body { flex: 1; min-width: 0; }
+.plan-title {
+  font-size: 13px; font-weight: 650; color: var(--text-main);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.35;
+}
+.plan-sub { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11.5px; }
+.plan-progress { color: var(--text-muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.p-chip.ok     { color: var(--status-success); }
+.p-chip.bad    { color: var(--status-danger); }
+.p-chip.run    { color: var(--primary-color); }
+.p-chip.queued { color: var(--text-muted); }
+
+.plan-del-btn { flex-shrink: 0; opacity: 0; transition: opacity .15s; color: var(--status-danger); padding: 2px 4px; }
+.plan-item:hover .plan-del-btn { opacity: 1; }
+.plan-item.is-selected .plan-del-btn { opacity: .55; }
+
+/* ===== 右侧发布明细 ===== */
+.plan-detail-panel {
+  flex: 1; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  padding: 14px 16px; overflow: hidden;
 }
 
-.workflow-lane-card {
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--bg-detail);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  transition: all 0.2s ease;
+/* Tab 条 */
+.plan-tabs { flex-shrink: 0; width: 100%; min-width: 0; }
+.plan-tabs :deep(.el-tabs__header) { margin-bottom: 8px; }
+.plan-tabs :deep(.el-tabs__item) { font-size: 12.5px; height: 32px; line-height: 32px; padding: 0 11px; }
+.plan-tabs :deep(.el-tabs__item.is-active) { font-weight: 600; }
+.plan-tabs :deep(.el-tabs__content) { display: none; }
+
+.tab-label { display: inline-flex; align-items: center; gap: 6px; }
+.tab-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 状态圆点（与列表、明细的状态色统一） */
+.tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
-
-.workflow-lane-card:hover {
-  border-color: var(--border-highlight);
+.tab-dot.success { background: var(--status-success); }
+.tab-dot.failed  { background: var(--status-danger); }
+.tab-dot.running {
+  background: var(--primary-color);
+  animation: pulse-dot 1.4s ease-in-out infinite;
 }
-
-.workflow-lane-card.running {
-  border-color: rgba(59, 130, 246, 0.4);
-  background: rgba(59, 130, 246, 0.04);
-}
-
-.lane-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 14px;
-  background: rgba(0, 0, 0, 0.08);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.lane-title-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.lane-index-pill {
-  font-size: 9px;
-  font-weight: 700;
-  color: #c084fc;
-  background: rgba(168, 85, 247, 0.15);
-  padding: 1px 5px;
-  border-radius: 3px;
-}
-
-.lane-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.lane-status-badge {
-  font-size: 10px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.lane-status-badge.running { color: #3b82f6; }
-.lane-status-badge.completed { color: #10b981; }
-.lane-status-badge.failed { color: #ef4444; }
-
-.lane-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.delay-setting-box {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-}
-
-.delay-label {
-  color: var(--text-secondary);
-}
-
-.delay-unit {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-/* 泳道横向卡片流 */
-.lane-track-body {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
-  overflow-x: auto;
-  min-height: 115px;
+/* 待发布：空心圆环（实心灰点太弱，会被误认为"没状态"） */
+.tab-dot.queued {
+  background: transparent;
+  border: 2px solid var(--text-muted);
+  opacity: .7;
   box-sizing: border-box;
 }
 
-.lane-node-item {
+
+
+/* 明细状态条（合并：状态徽章 + 查看视角，同一行） */
+.detail-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  transition: opacity 0.2s ease;
 }
-
-.lane-node-item.is-faded {
-  opacity: 0.25;
-}
-
-.flow-card {
-  width: 200px;
-  padding: 9px 11px;
-  border-radius: 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  cursor: grab;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  user-select: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.flow-card:active {
-  cursor: grabbing;
-}
-
-.flow-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--primary-light);
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
-}
-
-.flow-card.running {
-  border-color: #3b82f6;
-  background: rgba(59, 130, 246, 0.12);
-  cursor: default;
-}
-
-.flow-card.is-running-locked {
-  cursor: default;
-}
-
-.flow-card.is-running-locked:hover {
-  transform: none;
-}
-
-.flow-card.is-latest-highlight {
-  border-color: rgba(168, 85, 247, 0.5);
-  box-shadow: 0 0 12px rgba(168, 85, 247, 0.2);
-}
-
-.flow-card.cancelled {
-  border-color: rgba(148, 163, 184, 0.4);
-  background: rgba(148, 163, 184, 0.05);
-}
-
-.flow-card.success {
-  border-color: rgba(16, 185, 129, 0.4);
-}
-
-.flow-card.failed {
-  border-color: rgba(239, 68, 68, 0.4);
-}
-
-.flow-card.is-drag-source {
-  opacity: 0.4;
-  border-style: dashed;
-}
-
-.card-drag-bar {
+.detail-bar-right {
+  margin-left: auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  font-size: 10px;
-  color: var(--text-muted);
+  gap: 7px;
 }
+.view-select { width: 190px; }
+.vlb-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
 
-.drag-bar-left {
-  display: flex;
+/* 状态徽章（detail-bar 内使用） */
+.detail-status {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-}
-
-.latest-badge-pill {
-  font-size: 9px;
-  color: #c084fc;
-  background: rgba(168, 85, 247, 0.18);
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-weight: 700;
-}
-
-.locked-hint {
-  font-size: 9px;
-  color: #60a5fa;
-  background: rgba(59, 130, 246, 0.15);
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-
-.cancelled-hint {
-  font-size: 9px;
-  color: #fbbf24;
-  background: rgba(251, 191, 36, 0.15);
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-
-.card-step-num {
-  font-size: 10px;
-  font-weight: 700;
-  color: #818cf8;
-}
-
-.card-source-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: #a5b4fc;
-  background: rgba(99, 102, 241, 0.08);
-  padding: 2px 5px;
+  padding: 1px 8px;
   border-radius: 4px;
-}
-
-.source-icon {
-  font-size: 11px;
-  flex-shrink: 0;
-}
-
-.source-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-plat-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.card-plat-badge {
-  font-size: 9px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: #fff;
-  padding: 1px 4px;
-  border-radius: 3px;
+  line-height: 18px;
 }
+.detail-status.queued  { color: var(--text-muted);     background: var(--bg-input); }
+.detail-status.running { color: var(--primary-color);  background: rgba(79, 70, 229, 0.10); }
+.detail-status.success { color: var(--status-success); background: rgba(16, 185, 129, 0.10); }
+.detail-status.failed  { color: var(--status-danger);  background: rgba(239, 68, 68, 0.10); }
 
-.card-acc-name {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-main);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.detail-eta { font-size: 12px; color: var(--text-muted); }
 
-.card-title-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.card-action-tag {
-  font-size: 9px;
-  color: #818cf8;
-  background: rgba(99, 102, 241, 0.12);
-  padding: 1px 3px;
-  border-radius: 2px;
-}
-
-.card-title-text {
-  font-size: 10px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.card-risk-banner {
-  margin-top: 3px;
-  padding: 2px 5px;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.28);
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 9px;
-  color: #f87171;
-}
-
-.risk-icon {
-  font-size: 11px;
-  flex-shrink: 0;
-  color: #ef4444;
-}
-
-.risk-banner-text {
+/* 明细表 */
+.plan-detail-table {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
+  min-height: 120px;
+  overflow-y: auto;
+  margin-top: 10px;
 }
-
-.card-footer-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  padding-top: 4px;
-  font-size: 9px;
-}
-
-.card-status-pill {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  font-weight: 600;
-}
-
-.card-status-pill.running { color: #3b82f6; }
-.card-status-pill.success { color: #10b981; }
-.card-status-pill.failed { color: #ef4444; }
-.card-status-pill.queued { color: #eab308; }
-
-.step-connector {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--text-muted);
-}
-
-.connector-line {
-  width: 10px;
-  height: 1px;
-  background: var(--border-highlight);
-}
-
-.connector-delay-pill {
-  font-size: 8px;
-  color: #a855f7;
-  background: rgba(168, 85, 247, 0.12);
-  border: 1px solid rgba(168, 85, 247, 0.25);
-  padding: 1px 4px;
-  border-radius: 3px;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.connector-delay-pill.clickable {
-  cursor: pointer;
-}
-
-.connector-delay-pill.clickable:hover {
-  background: rgba(168, 85, 247, 0.25);
-  border-color: #a855f7;
-  color: #e9d5ff;
-}
-
-
-.pop-delay-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 2px;
-}
-
-.pop-delay-title {
+.plan-detail-table table {
+  width: 100%;
+  border-collapse: collapse;
   font-size: 12px;
-  font-weight: 700;
-  color: var(--text-main);
 }
-
-.pop-delay-hint {
-  font-size: 10px;
-  color: var(--text-muted);
-  line-height: 1.3;
-}
-
-.pop-delay-control {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-}
-
-.pop-delay-unit {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.pop-delay-footer {
-  display: flex;
-  justify-content: flex-end;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding-top: 4px;
-}
-
-.connector-arrow-icon {
-  font-size: 12px;
-  color: #818cf8;
-}
-
-.lane-drop-placeholder {
-  min-width: 130px;
-  height: 85px;
-  border: 1.5px dashed var(--border-subtle);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  color: var(--text-muted);
-  font-size: 10px;
-  padding: 0 10px;
-  text-align: center;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-
-.lane-drop-placeholder.is-drag-target {
-  border-color: var(--primary-light);
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--primary-light);
-}
-
-/* 4. 待分配任务池 */
-.unassigned-dock {
-  display: flex;
-  flex-direction: column;
-  padding: 10px 16px;
-  border-radius: 10px;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-card);
-  flex-shrink: 0;
-  gap: 8px;
-  transition: all 0.2s ease;
-}
-
-.unassigned-dock.is-drag-over-dock {
-  border-color: var(--primary-light);
-  background: rgba(99, 102, 241, 0.08);
-}
-
-.dock-empty-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px dashed var(--border-subtle);
-  text-align: center;
-}
-
-.dock-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.title-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-main);
-  font-weight: 700;
-}
-
-.title-sub {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-weight: normal;
-  margin-left: 4px;
-}
-
-.dock-cards-tray {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 3px;
-}
-
-.unassigned-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 5px 10px;
-  border-radius: 6px;
+.plan-detail-table th {
+  position: sticky;
+  top: 0;
   background: var(--bg-detail);
-  border: 1px solid var(--border-subtle);
-  cursor: grab;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.unassigned-card:hover {
-  border-color: var(--primary-light);
-  background: rgba(99, 102, 241, 0.08);
-}
-
-.card-left {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.card-right-tools {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.dock-plat-badge {
-  font-size: 9px;
+  padding: 9px 12px;
+  text-align: left;
   font-weight: 600;
-  color: #fff;
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-
-.dock-acc-name {
-  font-size: 11px;
-  font-weight: 600;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  z-index: 2;
   color: var(--text-main);
 }
+.detail-row td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.detail-row { cursor: pointer; }
+.detail-row:hover td { background: rgba(99, 102, 241, 0.06); }
+.detail-row.is-selected td { background: rgba(99, 102, 241, 0.09); }
 
-.dock-title-snippet {
-  font-size: 10px;
-  color: var(--text-muted);
-  max-width: 120px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* 单元格文字（与对应表一致：主文字 12px，次要 11px） */
+.col-order { text-align: center; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cell-main { font-size: 12px; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-sub  { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.status-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; }
+.status-pill.success { color: var(--status-success); }
+.status-pill.failed  { color: var(--status-danger); }
+.status-pill.running { color: var(--primary-color); }
+.status-pill.queued,
+.status-pill.cancelled { color: var(--text-muted); }
+
+.fail-line {
+  margin-top: 3px; font-size: 11px; color: var(--status-danger);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px;
 }
 
-.drag-icon {
-  font-size: 12px;
-  color: var(--text-muted);
+/* 日志区 */
+.detail-logs {
+  flex: 0 0 auto;
+  max-height: 30%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 8px; margin-top: 8px;
+}
+.logs-title { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+.logs-list {
+  flex: 1; min-height: 60px; overflow-y: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px; line-height: 1.6;
+}
+.log-line { display: flex; gap: 8px; padding: 2px 0; color: var(--text-main); }
+.log-line.error { color: var(--status-danger); }
+.log-line.warn { color: var(--status-warning); }
+.log-time { color: var(--text-muted); flex-shrink: 0; }
+.logs-empty { color: var(--text-muted); font-size: 12px; padding: 10px 0; }
+
+/* ===== 空状态 ===== */
+.list-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; padding: 40px 16px;
+  color: var(--text-muted); font-size: 12.5px;
+}
+.detail-empty {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--text-muted); font-size: 13px;
+}
+.detail-empty .el-icon { color: var(--text-muted); opacity: .5; }
+
+
+
+.detail-group { border-bottom: 1px solid var(--border-subtle); }
+.detail-group:last-child { border-bottom: none; }
+.detail-group-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 6px; cursor: pointer; border-radius: 6px;
+}
+.detail-group-head:hover { background: var(--bg-input); }
+.dg-arrow { font-size: 11px; color: var(--text-muted); transition: transform .18s; }
+.dg-arrow.open { transform: rotate(90deg); }
+.dg-label { font-size: 12.5px; font-weight: 600; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.dg-progress { font-size: 11.5px; color: var(--text-muted); font-weight: 600; flex-shrink: 0; }
+.dg-chip { font-size: 11.5px; flex-shrink: 0; }
+.dg-chip.ok     { color: var(--status-success); }
+.dg-chip.bad    { color: var(--status-danger); }
+.dg-chip.run    { color: var(--primary-color); }
+.dg-chip.queued { color: var(--text-muted); }
+
+/* ===== 工作台布局 ===== */
+.task-workspace {
+  flex: 1; min-height: 0;
+  display: flex; gap: 12px; align-items: stretch;
+  overflow: hidden;
+}
+
+/* ===== 滚动条细化 ===== */
+.custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, .35);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, .55); }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+
+/* ===== 硬编码色清除 ===== */
+.running-card .stat-num { color: var(--primary-color); }
+.queued-card  .stat-num { color: var(--text-muted); }
+.success-card .stat-num { color: var(--status-success); }
+.failed-card  .stat-num { color: var(--status-danger); }
+
+/* stat-card base */
+.stat-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 5px 12px; border-radius: 8px;
+  background: var(--bg-detail); border: 1px solid var(--border-subtle); min-width: 64px;
+}
+.stat-num { font-size: 16px; font-weight: 700; color: var(--text-main); line-height: 1.2; }
+.stat-label { font-size: 10px; color: var(--text-secondary); margin-top: 1px; }
+
+/* 窄屏堆叠 */
+@media (max-width: 1100px) {
+  .task-workspace { flex-direction: column; }
+  .task-list-panel { flex: 0 0 auto; max-width: 100%; max-height: 40vh; }
 }
 </style>

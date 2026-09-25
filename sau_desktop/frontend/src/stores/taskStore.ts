@@ -20,6 +20,52 @@ export const useTaskStore = defineStore('task', () => {
   const currentRunningBatchId = ref<string | null>(null)
   const globalLiveLogs = ref<TaskLogItem[]>([])
 
+  // ============ 计划执行队列（多计划逐个串行执行）============
+  /** 待执行的计划队列（batchId 列表，按数组顺序依次执行） */
+  const pendingPlanQueue = ref<string[]>([])
+  /** 当前正在执行的计划（空 = 未指定，走"执行全部待发任务"的老行为） */
+  const activePlanId = ref<string>('')
+
+  /** 某个计划是否还有待执行/执行中的任务 */
+  const planHasPending = (planId: string) =>
+    tasks.value.some(t => t.batchId === planId && (t.status === 'queued' || t.status === 'running'))
+
+  /** 设置执行队列（左侧多选计划后由 UI 调用） */
+  const setPlanQueue = (batchIds: string[]) => {
+    pendingPlanQueue.value = [...batchIds]
+  }
+
+  /** Tab 关闭：从队列移除一个计划（不影响正在执行的那个） */
+  const removeFromPlanQueue = (batchId: string) => {
+    pendingPlanQueue.value = pendingPlanQueue.value.filter(id => id !== batchId)
+    if (activePlanId.value === batchId && !isExecuting.value) {
+      activePlanId.value = pendingPlanQueue.value[0] || ''
+    }
+  }
+
+  /** 启动队列：从第一个开始执行 */
+  const startPlanQueue = () => {
+    if (isExecuting.value) return
+    if (pendingPlanQueue.value.length === 0) {
+      ElMessage.info('没有待执行的计划')
+      return
+    }
+    activePlanId.value = pendingPlanQueue.value[0]
+    triggerMultiLaneExecution()
+  }
+
+  /** 当前计划跑完后，推进到下一个 */
+  const advancePlanQueue = () => {
+    pendingPlanQueue.value = pendingPlanQueue.value.filter(id => id !== activePlanId.value)
+    if (pendingPlanQueue.value.length > 0) {
+      activePlanId.value = pendingPlanQueue.value[0]
+      setTimeout(() => { triggerMultiLaneExecution() }, 1000)
+    } else {
+      activePlanId.value = ''
+      ElMessage.success('所有计划已执行完毕')
+    }
+  }
+
   // 当前最新提交的批次 ID (用于视觉高亮发光与快速过滤)
   const latestBatchId = ref<string | null>(null)
   // 当前选中的批次过滤器 ('all' | batchId)
@@ -323,6 +369,8 @@ export const useTaskStore = defineStore('task', () => {
     thumbnail?: string
     rawTasks: engine.AccountPublishTask[]
     concurrency: number
+    /** filePath → 目录层级的映射（用于任务中心按层级分组） */
+    crumbsMap?: Record<string, string[]>
   }) => {
     const batchId = 'batch-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7)
     const nowStr = new Date().toLocaleString()
@@ -355,6 +403,8 @@ export const useTaskStore = defineStore('task', () => {
         batchName: newBatch.name,
         videoFileName: params.videoFileName || '',
         thumbnail: params.thumbnail || raw.thumbnail || '',
+        // 目录层级：优先用调用方给的映射，取不到则空数组
+        folderCrumbs: params.crumbsMap?.[raw.filePath] || [],
         platform: raw.platform,
         account: raw.account,
         nickname: raw.nickname || raw.account,
@@ -378,8 +428,11 @@ export const useTaskStore = defineStore('task', () => {
     refreshAllLanesStatus()
     saveTasksToStorage()
 
-    // 启动多协程泳道调度 (如果当前正空闲或刚完成，立即触发执行)
-    triggerMultiLaneExecution()
+    // 不在创建后自动开始 —— 用户可能分多次创建任务，
+    // 统一在任务管理中心点「开始发布」才真正执行
+    if (isExecuting.value) {
+      // 已有流程在跑：新任务自动并入，沿用当前执行状态
+    }
 
     return batchId
   }
@@ -582,8 +635,19 @@ export const useTaskStore = defineStore('task', () => {
   const triggerMultiLaneExecution = async () => {
     if (isExecuting.value) return
 
+    // 若指定了当前计划（队列模式），只装载该计划的任务；否则维持"全部待发"的老行为
+    const planTaskIds = activePlanId.value
+      ? new Set(tasks.value.filter(t => t.batchId === activePlanId.value).map(t => t.id))
+      : null
+
     // 检查是否有排队中或运行中的任务
-    const activeLanesWithTasks = lanes.value.filter(l => l.tasks.some(t => t.status === 'queued' || t.status === 'running'))
+    const activeLanesWithTasks = lanes.value
+      .map(l => ({
+        ...l,
+        tasks: planTaskIds ? l.tasks.filter(t => planTaskIds.has(t.id)) : l.tasks
+      }))
+      .filter(l => l.tasks.some(t => t.status === 'queued' || t.status === 'running'))
+
     if (activeLanesWithTasks.length === 0) {
       if (unassignedTasks.value.length > 0) {
         ElMessage.warning(`还有 ${unassignedTasks.value.length} 个任务在「待分配任务池」，请先把它们拖入发布通道再启动调度`)
@@ -716,13 +780,21 @@ export const useTaskStore = defineStore('task', () => {
       refreshAllLanesStatus()
       saveTasksToStorage()
 
-      // 自驱动队列保护：仅当本轮执行未发生致命异常时，如果有新任务追加排队才自动拉起下一轮！
+      // 自驱动队列保护（仅在本轮无致命异常时）
       if (!hasExecutionError) {
-        const hasRemainingQueued = lanes.value.some(l => l.tasks.some(t => t.status === 'queued'))
-        if (hasRemainingQueued) {
-          setTimeout(() => {
-            triggerMultiLaneExecution()
-          }, 1000)
+        if (activePlanId.value) {
+          // 队列模式：当前计划还有待发任务 → 续跑同一计划；已跑完 → 推进到下一个计划
+          if (planHasPending(activePlanId.value)) {
+            setTimeout(() => { triggerMultiLaneExecution() }, 1000)
+          } else {
+            advancePlanQueue()
+          }
+        } else {
+          // 未指定计划：维持老行为（有排队任务就自动拉起下一轮）
+          const hasRemainingQueued = lanes.value.some(l => l.tasks.some(t => t.status === 'queued'))
+          if (hasRemainingQueued) {
+            setTimeout(() => { triggerMultiLaneExecution() }, 1000)
+          }
         }
       }
     }
@@ -732,6 +804,9 @@ export const useTaskStore = defineStore('task', () => {
   const cancelWorkflow = async () => {
     await StopActivePublish()
     isExecuting.value = false
+    // 用户主动停止 → 清空执行队列，避免停下来又自动开下一个计划
+    pendingPlanQueue.value = []
+    activePlanId.value = ''
     syncUpdateTask(
       t => t.status === 'running' || t.status === 'queued',
       t => {
@@ -804,6 +879,54 @@ export const useTaskStore = defineStore('task', () => {
     })
     refreshAllLanesStatus()
     saveTasksToStorage()
+  }
+
+  /**
+   * 删除指定任务（批量）。
+   * · 执行中的任务会被跳过（必须先中止）
+   * · 同时从所属通道移除、保存本地存储
+   * · 批次内任务清空后，批次本身保留（便于历史追溯），仅计数归零
+   * @returns 实际删除的数量
+   */
+  const removeTasks = (taskIds: string[]): number => {
+    if (taskIds.length === 0) return 0
+
+    const removable: string[] = []
+    let skipped = 0
+
+    taskIds.forEach((id) => {
+      const t = tasks.value.find((x) => x.id === id)
+      if (!t) return
+      if (t.status === 'running') { skipped++; return }   // 执行中不可删
+      removable.push(id)
+    })
+
+    if (removable.length === 0) {
+      if (skipped > 0) ElMessage.warning('执行中的发布计划无法删除，请先中止')
+      return 0
+    }
+
+    const set = new Set(removable)
+
+    // 1. 从计划列表移除
+    tasks.value = tasks.value.filter((t) => !set.has(t.id))
+
+    // 2. 从各通道移除
+    lanes.value.forEach((lane) => {
+      lane.tasks = lane.tasks.filter((t) => !set.has(t.id))
+    })
+
+    // 3. 刷新通道状态与批次计数
+    refreshAllLanesStatus()
+    saveTasksToStorage()
+
+    if (skipped > 0) {
+      ElMessage.success(`已删除 ${removable.length} 个发布计划，${skipped} 个执行中的已跳过`)
+    } else {
+      ElMessage.success(`已删除 ${removable.length} 个发布计划`)
+    }
+
+    return removable.length
   }
 
   // 10. 清空全部
@@ -918,6 +1041,15 @@ export const useTaskStore = defineStore('task', () => {
     resumeAccountRisk,
     clearFinishedTasks,
     clearAllTasks,
-    saveTasksToStorage
+    removeTasks,
+    saveTasksToStorage,
+    // 计划执行队列
+    pendingPlanQueue,
+    activePlanId,
+    planHasPending,
+    setPlanQueue,
+    removeFromPlanQueue,
+    startPlanQueue,
+    advancePlanQueue
   }
 })

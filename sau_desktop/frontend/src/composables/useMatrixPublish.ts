@@ -21,6 +21,7 @@ export function useMatrixPublish() {
     accountOverrides: Record<string, PlatformOverrideSetting>
     concurrency: number
     isHeadless: boolean
+    batchName?: string
   }) => {
     // 兜底检查：调用方（PublishCenter）已做过一次「扣次 + 放行」的鉴权，
     // 这里只在「连试用机会都没有」时才拦，且只引导不扣次，
@@ -138,7 +139,10 @@ export function useMatrixPublish() {
     // 提取视频源文件名
     const videoFileName = masterForm.filePath ? masterForm.filePath.split(/[/\\]/).pop() || '' : ''
     const defaultBatchTitle = masterForm.title.trim() || (videoFileName ? videoFileName.replace(/\.[^/.]+$/, '') : '矩阵发布')
-    const batchName = `${defaultBatchTitle.slice(0, 18)} (${rawTasks.length}个账号)`
+    // 用户自定义名优先；否则自动生成
+    const batchName = params.batchName?.trim() || (
+      `${defaultBatchTitle.slice(0, 18)} (${rawTasks.length}个账号)`
+    )
 
     const batchId = taskStore.enqueueBatch({
       batchName,
@@ -169,6 +173,7 @@ export function useMatrixPublish() {
     ruleConfig: any
     concurrency: number
     isHeadless: boolean
+    batchName?: string
   }) => {
     // 兜底检查：调用方（PublishCenter）已做过一次「扣次 + 放行」的鉴权，
     // 这里只在「连试用机会都没有」时才拦，且只引导不扣次，
@@ -295,14 +300,31 @@ export function useMatrixPublish() {
     }
 
     const firstMediaName = mediaList[0]?.fileName?.replace(/\.[^/.]+$/, '') || '多视频矩阵'
-    const batchName = `${firstMediaName} 等 ${mediaList.length} 个视频 (${rawTasks.length}次发布)`
+    const batchName = params.batchName?.trim() || (
+      `${firstMediaName} 等 ${mediaList.length} 个视频 (${rawTasks.length}次发布)`
+    )
+
+    // 构建 filePath → 目录层级 映射，供任务中心按层级分组
+    const crumbsMap: Record<string, string[]> = {}
+    mediaList.forEach((m) => {
+      if (!m.filePath) return
+      let crumbs = m.folderCrumbs || []
+      // 兜底：老素材可能没有 folderCrumbs，尝试从原始扫描字段还原
+      if (crumbs.length === 0) {
+        const legacy = (m as any).folders
+        if (Array.isArray(legacy) && legacy.length > 0) crumbs = legacy
+      }
+      crumbsMap[m.filePath] = crumbs
+    })
+    console.log('[crumbsMap]', JSON.parse(JSON.stringify(crumbsMap)))
 
     const batchId = taskStore.enqueueBatch({
       batchName,
       videoFileName: mediaList.map(m => m.fileName).join(', '),
       thumbnail: masterForm.thumbnail,
       rawTasks,
-      concurrency
+      concurrency,
+      crumbsMap
     })
 
     ElNotification({

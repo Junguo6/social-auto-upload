@@ -16,7 +16,7 @@ const routes = [
     path: '/tasks',
     name: 'TaskCenter',
     component: TaskCenter,
-    meta: { title: '任务管理中心' }
+    meta: { title: '计划管理中心' }
   },
   {
     path: '/accounts',
