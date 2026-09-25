@@ -7,18 +7,10 @@ echo ======================================================================
 set "PROJECT_ROOT=%~dp0"
 cd /d "%PROJECT_ROOT%"
 
-:: 1. 确保 Wails CLI 可用
-where wails >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-  for /f "tokens=*" %%i in ('go env GOPATH 2^>nul') do set "GOPATH_BIN=%%i\bin"
-  if exist "%GOPATH_BIN%\wails.exe" (
-    set "PATH=%PATH%;%GOPATH_BIN%"
-  ) else (
-    echo ⚠️ 未在系统 PATH 中找到 Wails，正在尝试自动安装 Wails CLI...
-    go install github.com/wailsapp/wails/v2/cmd/wails@latest
-    for /f "tokens=*" %%i in ('go env GOPATH 2^>nul') do set "PATH=%PATH%;%%i\bin"
-  )
-)
+:: 1. Wails CLI：通过 go run 调用项目锁定版本，不依赖也不影响全局安装的 wails
+::    ⚠️ 全局 wails（当前 v2.8.2）被小映批量助手等其他项目使用，绝不能升级
+set "WAILS_CLI_VERSION=v2.10.2"
+echo Wails CLI 使用项目锁定版本: %WAILS_CLI_VERSION%（go run 调用，不影响全局 CLI）
 
 :: 2. 检查 Python 环境
 set "PYTHON_EXE=%PROJECT_ROOT%.venv\Scripts\python.exe"
@@ -117,7 +109,7 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo ▶ [Step 4/4] 正在编译 Wails 桌面客户端程序...
 cd /d "%PROJECT_ROOT%sau_desktop"
-wails build
+go run "github.com/wailsapp/wails/v2/cmd/wails@%WAILS_CLI_VERSION%" build
 
 if %ERRORLEVEL% NEQ 0 (
   echo [ERROR] Wails 桌面端打包失败!

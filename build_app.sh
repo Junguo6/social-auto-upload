@@ -12,12 +12,10 @@ echo "======================================================================"
 echo "🚀 开始执行 Wails 桌面端一键全自动构建流程..."
 echo "======================================================================"
 
-# 1. 确保 Wails CLI 可用
-export PATH="$PATH:$(go env GOPATH)/bin"
-if ! command -v wails >/dev/null 2>&1; then
-  echo "⚠️ 未在系统 PATH 中找到 Wails，正在自动安装 Wails CLI (v2.8.2)..."
-  go install github.com/wailsapp/wails/v2/cmd/wails@v2.8.2
-fi
+# 1. Wails CLI：通过 go run 调用项目锁定版本，不依赖也不影响全局安装的 wails
+#    ⚠️ 全局 wails（当前 v2.8.2）被小映批量助手等其他项目使用，绝不能升级
+WAILS_CLI_VERSION="v2.10.2"
+echo "✅ Wails CLI 使用项目锁定版本: $WAILS_CLI_VERSION（go run 调用，不影响全局 CLI）"
 
 # 2. 检查 Python 虚拟环境与 PyInstaller
 PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
@@ -81,7 +79,7 @@ fi
 echo ""
 echo "▶ [Step 3/3] 执行 Wails 桌面端整合打包 (Go + Vue 3)..."
 cd "$PROJECT_ROOT/sau_desktop"
-wails build
+go run "github.com/wailsapp/wails/v2/cmd/wails@${WAILS_CLI_VERSION}" build
 
 # 对于 macOS，将内置内核直接注入 .app 的 Resources 目录中
 APP_RESOURCES="$PROJECT_ROOT/sau_desktop/build/bin/sau_desktop.app/Contents/Resources"

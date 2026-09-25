@@ -41,14 +41,10 @@ Write-Host "基础环境检测通过: Go, Node.js, npm, $PYTHON_CMD, Git" -Foreg
 $gopath = (go env GOPATH).Trim()
 $env:PATH = "$gopath\bin;$env:PATH"
 
-if (-not (Get-Command "wails" -ErrorAction SilentlyContinue)) {
-    Write-Host "检测到未安装 Wails CLI，正在协助安装 (v2.8.2)..." -ForegroundColor Yellow
-    go install github.com/wailsapp/wails/v2/cmd/wails@v2.8.2
-    Write-Host "Wails CLI 安装完成！" -ForegroundColor Green
-} else {
-    $wailsVer = (& wails version 2>$null | Select-Object -First 1)
-    Write-Host "Wails CLI 已就绪 ($wailsVer)" -ForegroundColor Green
-}
+# Wails CLI：通过 go run 调用项目锁定版本，不依赖也不影响全局安装的 wails
+# ⚠️ 全局 wails（当前 v2.8.2）被小映批量助手等其他项目使用，绝不能升级
+$WAILS_CLI_VERSION = "v2.10.2"
+Write-Host "✅ Wails CLI 使用项目锁定版本: $WAILS_CLI_VERSION（go run 调用，不影响全局 CLI）" -ForegroundColor Green
 
 # 3. 配置文件初始化
 if (-not (Test-Path "conf.py")) {
@@ -120,11 +116,5 @@ Write-Host "========================================================" -Foregroun
 
 Set-Location (Join-Path $ROOT_DIR "sau_desktop")
 
-$wailsVer = (& wails version 2>$null | Select-Object -First 1)
-$devFlags = @()
-if ($wailsVer -match "v2\.[0-8]\.") {
-    Write-Host "检测到 Wails 2.8.x，已自动启用 -skipbindings 兼容模式..." -ForegroundColor Yellow
-    $devFlags += "-skipbindings"
-}
-
-wails dev @devFlags
+# 已锁定 2.10.x，无需 2.8.x 的 -skipbindings 兼容模式
+go run "github.com/wailsapp/wails/v2/cmd/wails@$WAILS_CLI_VERSION" dev
