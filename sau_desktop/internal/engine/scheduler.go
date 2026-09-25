@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -133,6 +134,12 @@ func (s *PublishScheduler) execSingleTask(ctx context.Context, task AccountPubli
 		errMsg := waitErr.Error()
 		if strings.Contains(errMsg, "killed") {
 			errMsg = "任务被手动中止"
+		} else {
+			// 从日志中解析真正有意义的错误信息，取代枯燥冰冷的 exit status 1
+			extracted := extractMeaningfulError(logLines)
+			if extracted != "" {
+				errMsg = extracted
+			}
 		}
 
 		// 智能识别风险信号并更新账号风控状态
@@ -144,7 +151,7 @@ func (s *PublishScheduler) execSingleTask(ctx context.Context, task AccountPubli
 					TaskId:   task.TaskId,
 					Platform: task.Platform,
 					Account:  task.Account,
-					Message:  fmt.Sprintf("⚠️ [%s:%s] 触发平台安全熔断 (%s)，已自动暂停该账号后续发布任务！", task.Platform, displayName, riskCode),
+					Message:  fmt.Sprintf("⚠️ [%s:%s] 触发平台安全保护 (%s)，已自动暂停该账号后续发布任务！", task.Platform, displayName, riskCode),
 				})
 			}
 		}
@@ -528,4 +535,96 @@ func (s *PublishScheduler) ExecBatchPublish(param BatchPublishParam, onEvent fun
 		Concurrency: param.Concurrency,
 		Tasks:       tasks,
 	}, onEvent)
+}
+
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\r`)
+
+// cleanAnsi 移除控制台颜色等 ANSI 字符
+func cleanAnsi(s string) string {
+	return strings.TrimSpace(ansiRegex.ReplaceAllString(s, ""))
+}
+
+// trimErrorPrefix 去除错误前缀标签与冗余信息，提炼核心原因
+func trimErrorPrefix(s string) string {
+	s = strings.TrimSpace(s)
+	// 去除如 "[douyin:xxx] " 或 "[线程通道-1][douyin:xxx] " 前缀
+	if idx := strings.LastIndex(s, "] "); idx != -1 && idx < len(s)-2 {
+		s = strings.TrimSpace(s[idx+2:])
+	}
+	// 去除常见的指示 emoji
+	for _, emo := range []string{"❌ ", "😵 ", "😢 ", "⚠️ ", "⛔ "} {
+		s = strings.TrimPrefix(s, emo)
+	}
+	// 去除 Python 异常名前缀，保留核心文字
+	for _, pfx := range []string{
+		"RuntimeError: ", "ValueError: ", "TimeoutError: ", "Exception: ",
+		"AssertionError: ", "FileNotFoundError: ", "playwright._impl._errors.TimeoutError: ",
+	} {
+		if strings.HasPrefix(s, pfx) {
+			s = strings.TrimPrefix(s, pfx)
+			break
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+// extractMeaningfulError 从子进程输出中倒序定位最具说明性的真实异常原因
+func extractMeaningfulError(logLines []string) string {
+	if len(logLines) == 0 {
+		return ""
+	}
+
+	// 1. 优先反向寻找包含核心错误关键字的行
+	for i := len(logLines) - 1; i >= 0; i-- {
+		clean := cleanAnsi(logLines[i])
+		if clean == "" {
+			continue
+		}
+		// 忽略一些普通的流程心跳日志
+		if strings.Contains(clean, "倒计时") || strings.Contains(clean, "CDP") {
+			continue
+		}
+
+		lower := strings.ToLower(clean)
+		// 优先识别关键业务失败信息
+		if strings.Contains(clean, "未登录") || strings.Contains(clean, "cookie 已失效") || strings.Contains(clean, "cookie已失效") ||
+			strings.Contains(clean, "Cookie已失效") || strings.Contains(clean, "登录失效") || strings.Contains(clean, "请重新登录") ||
+			strings.Contains(clean, "未找到视频号文件上传框") || strings.Contains(clean, "未找到上传输入框") || strings.Contains(clean, "上传失败") ||
+			strings.Contains(clean, "人机验证") || strings.Contains(clean, "验证码") || strings.Contains(clean, "滑块") ||
+			strings.Contains(clean, "网络超时") || strings.Contains(clean, "未找到") || strings.Contains(clean, "违规") {
+			return trimErrorPrefix(clean)
+		}
+
+		// 识别常见的 Python 异常行 (如 RuntimeError: xxx, ValueError: xxx, TimeoutError: xxx)
+		if strings.Contains(clean, "RuntimeError:") || strings.Contains(clean, "ValueError:") ||
+			strings.Contains(clean, "TimeoutError:") || strings.Contains(clean, "Exception:") ||
+			strings.Contains(clean, "AssertionError:") || strings.Contains(clean, "FileNotFoundError:") {
+			return trimErrorPrefix(clean)
+		}
+
+		if strings.Contains(lower, "timeout") && strings.Contains(lower, "exceeded") {
+			return trimErrorPrefix(clean)
+		}
+	}
+
+	// 2. 兜底：反向查找最后一条带 [ERROR] 或 ❌ 或 Error 的日志
+	for i := len(logLines) - 1; i >= 0; i-- {
+		clean := cleanAnsi(logLines[i])
+		if clean == "" {
+			continue
+		}
+		if strings.Contains(clean, "[ERROR]") || strings.Contains(clean, "❌") || strings.Contains(clean, "ERROR:") {
+			return trimErrorPrefix(clean)
+		}
+	}
+
+	// 3. 再次兜底：如果倒数 3 行内有非空内容，提取最近一条有价值的输出
+	for i := len(logLines) - 1; i >= 0 && i >= len(logLines)-3; i-- {
+		clean := cleanAnsi(logLines[i])
+		if clean != "" && !strings.Contains(clean, "倒计时") {
+			return trimErrorPrefix(clean)
+		}
+	}
+
+	return ""
 }

@@ -286,27 +286,41 @@ func (rc *RiskController) OnTaskError(task AccountPublishTask, errMsg string, lo
 	riskCode := RiskCodeNone
 	paused := false
 	pauseReason := ""
+	isAuthOrLocalIssue := false // 是否为认证失效或本地文件/参数错误 (不应计入平台限流风控惩罚)
 
-	// 智能识别平台返回的典型风控特征码
-	if strings.Contains(allText, "验证码") || strings.Contains(allText, "人机验证") ||
-		strings.Contains(allText, "滑块") || strings.Contains(allText, "安全验证") ||
-		strings.Contains(lowerText, "captcha") || strings.Contains(lowerText, "verify") {
-		riskCode = RiskCodeCaptcha
-		paused = true
-		pauseReason = "触发平台人机/滑块验证"
-	} else if strings.Contains(allText, "登录已过期") || strings.Contains(allText, "登录失效") ||
-		strings.Contains(allText, "Cookie已失效") || strings.Contains(allText, "请重新登录") ||
-		strings.Contains(lowerText, "token expired") || strings.Contains(lowerText, "session expired") {
+	// 1. 智能识别登录态失效与认证错误 (属于业务认证问题，非平台风控限流，不计入连续失败风控惩罚)
+	if strings.Contains(allText, "登录已过期") || strings.Contains(allText, "登录失效") ||
+		strings.Contains(allText, "未登录") || strings.Contains(allText, "请重新登录") ||
+		strings.Contains(allText, "请重新扫码") || strings.Contains(lowerText, "cookie已失效") ||
+		strings.Contains(lowerText, "cookie 已失效") || strings.Contains(lowerText, "cookie失效") ||
+		strings.Contains(lowerText, "cookie文件不存在") || strings.Contains(lowerText, "token expired") ||
+		strings.Contains(lowerText, "session expired") || strings.Contains(lowerText, "login required") ||
+		strings.Contains(lowerText, "not logged in") {
 		riskCode = RiskCodeLoginExpired
 		paused = true
-		pauseReason = "登录凭证已失效，需重新扫码登录"
+		pauseReason = "登录凭证已失效或未登录，需重新扫码登录"
+		isAuthOrLocalIssue = true
+	} else if strings.Contains(allText, "文件不存在") || strings.Contains(allText, "视频模式下，title 是必须的") ||
+		strings.Contains(allText, "未找到视频") || strings.Contains(allText, "未找到图片") ||
+		strings.Contains(allText, "参数错误") {
+		// 本地文件或参数错误，不累加风控失败
+		isAuthOrLocalIssue = true
+	} else if strings.Contains(allText, "人机验证") || strings.Contains(allText, "安全验证") ||
+		strings.Contains(allText, "滑动验证") || strings.Contains(allText, "滑块验证") ||
+		strings.Contains(lowerText, "captcha") || strings.Contains(lowerText, "geetest") ||
+		strings.Contains(lowerText, "puzzle") {
+		// 平台人机验证/滑块安全阻断 (去除过宽泛的普通英文单词 verify 误伤)
+		riskCode = RiskCodeCaptcha
+		paused = true
+		pauseReason = "触发平台人机/滑块安全验证"
 	} else if strings.Contains(allText, "过于频繁") || strings.Contains(allText, "频率过高") ||
-		strings.Contains(allText, "访问受限") || strings.Contains(lowerText, "rate limit") ||
-		strings.Contains(lowerText, "too many requests") {
+		strings.Contains(allText, "操作太快") || strings.Contains(allText, "访问受限") ||
+		strings.Contains(lowerText, "rate limit") || strings.Contains(lowerText, "too many requests") {
+		// 平台显式频率限制
 		riskCode = RiskCodeRateLimited
-		st.CooldownUntil = now.Add(30 * time.Minute) // 频率限制默认安全冷却 30 分钟
+		st.CooldownUntil = now.Add(15 * time.Minute) // 频率限制安全冷却 15 分钟
 	} else if strings.Contains(allText, "违规") || strings.Contains(allText, "审核不通过") ||
-		strings.Contains(allText, "封禁") || strings.Contains(lowerText, "rejected") {
+		strings.Contains(allText, "账号封禁") || strings.Contains(lowerText, "rejected") {
 		riskCode = RiskCodeContentRejected
 		paused = true
 		pauseReason = "内容触发平台违规审核拦截"
@@ -315,14 +329,18 @@ func (rc *RiskController) OnTaskError(task AccountPublishTask, errMsg string, lo
 	rc.stateMu.Lock()
 	st.LastFinishedAt = now
 	st.LastRiskCode = riskCode
-	st.ConsecutiveFailures++
+
+	// 关键防护：如果只是未登录、Cookie失效或本地文件/参数错误，绝不累加连续风控失败，更不触发安全冷却！
+	if !isAuthOrLocalIssue {
+		st.ConsecutiveFailures++
+	}
 
 	if paused {
 		st.Paused = true
 		st.PauseReason = pauseReason
-	} else if st.ConsecutiveFailures >= 3 && !st.Paused {
-		// 连续失败 3 次，进入 10 分钟短时避震冷却
-		st.CooldownUntil = now.Add(10 * time.Minute)
+	} else if !isAuthOrLocalIssue && st.ConsecutiveFailures >= 3 && !st.Paused {
+		// 真实运行异常连续失败 3 次，进入 5 分钟短时避震冷却
+		st.CooldownUntil = now.Add(5 * time.Minute)
 		st.LastRiskCode = RiskCodeRateLimited
 	}
 	rc.stateMu.Unlock()

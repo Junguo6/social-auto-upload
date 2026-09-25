@@ -133,6 +133,13 @@
                 <el-icon><Delete /></el-icon>
               </el-button>
             </el-tooltip>
+
+            <!-- 批次中心：历史批次归档与一键重发 -->
+            <el-tooltip content="批次中心（历史批次与一键重发）" placement="top">
+              <el-button size="small" text class="icon-btn" @click="showBatchDrawer = true">
+                <el-icon><CollectionTag /></el-icon>
+              </el-button>
+            </el-tooltip>
           </div>
         </div>
 
@@ -427,6 +434,13 @@
     <TaskLogDrawer
       v-model="showLogDrawer"
       :task="selectedTaskForDrawer"
+      :initialTab="drawerInitialTab"
+    />
+
+    <!-- 批次中心：历史批次归档与一键重发 -->
+    <BatchManagerDrawer
+      v-model="showBatchDrawer"
+      @republished="handleBatchRepublished"
     />
   </div>
 </template>
@@ -434,10 +448,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onErrorCaptured } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, ArrowDown, CircleCheck, CircleClose, Clock, Delete, Document, Loading, Monitor, Promotion, Remove, Setting, WarningFilled } from '@element-plus/icons-vue'
+import { ArrowRight, ArrowDown, CircleCheck, CircleClose, Clock, CollectionTag, Delete, Document, Loading, Monitor, Promotion, Remove, Setting, WarningFilled } from '@element-plus/icons-vue'
 import { getPlatformConfig } from '../config/platforms'
 import { useTaskStore } from '../stores/taskStore'
 import TaskLogDrawer from '../components/matrix/TaskLogDrawer.vue'
+import BatchManagerDrawer from '../components/matrix/BatchManagerDrawer.vue'
 import type { PublishTask, TaskStatus } from '../types/task'
 
 /** 渲染错误边界：捕获组件内所有未处理异常，显示到界面上 */
@@ -725,6 +740,10 @@ const handleRemovePlan = async (p: any) => {
 // 抽屉状态
 const showLogDrawer = ref(false)
 const selectedTaskForDrawer = ref<PublishTask | null>(null)
+/** 批次中心抽屉（历史批次与一键重发） */
+const showBatchDrawer = ref(false)
+/** 日志抽屉默认定位的标签页 */
+const drawerInitialTab = ref<'terminal' | 'live'>('terminal')
 
 /** 平台色 */
 function platformColor(platform: string): string {
@@ -748,12 +767,22 @@ const getStatusText = (status: TaskStatus) => {
 
 const openGlobalLogs = () => {
   selectedTaskForDrawer.value = null
+  drawerInitialTab.value = 'terminal'
   showLogDrawer.value = true
 }
 
-const openTaskLogs = (task: PublishTask) => {
+const openTaskLogs = (task: PublishTask, tab: 'terminal' | 'live' = 'terminal') => {
   selectedTaskForDrawer.value = task
+  drawerInitialTab.value = tab
   showLogDrawer.value = true
+}
+
+/** 批次中心一键重发后：把新生成的批次作为当前计划打开 */
+const handleBatchRepublished = (newBatchId: string) => {
+  openPlanTabs.value = [newBatchId]
+  activePlanTab.value = newBatchId
+  selectedPlanId.value = newBatchId
+  taskStore.setPlanQueue([newBatchId])
 }
 
 const handleAutoDistribute = (cmd: string) => {

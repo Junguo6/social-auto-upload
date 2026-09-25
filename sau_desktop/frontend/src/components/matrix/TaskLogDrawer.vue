@@ -100,15 +100,23 @@
       <!-- 2.5 视图模式切换: 实时画面 vs 终端日志 -->
       <div class="view-mode-tabs">
         <el-radio-group v-model="activeTab" size="small">
-          <el-radio-button label="live">
-            <el-icon><VideoCamera /></el-icon>
-            <span>📺 实时运行画面 (CDP)</span>
-          </el-radio-button>
           <el-radio-button label="terminal">
             <el-icon><Monitor /></el-icon>
             <span>📄 终端标准输出日志</span>
           </el-radio-button>
+          <el-radio-button label="live">
+            <el-icon><VideoCamera /></el-icon>
+            <span>📺 实时运行画面 (CDP)</span>
+          </el-radio-button>
         </el-radio-group>
+
+        <!-- 若选中了单任务，提供单任务专属与全局流切换 -->
+        <div v-if="task && activeTab === 'terminal'" class="log-scope-switch">
+          <el-radio-group v-model="logScope" size="small">
+            <el-radio-button label="task">聚焦本任务 ({{ task.logs.length }})</el-radio-button>
+            <el-radio-button label="all">全局日志流 ({{ taskStore.globalLiveLogs.length }})</el-radio-button>
+          </el-radio-group>
+        </div>
       </div>
 
       <!-- 3. 实时运行画面视窗 (CDP Canvas) -->
@@ -120,32 +128,62 @@
       </div>
 
       <!-- 4. 实时终端控制台 -->
-      <div v-show="activeTab === 'terminal'" class="terminal-container">
+      <div 
+        v-show="activeTab === 'terminal'" 
+        class="terminal-container" 
+        :class="['term-theme-' + activeTerminalTheme]"
+      >
         <div class="terminal-header">
           <div class="header-left">
             <el-icon><Monitor /></el-icon>
-            <span>{{ task ? '当前任务执行日志流' : '全局引擎实时标准输出流' }}</span>
+            <span class="terminal-title">
+              {{ task && logScope === 'task' ? `[${task.nickname || task.account}] 专属执行日志` : '全局实时控制台日志流' }}
+            </span>
             <el-tag size="small" effect="dark" round class="log-count-tag">
-              {{ currentLogs.length }} 条
+              {{ filteredLogs.length }} 条
             </el-tag>
           </div>
 
           <div class="header-right">
-            <el-button size="small" type="primary" link @click="copyAllLogs">
-              <el-icon><CopyDocument /></el-icon> 复制日志
+            <el-input 
+              v-model="logSearch"
+              placeholder="搜索日志..." 
+              size="small" 
+              clearable 
+              class="terminal-search-input"
+            />
+            <!-- 终端明暗风格快速切换 -->
+            <el-tooltip :content="activeTerminalTheme === 'dark' ? '当前为极客暗色终端，点击切换为明亮风格' : '当前为明亮控制台，点击切换为极客暗色'" placement="top">
+              <el-button size="small" link class="term-tool-btn" @click="toggleTerminalTheme">
+                <span v-if="activeTerminalTheme === 'dark'">🌙 暗色</span>
+                <span v-else>☀️ 亮色</span>
+              </el-button>
+            </el-tooltip>
+            <el-button size="small" type="primary" link class="term-tool-btn" @click="copyAllLogs">
+              <el-icon><CopyDocument /></el-icon> 复制
             </el-button>
-            <el-button size="small" type="info" link @click="clearCurrentLogs">
+            <el-button size="small" type="info" link class="term-tool-btn" @click="clearCurrentLogs">
               清屏
             </el-button>
           </div>
         </div>
 
         <div class="terminal-body custom-scrollbar" ref="terminalBodyRef">
-          <div v-if="currentLogs.length === 0" class="empty-logs">
+          <div v-if="filteredLogs.length === 0" class="empty-logs">
             <el-icon><InfoFilled /></el-icon>
-            <span>暂无日志输出</span>
+            <span v-if="logSearch">未搜索到包含「{{ logSearch }}」的日志行</span>
+            <span v-else-if="task && logScope === 'task'">该任务暂无独立日志输出 (卡片可能正在排队等待或尚未启动)</span>
+            <span v-else>暂无实时控制台日志输出</span>
+            <el-button v-if="task && logScope === 'task' && !logSearch" size="small" type="primary" plain @click="logScope = 'all'">
+              切换为全局日志流
+            </el-button>
           </div>
-          <div v-for="(log, idx) in currentLogs" :key="idx" class="log-line" :class="log.type">
+          <div 
+            v-for="(log, idx) in filteredLogs" 
+            :key="idx" 
+            class="log-line" 
+            :class="[getLogTypeClass(log), { 'is-highlighted-task': isLineForCurrentTask(log.message) }]"
+          >
             <span class="log-time">{{ log.time }}</span>
             <span class="log-msg">{{ log.message }}</span>
           </div>
@@ -160,22 +198,86 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPlatformConfig } from '../../config/platforms'
 import { useTaskStore } from '../../stores/taskStore'
+import { useThemeStore } from '../../stores/themeStore'
 import type { PublishTask, TaskLogItem } from '../../types/task'
 import LiveBrowserCanvas from './LiveBrowserCanvas.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: boolean
   task: PublishTask | null
-}>()
+  initialTab?: string
+}>(), {
+  initialTab: 'terminal'
+})
 
 defineEmits<{
   (e: 'update:modelValue', val: boolean): void
 }>()
 
 const taskStore = useTaskStore()
-const activeTab = ref('live')
+const themeStore = useThemeStore()
+const activeTab = ref(props.initialTab || 'terminal')
+const logScope = ref<'task' | 'all'>('task')
+const logSearch = ref('')
 const showParams = ref(false)
 const terminalBodyRef = ref<HTMLElement | null>(null)
+
+// 终端明暗主题模式：默认遵循用户偏好，默认为极客暗色终端保证最高对比度
+const terminalThemeMode = ref<'auto' | 'dark' | 'light'>(
+  (localStorage.getItem('sau_terminal_theme_mode') as 'auto' | 'dark' | 'light') || 'dark'
+)
+
+const activeTerminalTheme = computed<'dark' | 'light'>(() => {
+  if (terminalThemeMode.value === 'auto') {
+    return themeStore.isDark ? 'dark' : 'light'
+  }
+  return terminalThemeMode.value
+})
+
+const toggleTerminalTheme = () => {
+  if (activeTerminalTheme.value === 'dark') {
+    terminalThemeMode.value = 'light'
+  } else {
+    terminalThemeMode.value = 'dark'
+  }
+  localStorage.setItem('sau_terminal_theme_mode', terminalThemeMode.value)
+}
+
+// 智能判定日志行色彩类型 (即使底层缺失 type 或仅为标准输出，也能精准着色)
+const getLogTypeClass = (log: TaskLogItem): string => {
+  if (log.type && log.type !== 'log') return log.type
+  const m = (log.message || '').toLowerCase()
+  if (m.includes('error') || m.includes('failed') || m.includes('fail') || m.includes('失败') || m.includes('异常') || m.includes('traceback') || m.includes('拒绝')) {
+    return 'error'
+  }
+  if (m.includes('success') || m.includes('成功') || m.includes('published') || m.includes('完成') || m.includes('已保存')) {
+    return 'success'
+  }
+  if (m.includes('warn') || m.includes('warning') || m.includes('警告') || m.includes('跳过') || m.includes('排队')) {
+    return 'warn'
+  }
+  if (m.includes('info') || m.includes('正在') || m.includes('开始') || m.includes('启动') || m.includes('准备')) {
+    return 'info'
+  }
+  return 'log'
+}
+
+watch(() => props.modelValue, (isOpen) => {
+  if (isOpen) {
+    activeTab.value = props.initialTab || 'terminal'
+    logScope.value = props.task ? 'task' : 'all'
+    logSearch.value = ''
+    nextTick(() => {
+      if (terminalBodyRef.value) {
+        terminalBodyRef.value.scrollTop = terminalBodyRef.value.scrollHeight
+      }
+    })
+  }
+})
+
+watch(() => props.task, (newTask) => {
+  logScope.value = newTask ? 'task' : 'all'
+})
 
 const getPlatformStyle = (platformId: string) => {
   return getPlatformConfig(platformId)
@@ -193,14 +295,30 @@ const getStatusText = (status: string) => {
 }
 
 const currentLogs = computed<TaskLogItem[]>(() => {
-  if (props.task) {
-    return props.task.logs.length > 0 ? props.task.logs : taskStore.globalLiveLogs
+  if (props.task && logScope.value === 'task') {
+    return props.task.logs
   }
   return taskStore.globalLiveLogs
 })
 
+const filteredLogs = computed<TaskLogItem[]>(() => {
+  const list = currentLogs.value
+  if (!logSearch.value.trim()) return list
+  const q = logSearch.value.trim().toLowerCase()
+  return list.filter(l => l.message.toLowerCase().includes(q))
+})
+
+const isLineForCurrentTask = (msg: string): boolean => {
+  if (!props.task || logScope.value === 'task') return false
+  const p = props.task.platform.toLowerCase()
+  const a = props.task.account.toLowerCase()
+  const n = (props.task.nickname || '').toLowerCase()
+  const m = msg.toLowerCase()
+  return m.includes(p) && (m.includes(a) || (!!n && m.includes(n)))
+}
+
 const clearCurrentLogs = () => {
-  if (props.task) {
+  if (props.task && logScope.value === 'task') {
     props.task.logs = []
   } else {
     taskStore.globalLiveLogs = []
@@ -208,13 +326,13 @@ const clearCurrentLogs = () => {
 }
 
 const copyAllLogs = () => {
-  const text = currentLogs.value.map(l => `[${l.time}] ${l.message}`).join('\n')
+  const text = filteredLogs.value.map(l => `[${l.time}] ${l.message}`).join('\n')
   navigator.clipboard.writeText(text)
   ElMessage.success('已复制日志到剪贴板')
 }
 
 // 日志自动滚动到底部
-watch(() => currentLogs.value.length, () => {
+watch(() => filteredLogs.value.length, () => {
   nextTick(() => {
     if (terminalBodyRef.value) {
       terminalBodyRef.value.scrollTop = terminalBodyRef.value.scrollHeight
@@ -401,15 +519,71 @@ watch(() => currentLogs.value.length, () => {
   word-break: break-all;
 }
 
+/* 4. 实时终端控制台 (色彩独立隔离沙箱，根除亮色模式下文字变黑) */
 .terminal-container {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
   border-radius: 10px;
-  border: 1px solid var(--border-subtle);
-  background: #090d16;
   overflow: hidden;
+  transition: all 0.25s ease;
+}
+
+/* 🌙 暗黑极客终端：深邃夜幕黑底 + 高对比银白高亮字 */
+.terminal-container.term-theme-dark {
+  --term-bg: #090e18;
+  --term-header-bg: #0e1524;
+  --term-border: #1e293b;
+  --term-title: #f1f5f9;
+  --term-text-default: #f1f5f9;
+  --term-time: #94a3b8;
+  --term-empty: #64748b;
+  --term-color-log: #f1f5f9;
+  --term-color-info: #38bdf8;
+  --term-color-success: #34d399;
+  --term-color-warn: #fbbf24;
+  --term-color-error: #f87171;
+  --term-bg-error: rgba(239, 68, 68, 0.12);
+  --term-bg-success: rgba(52, 211, 153, 0.08);
+  --term-bg-warn: rgba(251, 191, 36, 0.08);
+  --term-highlight-task: rgba(99, 102, 241, 0.20);
+  --term-highlight-border: #818cf8;
+  --term-input-bg: #141d2e;
+  --term-input-text: #f8fafc;
+  --term-input-border: #334155;
+  --term-scrollbar-thumb: rgba(148, 163, 184, 0.25);
+  background: var(--term-bg) !important;
+  border: 1px solid var(--term-border);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+/* ☀️ 明亮纸质控制台：米灰浅白底 + 深色高对比清晰字 */
+.terminal-container.term-theme-light {
+  --term-bg: #f8fafc;
+  --term-header-bg: #f1f5f9;
+  --term-border: #e2e8f0;
+  --term-title: #0f172a;
+  --term-text-default: #1e293b;
+  --term-time: #64748b;
+  --term-empty: #94a3b8;
+  --term-color-log: #0f172a;
+  --term-color-info: #0284c7;
+  --term-color-success: #059669;
+  --term-color-warn: #d97706;
+  --term-color-error: #dc2626;
+  --term-bg-error: rgba(239, 68, 68, 0.09);
+  --term-bg-success: rgba(16, 185, 129, 0.09);
+  --term-bg-warn: rgba(245, 158, 11, 0.09);
+  --term-highlight-task: rgba(99, 102, 241, 0.10);
+  --term-highlight-border: #6366f1;
+  --term-input-bg: #ffffff;
+  --term-input-text: #0f172a;
+  --term-input-border: #cbd5e1;
+  --term-scrollbar-thumb: rgba(148, 163, 184, 0.4);
+  background: var(--term-bg) !important;
+  border: 1px solid var(--term-border);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
 .terminal-header {
@@ -417,10 +591,16 @@ watch(() => currentLogs.value.length, () => {
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--term-header-bg);
+  border-bottom: 1px solid var(--term-border);
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--term-title);
+  flex-shrink: 0;
+}
+
+.terminal-title {
+  font-weight: 600;
+  color: var(--term-title) !important;
 }
 
 .header-left {
@@ -442,13 +622,40 @@ watch(() => currentLogs.value.length, () => {
   gap: 8px;
 }
 
+.terminal-search-input {
+  width: 130px;
+  margin-right: 2px;
+}
+
+/* 覆盖搜索输入框，完美融入终端 */
+.term-theme-dark .terminal-search-input :deep(.el-input__wrapper) {
+  background-color: var(--term-input-bg) !important;
+  box-shadow: 0 0 0 1px var(--term-input-border) inset !important;
+}
+.term-theme-dark .terminal-search-input :deep(.el-input__inner) {
+  color: var(--term-input-text) !important;
+}
+.term-theme-dark .terminal-search-input :deep(.el-input__inner::placeholder) {
+  color: var(--term-empty) !important;
+}
+
+.term-tool-btn {
+  font-size: 11px !important;
+  padding: 2px 6px !important;
+}
+
 .terminal-body {
   flex: 1;
   padding: 12px 14px;
   overflow-y: auto;
-  font-family: 'JetBrains Mono', Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.55;
+  font-family: 'JetBrains Mono', Consolas, 'SF Mono', monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--term-text-default) !important;
+}
+
+.terminal-body::-webkit-scrollbar-thumb {
+  background: var(--term-scrollbar-thumb);
 }
 
 .empty-logs {
@@ -456,24 +663,85 @@ watch(() => currentLogs.value.length, () => {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  color: #475569;
+  color: var(--term-empty);
   padding-top: 60px;
 }
 
 .log-line {
-  margin-bottom: 2px;
+  margin-bottom: 3px;
   word-break: break-all;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--term-text-default) !important;
+  transition: background-color 0.15s ease;
+}
+
+.log-line:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.term-theme-light .log-line:hover {
+  background: rgba(0, 0, 0, 0.03);
 }
 
 .log-time {
-  color: #64748b;
+  color: var(--term-time) !important;
   margin-right: 8px;
+  font-weight: 500;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-msg {
+  color: var(--term-text-default) !important;
+}
+
+/* 日志分类色彩高对比度渲染 */
+.log-line.log .log-msg {
+  color: var(--term-color-log) !important;
+}
+.log-line.info .log-msg {
+  color: var(--term-color-info) !important;
+}
+.log-line.warn {
+  background: var(--term-bg-warn);
+}
+.log-line.warn .log-msg {
+  color: var(--term-color-warn) !important;
+  font-weight: 600;
+}
+.log-line.success {
+  background: var(--term-bg-success);
+}
+.log-line.success .log-msg {
+  color: var(--term-color-success) !important;
+  font-weight: 600;
+}
+.log-line.error {
+  background: var(--term-bg-error);
+}
+.log-line.error .log-msg {
+  color: var(--term-color-error) !important;
+  font-weight: 600;
+}
+
+.log-line.is-highlighted-task {
+  background: var(--term-highlight-task) !important;
+  border-left: 3px solid var(--term-highlight-border) !important;
+  padding-left: 8px;
 }
 
 .view-mode-tabs {
-  margin: 10px 0 6px 0;
+  margin: 6px 0;
   display: flex;
-  justify-content: center;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.log-scope-switch {
+  display: flex;
+  align-items: center;
 }
 
 .live-canvas-wrapper {
@@ -481,9 +749,4 @@ watch(() => currentLogs.value.length, () => {
   width: 100%;
   margin-bottom: 12px;
 }
-
-.log-line.error .log-msg { color: #f87171; }
-.log-line.success .log-msg { color: #34d399; }
-.log-line.log .log-msg { color: #cbd5e1; }
-.log-line.warn .log-msg { color: #fbbf24; }
 </style>
