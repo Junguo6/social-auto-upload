@@ -194,7 +194,7 @@ const PLATFORM_META: Record<string, { short: string; color: string }> = {
   kuaishou: { short: '快', color: '#FF4906' },    // 快手：橙红
   xiaohongshu: { short: '红', color: '#FF2442' }, // 小红书：正红
   redbook: { short: '红', color: '#FF2442' },
-  bilibili: { short: 'B', color: '#FB7299' },     // 哔哩哔哩：粉
+  bilibili: { short: 'B', color: '#FB7299' },     // B站：粉
   'b站': { short: 'B', color: '#FB7299' }
 }
 

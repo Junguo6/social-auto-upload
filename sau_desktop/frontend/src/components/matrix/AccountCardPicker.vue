@@ -27,9 +27,9 @@
       </div>
     </div>
 
-    <!-- 分组过滤栏与搜索 -->
-    <div class="filter-toolbar">
-      <span class="badge-count" v-if="selectedKeys.length > 0" :class="{ 'badge-warn': authStore.isTrialAccountLimitExceeded(selectedKeys.length) }">
+    <!-- 已选统计（单独一行，不再和分组混在一起） -->
+    <div class="picker-status" v-if="selectedKeys.length > 0">
+      <span class="badge-count" :class="{ 'badge-warn': authStore.isTrialAccountLimitExceeded(selectedKeys.length) }">
         已选 {{ selectedKeys.length }} 个账号 · 覆盖 {{ activePlatformCount }} 个平台
         <span v-if="authStore.isTrialAccountLimitExceeded(selectedKeys.length)" class="trial-limit-hint">
           （试用版上限 {{ authStore.TRIAL_ACCOUNT_LIMIT }} 个）
@@ -39,122 +39,140 @@
           （已按 {{ pickedGroups.length }} 个分组批量选中）
         </span>
       </span>
+    </div>
 
-      <!-- 按分组选择（点整行 = 选中整组） -->
-      <div class="group-folder-list" v-if="accountStore.groups.length > 0">
-        <div
-          v-for="grp in accountStore.groups"
-          :key="grp"
-          class="pick-folder"
-          :class="{ all: isGroupFullyPicked(grp) }"
-        >
-          <div class="pf-head" @click="toggleGroupPick(grp)">
-            <span class="pf-check" :class="{ on: isGroupFullyPicked(grp), partial: isGroupPartiallyPicked(grp) }">
-              <el-icon v-if="isGroupFullyPicked(grp)"><Check /></el-icon>
-              <span v-else-if="isGroupPartiallyPicked(grp)" class="pf-dash">—</span>
-            </span>
+    <!-- 左右两栏 -->
+    <div class="picker-body">
+      <!-- 左：分组 -->
+      <div class="picker-side">
+        <div class="side-title">
+          分组
+          <span class="side-hint">点整行 = 选整组</span>
+        </div>
 
-            <FolderIcon :size="16" />
-            <span class="pf-name">{{ grp }}</span>
-            <span class="pf-count">{{ pickedCountIn(grp) }}/{{ groupKeys(grp).length }}</span>
+        <div class="group-folder-list" v-if="accountStore.groups.length > 0">
+          <div
+            v-for="grp in accountStore.groups"
+            :key="grp"
+            class="pick-folder"
+            :class="{ all: isGroupFullyPicked(grp) }"
+          >
+            <div class="pf-head" @click="toggleGroupPick(grp)">
+              <span class="pf-check" :class="{ on: isGroupFullyPicked(grp), partial: isGroupPartiallyPicked(grp) }">
+                <el-icon v-if="isGroupFullyPicked(grp)"><Check /></el-icon>
+                <span v-else-if="isGroupPartiallyPicked(grp)" class="pf-dash">—</span>
+              </span>
 
-            <span class="pf-arrow" :class="{ open: expandedGroups.includes(grp) }" @click.stop="toggleGroupExpand(grp)">
-              <el-icon><ArrowRight /></el-icon>
-            </span>
-          </div>
+              <FolderIcon :size="16" />
+              <span class="pf-name">{{ grp }}</span>
+              <span class="pf-count">{{ pickedCountIn(grp) }}/{{ groupKeys(grp).length }}</span>
 
-          <!-- 展开成员 -->
-          <div class="pf-members" v-if="expandedGroups.includes(grp)">
-            <div
-              v-for="m in groupMembers(grp)"
-              :key="`${m.platform}:${m.account}`"
-              class="pf-member"
-              :class="{ on: isSelected(m) }"
-              @click="toggleAccount(m)"
-            >
-              <span class="pfm-plat">{{ getPlatformName(m.platform) }}</span>
-              <span class="pfm-nick">{{ m.nickname || m.account }}</span>
-              <span class="pfm-status" :class="m.isValid ? 'ok' : (m.checked ? 'bad' : '')">
-                {{ m.isValid ? '✅' : (m.checked ? '⚠️' : '') }}
+              <span class="pf-arrow" :class="{ open: expandedGroups.includes(grp) }" @click.stop="toggleGroupExpand(grp)">
+                <el-icon><ArrowRight /></el-icon>
               </span>
             </div>
-            <div class="pfm-empty" v-if="groupMembers(grp).length === 0">该分组暂无账号</div>
+
+            <!-- 展开成员 -->
+            <div class="pf-members" v-if="expandedGroups.includes(grp)">
+              <div
+                v-for="m in groupMembers(grp)"
+                :key="`${m.platform}:${m.account}`"
+                class="pf-member"
+                :class="{ on: isSelected(m) }"
+                @click="toggleAccount(m)"
+              >
+                <span class="pfm-plat">{{ getPlatformName(m.platform) }}</span>
+                <span class="pfm-nick">{{ m.nickname || m.account }}</span>
+                <span class="pfm-status" :class="m.isValid ? 'ok' : (m.checked ? 'bad' : '')">
+                  {{ m.isValid ? '✅' : (m.checked ? '⚠️' : '') }}
+                </span>
+              </div>
+              <div class="pfm-empty" v-if="groupMembers(grp).length === 0">该分组暂无账号</div>
+            </div>
           </div>
+        </div>
+
+        <div class="side-empty" v-else>
+          <FolderIcon :size="26" />
+          <span>还没有分组</span>
+          <span class="se-sub">可在「账号管理」里创建</span>
         </div>
       </div>
 
-      <el-input
-        v-model="accountSearch"
-        placeholder="搜索账号昵称/平台..."
-        size="small"
-        clearable
-        prefix-icon="Search"
-        class="search-box"
-      />
-    </div>
+      <!-- 右：账号 -->
+      <div class="picker-main">
+        <el-input
+          v-model="accountSearch"
+          placeholder="搜索账号昵称/平台..."
+          size="small"
+          clearable
+          prefix-icon="Search"
+          class="search-box"
+        />
 
-    <!-- 账号网格流 -->
-    <div v-if="filteredAccounts.length > 0" class="account-grid custom-scrollbar">
-      <div
-        v-for="acc in filteredAccounts"
-        :key="`${acc.platform}:${acc.account}`"
-        class="account-item-card"
-        :class="{
-          selected: isSelected(acc),
-          invalid: !acc.isValid
-        }"
-        @click="toggleAccount(acc)"
-      >
-        <!-- 平台色彩图标 -->
-        <div class="platform-avatar" :style="{ background: getPlatformColor(acc.platform) }">
-          <span>{{ getPlatformShort(acc.platform) }}</span>
+        <div v-if="filteredAccounts.length > 0" class="account-grid">
+          <div
+            v-for="acc in filteredAccounts"
+            :key="`${acc.platform}:${acc.account}`"
+            class="account-item-card"
+            :class="{
+              selected: isSelected(acc),
+              invalid: !acc.isValid
+            }"
+            @click="toggleAccount(acc)"
+          >
+            <!-- 平台色彩图标 -->
+            <div class="platform-avatar" :style="{ background: getPlatformColor(acc.platform) }">
+              <span>{{ getPlatformShort(acc.platform) }}</span>
+            </div>
+
+            <!-- 账号信息 -->
+            <div class="account-info">
+              <div class="account-name" :title="acc.nickname || acc.account">
+                {{ acc.nickname || acc.account }}
+              </div>
+              <!-- 所属分组标签（点标签也能快速切分组） -->
+              <div class="acc-tags" v-if="acc.groups && acc.groups.length">
+                <span v-for="g in acc.groups" :key="g" class="acc-tag" @click.stop="toggleGroupPick(g)">
+                  #{{ g }}
+                </span>
+              </div>
+              <div class="account-meta">
+                <span class="status-dot" :class="{ online: acc.isValid }"></span>
+                <span class="status-text" v-if="!acc.isValid">已失效</span>
+              </div>
+            </div>
+
+            <!-- 选中角标：显示分配顺序序号；点击可把该账号提到最前 -->
+            <div
+              class="select-indicator"
+              :class="{
+                active: isSelected(acc),
+                adjustable: isSelected(acc) && accountOrder(acc) > 1
+              }"
+              :title="isSelected(acc) && accountOrder(acc) > 1 ? '点击提到最前（调整分配顺序）' : ''"
+              @click.stop="promoteAccount(acc)"
+            >
+              <span v-if="isSelected(acc)" class="order-num">{{ accountOrder(acc) }}</span>
+            </div>
+          </div>
         </div>
 
-        <!-- 账号信息 -->
-        <div class="account-info">
-          <div class="account-name" :title="acc.nickname || acc.account">
-            {{ acc.nickname || acc.account }}
-          </div>
-          <!-- 所属分组标签（点标签也能快速切分组） -->
-          <div class="acc-tags" v-if="acc.groups && acc.groups.length">
-            <span v-for="g in acc.groups" :key="g" class="acc-tag" @click.stop="toggleGroupPick(g)">
-              #{{ g }}
-            </span>
-          </div>
-          <div class="account-meta">
-            <span class="status-dot" :class="{ online: acc.isValid }"></span>
-            <span class="status-text" v-if="!acc.isValid">已失效</span>
-          </div>
+        <!-- 无账号空状态 -->
+        <div v-else-if="accountStore.accounts.length === 0" class="empty-account-box">
+          <div class="empty-text">当前尚未接入任何发布账号</div>
+          <router-link to="/accounts">
+            <el-button type="primary" class="gradient-btn-sm" style="margin-top: 10px;">
+              <el-icon><Plus /></el-icon> 前往账号管理添加
+            </el-button>
+          </router-link>
         </div>
 
-        <!-- 选中角标：显示分配顺序序号；点击可把该账号提到最前 -->
-        <div
-          class="select-indicator"
-          :class="{
-            active: isSelected(acc),
-            adjustable: isSelected(acc) && accountOrder(acc) > 1
-          }"
-          :title="isSelected(acc) && accountOrder(acc) > 1 ? '点击提到最前（调整分配顺序）' : ''"
-          @click.stop="promoteAccount(acc)"
-        >
-          <span v-if="isSelected(acc)" class="order-num">{{ accountOrder(acc) }}</span>
+        <!-- 搜索无结果 -->
+        <div v-else class="search-empty">
+          <span>当前分组或搜索条件下未找到匹配的账号</span>
         </div>
       </div>
-    </div>
-
-    <!-- 无账号空状态 -->
-    <div v-else-if="accountStore.accounts.length === 0" class="empty-account-box">
-      <div class="empty-text">当前尚未接入任何发布账号</div>
-      <router-link to="/accounts">
-        <el-button type="primary" class="gradient-btn-sm" style="margin-top: 10px;">
-          <el-icon><Plus /></el-icon> 前往账号管理添加
-        </el-button>
-      </router-link>
-    </div>
-
-    <!-- 搜索无结果 -->
-    <div v-else class="search-empty">
-      <span>当前分组或搜索条件下未找到匹配的账号</span>
     </div>
   </div>
 </template>
@@ -167,7 +185,7 @@ import { PLATFORMS, getPlatformConfig } from '../../config/platforms'
 import type { SelectedTargetAccount } from '../../types/matrix'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import FolderIcon from '../common/FolderIcon.vue'
-import { Check, ArrowRight } from '@element-plus/icons-vue'
+import { Check, ArrowRight, Plus, Delete } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   selectedKeys: string[] // 格式: "platform:account"
@@ -441,40 +459,130 @@ const getPlatformColor = (pid: string) => {
   gap: 8px;
 }
 
-/* 分组与搜索 */
-.filter-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-  row-gap: 8px;
-}
-
-.filter-toolbar .badge-count {
-  white-space: nowrap;
+/* ── 已选统计行 ── */
+.picker-status {
+  margin-bottom: 12px;
   flex-shrink: 0;
 }
 
-.title-text-group {
+/* ── 左右两栏容器 ── */
+.picker-body {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+/* ── 左：分组栏 ── */
+.picker-side {
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border-subtle);
+  padding-right: 16px;
+}
+
+.side-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.side-hint {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  opacity: .8;
+}
+
+.side-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 26px 8px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  text-align: center;
+}
+.se-sub { font-size: 10.5px; opacity: .7; }
+
+/* ── 右：账号栏 ── */
+.picker-main {
+  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
-.main-title {
-  white-space: nowrap;
+.picker-main .search-box {
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
-
-
-/* ── 分组文件夹列表 ── */
+/* ── 分组文件夹列表（撑满左栏） ── */
 .group-folder-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 12px;
-  max-height: 240px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+/* ── 账号网格（撑满右侧） ── */
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  align-content: start;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* ── 滚动条统一样式 ── */
+.group-folder-list::-webkit-scrollbar,
+.account-grid::-webkit-scrollbar { width: 6px; }
+.group-folder-list::-webkit-scrollbar-thumb,
+.account-grid::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, .22);
+  border-radius: 3px;
+}
+.group-folder-list::-webkit-scrollbar-thumb:hover,
+.account-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, .38);
+}
+.group-folder-list::-webkit-scrollbar-track,
+.account-grid::-webkit-scrollbar-track { background: transparent; }
+
+/* ── 响应式：窗口 < 900px 时上下堆叠 ── */
+@media (max-width: 900px) {
+  .picker-body { flex-direction: column; }
+  .picker-side {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-right: 0;
+    padding-bottom: 12px;
+  }
+  .group-folder-list { max-height: 200px; }
 }
 
 .pick-folder {
@@ -581,18 +689,6 @@ const getPlatformColor = (pid: string) => {
 .acc-tag:hover { background: rgba(79, 70, 229, .18); }
 
 .picked-group-hint { font-size: 11px; color: var(--text-muted); opacity: .8; margin-left: 4px; }
-
-/* 账号卡片网格 */
-.account-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px;
-  flex: 1;                  /* 撑满卡片剩余高度 */
-  min-height: 220px;        /* 兜底：窗口极矮时不被压扁 */
-  align-content: start;     /* 卡片从顶部排列，不被行高拉伸 */
-  overflow-y: auto;
-  padding-right: 4px;
-}
 
 .account-item-card {
   display: flex;

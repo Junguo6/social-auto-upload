@@ -1,6 +1,6 @@
 <template>
   <div class="wechat-form-layout">
-    <!-- 1. 视频描述 (微信视频号核心字段，含话题与占位变量) -->
+    <!-- 1. 视频描述 (视频号核心字段，含话题与占位变量) -->
     <div class="wechat-form-row">
       <div class="row-label">视频描述</div>
       <div class="row-content">
@@ -346,10 +346,10 @@ function addHashTag() {
 
 const choosePortraitCover = async () => {
   try {
-    const file = await SelectLocalFile('选择微信视频号竖版封面', ['*.png', '*.jpg', '*.jpeg', '*.webp'])
+    const file = await SelectLocalFile('选择视频号竖版封面', ['*.png', '*.jpg', '*.jpeg', '*.webp'])
     if (file) {
       props.override.thumbnailPortrait = file
-      ElMessage.success('已选择微信视频号封面')
+      ElMessage.success('已选择视频号封面')
     }
   } catch (err: any) {
     ElMessage.error(`选择封面失败: ${err.message || err}`)

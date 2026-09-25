@@ -50,18 +50,18 @@ export const PLATFORMS: PlatformConfig[] = [
   },
   {
     id: 'tencent',
-    name: '微信视频号',
+    name: '视频号',
     alias: 'Channels',
     brandColor: '#FA9D3B',
     gradient: 'linear-gradient(135deg, #FA9D3B 0%, #ffb35c 100%)',
     supportsVideo: true,
     supportsNote: false,
     icon: 'ChatDotRound',
-    placeholder: '微信视频号生态发布 (短标题/原创/草稿)'
+    placeholder: '视频号生态发布 (短标题/原创/草稿)'
   },
   {
     id: 'bilibili',
-    name: '哔哩哔哩',
+    name: 'B站',
     alias: 'Bilibili',
     brandColor: '#FB7299',
     gradient: 'linear-gradient(135deg, #FB7299 0%, #ff8fab 100%)',
@@ -70,7 +70,7 @@ export const PLATFORMS: PlatformConfig[] = [
     icon: 'VideoPlay',
     placeholder: 'B站高清视频投稿 (需指定分区分类)'
   }
-  // 暂时注释以下平台，仅保留：抖音、小红书、快手、微信视频号、哔哩哔哩
+  // 暂时注释以下平台，仅保留：抖音、小红书、快手、视频号、B站
   /*
   ,
   {

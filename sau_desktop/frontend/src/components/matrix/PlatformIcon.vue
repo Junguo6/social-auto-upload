@@ -1,6 +1,6 @@
 <template>
   <span class="platform-brand-icon" :style="{ width: `${size}px`, height: `${size}px` }">
-    <!-- 微信视频号 (官方两环/无限双圆交叉符号) -->
+    <!-- 视频号 (官方两环/无限双圆交叉符号) -->
     <svg
       v-if="platform === 'tencent'"
       viewBox="0 0 1024 1024"
@@ -17,7 +17,7 @@
       />
     </svg>
 
-    <!-- 哔哩哔哩 (官方小电视) -->
+    <!-- B站 (官方小电视) -->
     <svg
       v-else-if="platform === 'bilibili'"
       viewBox="0 0 1024 1024"

@@ -124,8 +124,8 @@ const platformOptions = [
   { id: 'douyin', name: '抖音' },
   { id: 'xiaohongshu', name: '小红书' },
   { id: 'kuaishou', name: '快手' },
-  { id: 'tencent', name: '微信视频号' },
-  { id: 'bilibili', name: '哔哩哔哩' },
+  { id: 'tencent', name: '视频号' },
+  { id: 'bilibili', name: 'B站' },
   { id: 'weibo', name: '微博' },
   { id: 'baijiahao', name: '百家号' }
 ]
