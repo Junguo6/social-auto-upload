@@ -164,10 +164,8 @@
             :key="acc.platform + ':' + acc.account"
             class="contact-card-item"
             :class="{ 'is-active': activeTabId === `${acc.platform}:${acc.account}`, dragging: isDragging(acc) }"
-            draggable="true"
-            @dragstart="onDragStart(acc, $event)"
-            @dragend="onDragEnd"
-            @click="openAccountTab(acc)"
+            @mousedown="onCardMouseDown(acc, $event)"
+            @click="onCardClick(acc)"
           >
             <!-- 左侧勾选框 (批量操作) -->
             <el-checkbox
@@ -318,10 +316,8 @@
             v-for="grp in accountStore.groups"
             :key="grp"
             class="folder"
-            :class="{ drop: dropTargetGroup === grp }"
-            @dragover.prevent="onDragOverGroup(grp)"
-            @dragleave="onDragLeaveGroup(grp)"
-            @drop.prevent="onDropToGroup(grp)"
+            :class="{ drop: dragState.targetGroup === grp }"
+            :data-group="grp"
           >
             <div class="folder-head" @click="toggleGroupExpand(grp)">
               <el-icon class="f-arrow" :class="{ open: expandedGroups.includes(grp) }">
@@ -349,8 +345,8 @@
             </div>
 
             <!-- 拖拽提示 -->
-            <div class="f-drop-hint" v-if="dropTargetGroup === grp">
-              ⬇ 松开即可加入 {{ draggingAccounts.length }} 个账号
+            <div class="f-drop-hint" v-if="dragState.targetGroup === grp && dragState.accounts.length > 0">
+              ⬇ 松开即可加入 {{ dragState.accounts.length }} 个账号
             </div>
 
             <!-- 展开的成员 -->
@@ -390,6 +386,18 @@
           💡 把左侧账号拖到文件夹即可归类；一个账号可以属于多个分组
         </div>
       </div>
+    </div>
+
+    <!-- 手动拖拽时跟随鼠标的幽灵标签 -->
+    <div
+      v-if="dragState.active"
+      class="drag-ghost"
+      :style="{ left: dragState.x + 14 + 'px', top: dragState.y + 14 + 'px' }"
+    >
+      <FolderIcon :size="13" />
+      <span>{{ dragState.accounts.length }} 个账号</span>
+      <span v-if="dragState.targetGroup" class="dg-target">→ {{ dragState.targetGroup }}</span>
+      <span v-else class="dg-hint">拖到右侧文件夹</span>
     </div>
 
     <!-- 业务分组管理弹窗 -->
@@ -731,44 +739,95 @@ const activateTab = (tabId: string) => {
   activeTabId.value = tabId
 }
 
-/* ───────── 拖拽归类 ───────── */
-const draggingAccounts = ref<AccountItem[]>([])
-const dropTargetGroup = ref('')
+/* ───────── 手动拖拽（Wails 禁用了 WebView 原生拖放，只能用鼠标事件自己实现） ───────── */
+const dragState = reactive({
+  active: false,                                  // 是否已进入拖拽态
+  accounts: [] as AccountItem[],                 // 正在拖的账号（可能多个）
+  x: 0,
+  y: 0,
+  targetGroup: '',                               // 鼠标当前悬停的文件夹
+})
 
-function isDragging(acc: AccountItem) {
-  return draggingAccounts.value.some(a => a.platform === acc.platform && a.account === acc.account)
+/** 待定拖拽（还没超过阈值，避免误触） */
+let pendingDrag: { acc: AccountItem; startX: number; startY: number } | null = null
+
+/** 拖拽后要吞掉一次 click，避免在卡片上拖完又触发"打开账号" */
+let swallowNextClick = false
+
+const DRAG_THRESHOLD = 5    // 移动超过 5px 才算拖拽
+
+function onCardMouseDown(acc: AccountItem, e: MouseEvent) {
+  if (e.button !== 0) return                    // 只响应左键
+  const el = e.target as HTMLElement
+  // 点在勾选框 / 操作图标 / 分组标签上时不启动拖拽
+  if (el.closest('.acc-check, .acc-acts, .acc-gtag, .el-checkbox')) return
+  pendingDrag = { acc, startX: e.clientX, startY: e.clientY }
 }
 
-function onDragStart(acc: AccountItem, e: DragEvent) {
-  const useChecked = checkedAccounts.value.length > 0 && checkedAccounts.value.includes(accKey(acc))
-  draggingAccounts.value = useChecked ? checkedAccountItems.value.slice() : [acc]
-  e.dataTransfer?.setData('text/plain', String(draggingAccounts.value.length))
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'
-}
+function onGlobalMouseMove(e: MouseEvent) {
+  const pd = pendingDrag
+  if (!pd) return
 
-function onDragEnd() {
-  draggingAccounts.value = []
-  dropTargetGroup.value = ''
-}
+  // 未超过阈值：还没进入拖拽态
+  if (!dragState.active) {
+    if (Math.abs(e.clientX - pd.startX) < DRAG_THRESHOLD &&
+        Math.abs(e.clientY - pd.startY) < DRAG_THRESHOLD) return
 
-function onDragOverGroup(grp: string) {
-  if (dropTargetGroup.value !== grp) dropTargetGroup.value = grp
-}
-
-function onDragLeaveGroup(grp: string) {
-  if (dropTargetGroup.value === grp) dropTargetGroup.value = ''
-}
-
-function onDropToGroup(grp: string) {
-  const list = draggingAccounts.value
-  if (list.length > 0) {
-    accountStore.addAccountsToGroup(
-      list.map(a => ({ platform: a.platform, account: a.account })),
-      grp
-    )
-    ElMessage.success(`已将 ${list.length} 个账号加入「${grp}」`)
+    dragState.active = true
+    // 拖的是已勾选账号 → 带上整批；否则只拖这一个
+    const useChecked = checkedAccounts.value.length > 0 && checkedAccounts.value.includes(accKey(pd.acc))
+    dragState.accounts = useChecked ? checkedAccountItems.value.slice() : [pd.acc]
   }
-  onDragEnd()
+
+  dragState.x = e.clientX
+  dragState.y = e.clientY
+  dragState.targetGroup = groupAtPoint(e.clientX, e.clientY)
+}
+
+function onGlobalMouseUp(e: MouseEvent) {
+  if (dragState.active) {
+    swallowNextClick = true                     // 吞掉紧随其后的 click
+    setTimeout(() => { swallowNextClick = false }, 0)
+
+    const grp = groupAtPoint(e.clientX, e.clientY)
+    const list = dragState.accounts
+
+    if (grp && list.length > 0) {
+      accountStore.addAccountsToGroup(
+        list.map(a => ({ platform: a.platform, account: a.account })),
+        grp
+      )
+      ElMessage.success(`已将 ${list.length} 个账号加入「${grp}」`)
+    }
+  }
+  resetDrag()
+}
+
+function resetDrag() {
+  pendingDrag = null
+  dragState.active = false
+  dragState.accounts = []
+  dragState.targetGroup = ''
+}
+
+/** 用 elementFromPoint 找出鼠标位置下方的文件夹 */
+function groupAtPoint(x: number, y: number): string {
+  const el = document.elementFromPoint(x, y) as HTMLElement | null
+  const folderEl = el?.closest('[data-group]') as HTMLElement | null
+  return folderEl?.dataset.group || ''
+}
+
+/** 占位：兼容模板里的 isDragging 调用 */
+function isDragging(acc: AccountItem) {
+  return dragState.active && dragState.accounts.some(
+    a => a.platform === acc.platform && a.account === acc.account
+  )
+}
+
+/** 卡片点击（拖拽结束后吞掉 click） */
+function onCardClick(acc: AccountItem) {
+  if (swallowNextClick) return
+  openAccountTab(acc)
 }
 
 /* ───────── 文件夹展开 ───────── */
@@ -1210,6 +1269,9 @@ let unlistenLoginSuccess: (() => void) | null = null
 
 // 初始化时：打开第一个账号标签页，若无账号则打开新标签页向导
 onMounted(() => {
+  window.addEventListener('mousemove', onGlobalMouseMove)
+  window.addEventListener('mouseup', onGlobalMouseUp)
+
   if (accountStore.accounts.length > 0) {
     openAccountTab(accountStore.accounts[0])
   } else {
@@ -1263,6 +1325,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('mousemove', onGlobalMouseMove)
+  window.removeEventListener('mouseup', onGlobalMouseUp)
   if (typeof unlistenLoginSuccess === 'function') {
     unlistenLoginSuccess()
   }
@@ -1734,6 +1798,27 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .acc-act.spinning { animation: spin 1s linear infinite; opacity: 1; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .contact-item.dragging { opacity: .4; }
+.contact-card-item.dragging { opacity: .45; }
+
+/* 拖拽跟随幽灵标签（pointer-events: none 避免 elementFromPoint 命中它自己） */
+.drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  background: var(--primary-color);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(79, 70, 229, .38);
+  white-space: nowrap;
+}
+.drag-ghost .dg-target { opacity: .95; }
+.drag-ghost .dg-hint { opacity: .75; font-weight: 400; }
 
 /* ── 添加账号弹框 ── */
 .add-dlg-body { display: flex; flex-direction: column; gap: 12px; }
