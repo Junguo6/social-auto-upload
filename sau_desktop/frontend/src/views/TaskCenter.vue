@@ -17,11 +17,23 @@
           </span>
         </div>
 
-        <!-- 未勾选计划：明确告诉用户下一步（否则「开始发布」置灰会让人困惑） -->
-        <div class="console-empty-hint" v-if="!hasSelection">
+        <!-- 空态①：还没有任何计划 → 引导去创建 -->
+        <div class="console-empty-hint" v-if="!hasPlans">
           <el-icon class="hint-ic"><InfoFilled /></el-icon>
           <span>
-            请在左侧「<b>发布计划</b>」中勾选要执行发布的计划
+            还没有发布计划
+            <span class="hint-sub">去「发布工作台」配置好内容与账号后，点「创建发布计划」</span>
+          </span>
+          <el-button size="small" type="primary" plain class="hint-btn" @click="goPublishCenter">
+            去创建发布计划
+          </el-button>
+        </div>
+
+        <!-- 空态②：有计划但未勾选 → 引导勾选 -->
+        <div class="console-empty-hint" v-else-if="!hasSelection">
+          <el-icon class="hint-ic"><InfoFilled /></el-icon>
+          <span>
+            请在下方「<b>发布计划</b>」中勾选要执行发布的计划
             <span class="hint-sub">（可多选，勾选后点「开始发布」）</span>
           </span>
         </div>
@@ -126,7 +138,7 @@
 
         <el-tooltip
           v-if="!taskStore.isExecuting"
-          :content="!hasSelection ? '请先在左侧勾选要发布的计划' : (scopeStats.queued === 0 ? '选中计划中没有待发布的任务' : '')"
+          :content="!hasSelection ? '请先在下方「发布计划」中勾选要发布的计划' : (scopeStats.queued === 0 ? '选中计划中没有待发布的任务' : '')"
           :disabled="hasSelection && scopeStats.queued > 0"
           placement="top"
         >
@@ -175,8 +187,8 @@
       </div>
     </div>
 
-    <!-- 2. 计划工作台：左计划列表 + 右发布明细 -->
-    <div class="task-workspace" v-if="taskStore.tasks.length > 0">
+    <!-- 2. 计划工作台：左计划列表 + 右发布明细（始终显示；没有计划时由左右两栏各自的空状态来引导用户） -->
+    <div class="task-workspace">
 
       <!-- 左：计划列表 -->
       <div class="task-list-panel glass-card">
@@ -184,7 +196,7 @@
         <div class="list-toolbar">
           <div class="toolbar-left">
             <span class="idx">2</span>
-            <span class="section-name">发布计划</span>
+            <span class="section-name" title="Ctrl / ⌘ + 点击可多选计划">发布计划</span>
             <span class="list-count">{{ planGroups.length }} 个</span>
           </div>
 
@@ -216,7 +228,7 @@
             :key="p.key"
             class="plan-item"
             :class="[p.planStatus, { 'is-selected': selectedPlanId === p.key }]"
-            @click="handleSelectPlan(p.key)"
+            @click="handleSelectPlan(p.key, $event)"
           >
             <!-- 多选勾选框 -->
             <el-checkbox
@@ -256,7 +268,18 @@
           </div>
 
           <div v-if="planGroups.length === 0" class="list-empty">
-            {{ listFilter === 'failed' ? '没有失败的计划 🎉' : '当前筛选条件下没有计划' }}
+            <!-- 空态①：一条计划都没有 -->
+            <template v-if="taskStore.tasks.length === 0">
+              <el-icon :size="22"><FolderOpened /></el-icon>
+              <span>还没有发布计划</span>
+              <el-button size="small" type="primary" link @click="goPublishCenter">
+                去「发布工作台」创建
+              </el-button>
+            </template>
+            <!-- 空态②：有计划，只是筛选后为空 -->
+            <span v-else>
+              {{ listFilter === 'failed' ? '没有失败的计划 🎉' : '当前筛选条件下没有计划' }}
+            </span>
           </div>
         </div>
       </div>
@@ -314,7 +337,7 @@
               <select
                 :value="detailViewLevel"
                 class="level-select"
-                title="按这一层的文件夹分组展示明细（只影响查看，不影响发布）"
+                title="按这一层的文件夹分组展示明细（只影响查看，不影响发布；每个计划各自记忆）"
                 @change="e => (detailViewLevel = Number((e.target as HTMLSelectElement).value))"
               >
                 <option v-for="lv in maxDetailDepth" :key="lv" :value="lv">
@@ -473,7 +496,16 @@
 
         <div v-else class="detail-empty">
           <el-icon :size="26"><Document /></el-icon>
-          <span>点击左侧计划查看发布明细</span>
+          <!-- 空态①：还没有任何计划 -->
+          <template v-if="!hasPlans">
+            <span>还没有可查看的发布明细</span>
+            <span class="de-sub">创建发布计划后，这里会展示每条内容的发布进度与结果</span>
+            <el-button size="small" type="primary" plain @click="goPublishCenter">
+              去创建发布计划
+            </el-button>
+          </template>
+          <!-- 空态②：有计划，但左侧未选中 -->
+          <span v-else>点击左侧计划查看发布明细</span>
         </div>
       </div>
     </div>
@@ -502,8 +534,9 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, onErrorCaptured } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CircleCheck, CircleClose, Clock, Delete, Document, InfoFilled, Loading, Monitor, Promotion, Remove, WarningFilled } from '@element-plus/icons-vue'
+import { CircleCheck, CircleClose, Clock, Delete, Document, FolderOpened, InfoFilled, Loading, Monitor, Promotion, Remove, WarningFilled } from '@element-plus/icons-vue'
 import FolderIcon from '../components/common/FolderIcon.vue'
 import { getPlatformConfig } from '../config/platforms'
 import { useTaskStore } from '../stores/taskStore'
@@ -654,8 +687,25 @@ const selectedPlan = computed(() =>
 )
 
 // ---- 右侧发布明细：查看视角 ----
-/** 0 = 逐条明细（不分组）；N = 按第 N 层目录分组 */
-const detailViewLevel = ref<number>(0)
+/**
+ * 每个计划各自的查看视角（batchId → level），0 = 逐条明细，N = 按第 N 层目录分组。
+ * 不同计划的素材结构可能不同（层数不一样），所以视角必须按计划分别记忆，
+ * 不能做成全局设置，否则切到结构不同的计划时会出现空分组。
+ */
+const planViewLevels = ref<Record<string, number>>({})
+
+/** 当前计划正在使用的查看视角（读、写都落到该计划自己的记录上） */
+const detailViewLevel = computed({
+  get: () => {
+    const id = selectedPlanId.value
+    return id ? (planViewLevels.value[id] ?? 0) : 0
+  },
+  set: (v: number) => {
+    const id = selectedPlanId.value
+    if (!id) return
+    planViewLevels.value = { ...planViewLevels.value, [id]: Number(v) || 0 }
+  }
+})
 /** 当前计划里素材的最大目录深度（用于动态生成选项） */
 const maxDetailDepth = computed(() => {
   let max = 0
@@ -665,6 +715,20 @@ const maxDetailDepth = computed(() => {
   })
   return max
 })
+
+// 视角超出该计划实际层数（如重新导入了更浅的素材）→ 自动回退到逐条，避免出现空分组
+watch(
+  [() => selectedPlanId.value, () => maxDetailDepth.value],
+  () => {
+    const id = selectedPlanId.value
+    if (!id) return
+    const cur = planViewLevels.value[id] ?? 0
+    if (cur > maxDetailDepth.value) {
+      planViewLevels.value = { ...planViewLevels.value, [id]: 0 }
+    }
+  },
+  { immediate: true }
+)
 
 /**
  * 把分组内的任务按【账号】聚合：一个账号一个胶囊。
@@ -738,9 +802,8 @@ const detailGroups = computed(() => {
   })
 })
 
-/** 切换计划时重置视角 */
+/** 切换计划时清空任务选中（视角不再重置——每个计划保留自己的） */
 watch(selectedPlanId, () => {
-  detailViewLevel.value = 0
   selectedTaskId.value = ''
 })
 
@@ -767,8 +830,6 @@ watch(
     if (!stillInPlan && selectedPlan.value.tasks.length > 0) {
       selectedTaskId.value = selectedPlan.value.tasks[0].id
     }
-    // 切计划时重置视角
-    detailViewLevel.value = 0
   }
 )
 
@@ -997,6 +1058,15 @@ const scopeStats = computed(() => {
   }
 })
 
+/** 是否已有任何计划 */
+const hasPlans = computed(() => planGroups.value.length > 0)
+
+/** 跳到发布工作台去创建计划 */
+const router = useRouter()
+function goPublishCenter() {
+  router.push('/')
+}
+
 /** 是否勾选了计划 */
 const hasSelection = computed(() => checkedPlanIds.value.length > 0)
 
@@ -1062,7 +1132,17 @@ watch(checkedPlanIds, (ids) => {
  * · 没有任何勾选 → 打开单个 Tab（替换全部）
  * · 有勾选 → 只切换激活的 Tab（多选模式由勾选驱动）
  */
-function handleSelectPlan(batchId: string) {
+function handleSelectPlan(batchId: string, e?: MouseEvent) {
+  // Ctrl / ⌘ + 点击 = 切换多选（不必精准点小勾选框）
+  if (e && (e.ctrlKey || e.metaKey)) {
+    if (checkedPlanIds.value.includes(batchId)) {
+      checkedPlanIds.value = checkedPlanIds.value.filter((id) => id !== batchId)
+    } else {
+      checkedPlanIds.value = [...checkedPlanIds.value, batchId]
+    }
+    return
+  }
+
   // 多选模式下：只切激活 Tab，绝不重建列表
   if (checkedPlanIds.value.length > 0) {
     if (openPlanTabs.value.includes(batchId) && activePlanTab.value !== batchId) {
@@ -1173,6 +1253,7 @@ function handleStartPublish() {
 }
 .console-empty-hint b { color: var(--primary-color); font-weight: 600; }
 .console-empty-hint .hint-sub { color: var(--text-muted); font-size: 11.5px; }
+.console-empty-hint .hint-btn { margin-left: auto; flex-shrink: 0; }
 
 .progress-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .progress-title { font-size: 15px; font-weight: 700; color: var(--text-main); }
@@ -1358,7 +1439,31 @@ function handleStartPublish() {
   padding: 6px;
 }
 
-.plan-check { flex-shrink: 0; margin-right: 2px; }
+/* 复选框：占一块 28x28 的热区，不用精准点击小方块 */
+.plan-check {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: -6px;
+  margin-right: 0;
+  cursor: pointer;
+}
+/* 勾选框本体也放大一档，更好看 */
+.plan-check :deep(.el-checkbox__inner) {
+  width: 16px;
+  height: 16px;
+}
+.plan-check :deep(.el-checkbox__inner::after) {
+  left: 5px;
+  top: 2px;
+}
+/* 悬停时给个反馈，暗示"这里可以点" */
+.plan-item:hover .plan-check :deep(.el-checkbox__inner) {
+  border-color: var(--primary-color);
+}
 
 .plan-item {
   display: flex;
@@ -1572,6 +1677,7 @@ function handleStartPublish() {
   gap: 10px; color: var(--text-muted); font-size: 13px;
 }
 .detail-empty .el-icon { color: var(--text-muted); opacity: .5; }
+.detail-empty .de-sub { font-size: 11.5px; color: var(--text-muted); opacity: .85; }
 
 
 

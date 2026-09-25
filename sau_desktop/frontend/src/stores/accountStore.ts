@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { CheckAccountStatus, DeleteAccountCredential, LoginAccount } from '../../wailsjs/go/main/App'
+
+/** 默认分组名（不可改名、不可删除；删除分组时账号回落到这里） */
+export const DEFAULT_GROUP = '默认分组'
 
 export interface AccountItem {
   platform: string
@@ -20,7 +23,7 @@ export interface AccountItem {
 export const useAccountStore = defineStore('account', () => {
   // 分组列表
   const groups = ref<string[]>([
-    '默认分组'
+    DEFAULT_GROUP
   ])
 
   // 默认初始账号数据 (初始为空)
@@ -74,6 +77,57 @@ export const useAccountStore = defineStore('account', () => {
       target.group = newGroup
       saveToStorage()
     }
+  }
+
+  // 每个分组的账号数（用于分组管理弹窗与选择弹层）
+  const groupCounts = computed(() => {
+    const map: Record<string, number> = {}
+    groups.value.forEach((g) => { map[g] = 0 })
+    accounts.value.forEach((a) => {
+      const g = a.group || DEFAULT_GROUP
+      map[g] = (map[g] || 0) + 1
+    })
+    return map
+  })
+
+  /**
+   * 重命名分组：同步更新组内所有账号。
+   * 默认分组不允许改名；新名字不能与已有分组重名。
+   * @returns 错误信息（成功时返回空字符串）
+   */
+  const renameGroup = (oldName: string, newName: string): string => {
+    const trimmed = (newName || '').trim()
+    if (!trimmed) return '分组名不能为空'
+    if (oldName === DEFAULT_GROUP) return '默认分组不可改名'
+    if (trimmed === oldName) return ''
+    if (groups.value.includes(trimmed)) return '已存在同名分组'
+
+    groups.value = groups.value.map((g) => (g === oldName ? trimmed : g))
+    accounts.value.forEach((a) => {
+      if ((a.group || DEFAULT_GROUP) === oldName) a.group = trimmed
+    })
+    saveToStorage()
+    return ''
+  }
+
+  /**
+   * 删除分组：组内账号回落到默认分组（不删除账号本身）。
+   * 默认分组不可删除。
+   * @returns 受影响并已转移的账号数；-1 表示不允许删除
+   */
+  const removeGroup = (name: string): number => {
+    if (name === DEFAULT_GROUP) return -1
+
+    let moved = 0
+    accounts.value.forEach((a) => {
+      if ((a.group || DEFAULT_GROUP) === name) {
+        a.group = DEFAULT_GROUP
+        moved += 1
+      }
+    })
+    groups.value = groups.value.filter((g) => g !== name)
+    saveToStorage()
+    return moved
   }
 
   // 删除/解绑账号 (前端与磁盘凭证双向同步，先删磁盘，成功后再移除本地列表)
@@ -269,6 +323,10 @@ export const useAccountStore = defineStore('account', () => {
     checkAllAccounts,
     loginAccount,
     fetchAccounts,
-    saveLoggedInAccount
+    saveLoggedInAccount,
+    groupCounts,
+    renameGroup,
+    removeGroup,
+    DEFAULT_GROUP
   }
 })
