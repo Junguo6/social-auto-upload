@@ -470,8 +470,17 @@ onMounted(() => {
 
 .page-content {
   flex: 1;
+  min-height: 0;           /* ← 新增：flex 子项可收缩 */
   padding: 18px 24px;
   overflow: hidden;
   box-sizing: border-box;
+  display: flex;           /* ← 新增 */
+  flex-direction: column;  /* ← 新增 */
+}
+
+/* 让页面根组件撑满内容区（各页面自己再决定怎么用这个高度） */
+.page-content > * {
+  flex: 1;
+  min-height: 0;
 }
 </style>

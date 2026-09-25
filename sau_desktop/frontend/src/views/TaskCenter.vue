@@ -243,18 +243,21 @@
               预计还需 {{ estimatedMinutes }} 分钟
             </span>
 
-            <div class="detail-bar-right" v-if="maxDetailDepth > 0">
-              <span class="vlb-label">查看视角</span>
-              <el-select v-model="detailViewLevel" size="small" class="view-select">
-                <el-option :value="0" label="逐条明细" />
-                <el-option
-                  v-for="lv in maxDetailDepth"
-                  :key="lv"
-                  :value="lv"
-                  :label="`按第 ${lv} 层目录${levelSampleName(lv) ? '（' + levelSampleName(lv) + '）' : ''}`"
-                />
-              </el-select>
-            </div>
+            <span class="unit-wrap" v-if="maxDetailDepth > 0">
+              以
+              <select
+                :value="detailViewLevel"
+                class="level-select"
+                title="按这一层的文件夹分组展示明细"
+                @change="e => (detailViewLevel = Number((e.target as HTMLSelectElement).value))"
+              >
+                <option v-for="lv in maxDetailDepth" :key="lv" :value="lv">
+                  第{{ lv }}层目录
+                </option>
+                <option :value="0">每条明细</option>
+              </select>
+              为单位
+            </span>
           </div>
 
           <!-- 逐条明细（视角 = 逐条） -->
@@ -280,10 +283,10 @@
                   <td class="col-order">{{ idx + 1 }}</td>
 
                   <td class="col-content">
-                    <div class="cell-main" :title="t.videoFileName || t.title">
-                      {{ t.videoFileName || t.title || '—' }}
+                    <div class="cell-main" :title="t.params?.filePath || taskMediaName(t)">
+                      {{ taskMediaName(t) }}
                     </div>
-                    <div class="cell-sub" v-if="t.batchName">{{ t.batchName }}</div>
+                    <div class="cell-sub" v-if="taskFolderPath(t)">{{ taskFolderPath(t) }}</div>
                   </td>
 
                   <td class="col-account">
@@ -318,81 +321,66 @@
             </table>
           </div>
 
-          <!-- 分组明细（视角 = 按第 N 层） -->
+          <!-- 分组明细（视角 = 按第 N 层）：形态对齐「内容与账号对应表」 -->
           <div class="plan-detail-table custom-scrollbar" v-else>
-            <div v-for="g in detailGroups" :key="g.key" class="detail-group">
-              <!-- 分组头 -->
-              <div class="detail-group-head" @click="toggleDetailGroup(g.key)">
-                <el-icon class="dg-arrow" :class="{ open: expandedDetailGroups.includes(g.key) }">
-                  <ArrowRight />
-                </el-icon>
-                <span class="dg-label">{{ g.label }}</span>
-                <span class="dg-progress">{{ g.done }}/{{ g.total }}</span>
-                <span class="dg-chip ok"     v-if="g.success">✅ {{ g.success }}</span>
-                <span class="dg-chip run"    v-if="g.running">🔄 {{ g.running }}</span>
-                <span class="dg-chip bad"    v-if="g.failed">❌ {{ g.failed }}</span>
-                <span class="dg-chip queued" v-if="g.queued">⏸ {{ g.queued }}</span>
-              </div>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 44px">#</th>
+                  <th>内容</th>
+                  <th style="width: 230px">发布账号</th>
+                  <th style="width: 100px">结果</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(g, gi) in detailGroups" :key="g.key" class="detail-group-row">
+                  <td class="col-order">
+                    <span class="order-badge">{{ gi + 1 }}</span>
+                  </td>
 
-              <!-- 分组内明细（复用同一套行模板） -->
-              <table v-if="expandedDetailGroups.includes(g.key)">
-                <thead>
-                  <tr>
-                    <th style="width: 40px">#</th>
-                    <th>内容</th>
-                    <th style="width: 170px">发布账号</th>
-                    <th style="width: 130px">状态</th>
-                    <th style="width: 140px">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="(t, idx) in g.tasks"
-                    :key="t.id"
-                    class="detail-row"
-                    :class="[t.status, { 'is-selected': selectedTaskId === t.id }]"
-                    @click="selectedTaskId = t.id"
-                  >
-                    <td class="col-order">{{ idx + 1 }}</td>
+                  <!-- 内容列：文件夹图标 + 名 + N 条 -->
+                  <td class="col-content">
+                    <div class="folder-cell" :title="g.label">
+                      <el-icon class="folder-ic"><Folder /></el-icon>
+                      <span class="gname">{{ g.label }}</span>
+                      <span class="cn">{{ g.total }} 条</span>
+                    </div>
+                  </td>
 
-                    <td class="col-content">
-                      <div class="cell-main" :title="t.videoFileName || t.title">
-                        {{ t.videoFileName || t.title || '—' }}
-                      </div>
-                      <div class="cell-sub" v-if="t.batchName">{{ t.batchName }}</div>
-                    </td>
-
-                    <td class="col-account">
-                      <span class="plat-dot" :style="{ background: platformColor(t.platform) }" />
-                      <span>{{ t.nickname || t.account }}</span>
-                    </td>
-
-                    <td class="col-status">
-                      <span class="status-pill" :class="t.status">
-                        <el-icon v-if="t.status === 'running'" class="is-loading"><Loading /></el-icon>
-                        <el-icon v-else-if="t.status === 'success'"><CircleCheck /></el-icon>
-                        <el-icon v-else-if="t.status === 'failed'"><CircleClose /></el-icon>
-                        <el-icon v-else><Clock /></el-icon>
-                        <span>{{ statusText(t) }}</span>
+                  <!-- 发布账号列：账号胶囊（按账号去重聚合，带完成度） -->
+                  <td class="col-accts">
+                    <div class="chips">
+                      <span
+                        v-for="a in accountsOfGroup(g)"
+                        :key="a.account"
+                        class="acct"
+                        :class="[a.aggStatus, { 'is-selected': a.tasks.some((t: any) => t.id === selectedTaskId) }]"
+                        :title="`${a.nickname} · 成功 ${a.success}/${a.total}${a.failed ? ' · 失败 ' + a.failed : ''}`"
+                        @click="selectedTaskId = (a.tasks.find((t: any) => t.status === 'running') || a.tasks.find((t: any) => t.status === 'failed') || a.tasks[0]).id"
+                      >
+                        <span class="av" :style="{ background: platformMeta(a.platform).color }">
+                          {{ platformMeta(a.platform).short }}
+                        </span>
+                        <span class="acct-name">{{ a.nickname }}</span>
+                        <span class="acct-cnt">{{ a.success }}/{{ a.total }}</span>
+                        <el-icon v-if="a.aggStatus === 'success'" class="st ok"><CircleCheck /></el-icon>
+                        <el-icon v-else-if="a.aggStatus === 'failed'" class="st bad"><CircleClose /></el-icon>
+                        <el-icon v-else-if="a.aggStatus === 'running'" class="st run is-loading"><Loading /></el-icon>
+                        <el-icon v-else class="st queued"><Clock /></el-icon>
                       </span>
-                      <div class="fail-line" v-if="t.status === 'failed' && failureReason(t)" :title="failureReason(t)">
-                        {{ failureReason(t) }}
-                      </div>
-                    </td>
+                    </div>
+                  </td>
 
-                    <td class="col-actions">
-                      <template v-if="t.status === 'failed' || t.status === 'cancelled'">
-                        <el-button size="small" type="primary" link @click.stop="taskStore.retryTask(t.id)">重试</el-button>
-                      </template>
-                      <template v-else-if="t.status === 'running'">
-                        <el-button size="small" type="danger" link @click.stop="taskStore.cancelTask(t.id)">中止</el-button>
-                      </template>
-                      <el-button size="small" link @click.stop="openTaskLogs(t)">日志</el-button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                  <!-- 结果列：汇总 -->
+                  <td>
+                    <span v-if="g.failed > 0" class="badge bad">{{ g.success }}/{{ g.total }} 成功</span>
+                    <span v-else-if="g.running > 0" class="badge run">发布中</span>
+                    <span v-else-if="g.success === g.total" class="badge ok">全部完成</span>
+                    <span v-else class="badge queued">待发布</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           <!-- 选中某条时的日志 -->
@@ -448,7 +436,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onErrorCaptured } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, ArrowDown, CircleCheck, CircleClose, Clock, CollectionTag, Delete, Document, Loading, Monitor, Promotion, Remove, Setting, WarningFilled } from '@element-plus/icons-vue'
+import { CircleCheck, CircleClose, Clock, CollectionTag, Delete, Document, Folder, Loading, Monitor, Promotion, Remove, Setting, WarningFilled } from '@element-plus/icons-vue'
 import { getPlatformConfig } from '../config/platforms'
 import { useTaskStore } from '../stores/taskStore'
 import TaskLogDrawer from '../components/matrix/TaskLogDrawer.vue'
@@ -574,9 +562,6 @@ const selectedPlan = computed(() =>
 // ---- 右侧发布明细：查看视角 ----
 /** 0 = 逐条明细（不分组）；N = 按第 N 层目录分组 */
 const detailViewLevel = ref<number>(0)
-/** 展开的分组 */
-const expandedDetailGroups = ref<string[]>([])
-
 /** 当前计划里素材的最大目录深度（用于动态生成选项） */
 const maxDetailDepth = computed(() => {
   let max = 0
@@ -587,10 +572,42 @@ const maxDetailDepth = computed(() => {
   return max
 })
 
-/** 第 N 层目录的示例名（给下拉选项做提示，如「帐号1」） */
-function levelSampleName(level: number): string {
-  const t = selectedPlan.value?.tasks.find((x: any) => (x.folderCrumbs || []).length >= level)
-  return t?.folderCrumbs?.[level - 1] || ''
+/**
+ * 把分组内的任务按【账号】聚合：一个账号一个胶囊。
+ * 胶囊状态取该账号下最需要关注的那个（失败 > 执行中 > 全成功 > 待发）。
+ */
+function accountsOfGroup(g: any) {
+  const map = new Map<string, {
+    platform: string
+    account: string
+    nickname: string
+    tasks: any[]
+  }>()
+
+  g.tasks.forEach((t: any) => {
+    const key = `${t.platform}:${t.account}`
+    if (!map.has(key)) {
+      map.set(key, {
+        platform: t.platform,
+        account: t.account,
+        nickname: t.nickname || t.account,
+        tasks: []
+      })
+    }
+    map.get(key)!.tasks.push(t)
+  })
+
+  return Array.from(map.values()).map((a) => {
+    const total   = a.tasks.length
+    const success = a.tasks.filter((t: any) => t.status === 'success').length
+    const failed  = a.tasks.filter((t: any) => t.status === 'failed').length
+    const running = a.tasks.filter((t: any) => t.status === 'running').length
+    const aggStatus = failed > 0 ? 'failed'
+                    : running > 0 ? 'running'
+                    : success === total ? 'success'
+                    : 'queued'
+    return { ...a, total, success, failed, running, aggStatus }
+  })
 }
 
 /** 分组结果（detailViewLevel === 0 时为 null，表示逐条展示） */
@@ -627,22 +644,9 @@ const detailGroups = computed(() => {
   })
 })
 
-/** 切换视角时默认展开所有分组 */
-watch(detailViewLevel, () => {
-  expandedDetailGroups.value = detailGroups.value?.map((g) => g.key) || []
-})
-
-/** 展开/折叠某个分组 */
-const toggleDetailGroup = (key: string) => {
-  const i = expandedDetailGroups.value.indexOf(key)
-  if (i >= 0) expandedDetailGroups.value.splice(i, 1)
-  else expandedDetailGroups.value.push(key)
-}
-
 /** 切换计划时重置视角 */
 watch(selectedPlanId, () => {
   detailViewLevel.value = 0
-  expandedDetailGroups.value = []
   selectedTaskId.value = ''
 })
 
@@ -671,7 +675,6 @@ watch(
     }
     // 切计划时重置视角
     detailViewLevel.value = 0
-    expandedDetailGroups.value = []
   }
 )
 
@@ -698,6 +701,22 @@ function planStatusText(p: any): string {
 const currentPlanStatusText = computed(() =>
   selectedPlan.value ? planStatusText(selectedPlan.value) : ''
 )
+
+/** 该条任务实际发布的视频文件名（从 params.filePath 取，不要用批次那串拼接名） */
+function taskMediaName(t: any): string {
+  const p = t.params?.filePath || t.filePath || ''
+  if (p) {
+    const seg = p.split(/[\\/]/).pop() || ''
+    if (seg) return seg
+  }
+  return t.title || '—'
+}
+
+/** 该条任务所属文件夹路径（去掉根文件夹名，更贴近用户视角） */
+function taskFolderPath(t: any): string {
+  const c: string[] = t.folderCrumbs || []
+  return c.length > 1 ? c.slice(1).join(' / ') : ''
+}
 
 /** 状态文案 */
 function statusText(t: any): string {
@@ -748,6 +767,25 @@ const drawerInitialTab = ref<'terminal' | 'live'>('terminal')
 /** 平台色 */
 function platformColor(platform: string): string {
   return getPlatformStyle(platform).brandColor || 'var(--text-muted)'
+}
+
+/** 平台简称 + 配色（与 ContentAccountTable.vue 保持同一套实现） */
+function platformMeta(p: string): { short: string; color: string } {
+  const PLATFORM_META: Record<string, { short: string; color: string }> = {
+    douyin: { short: '抖', color: '#000000' },
+    tencent: { short: '视', color: '#FA9D3B' },
+    wechat: { short: '视', color: '#FA9D3B' },
+    kuaishou: { short: '快', color: '#FF4906' },
+    xiaohongshu: { short: '红', color: '#FF2442' },
+    redbook: { short: '红', color: '#FF2442' },
+    bilibili: { short: 'B', color: '#FB7299' },
+  }
+  const hit = PLATFORM_META[(p || '').toLowerCase()]
+  if (hit) return hit
+  let h = 0
+  const s = p || '?'
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360
+  return { short: s.slice(0, 1).toUpperCase(), color: `hsl(${h}, 55%, 45%)` }
 }
 
 const getPlatformStyle = (platformId: string) => {
@@ -943,7 +981,10 @@ function handleStartPublish() {
 .task-center-workspace {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 88px);
+  /* 不要写死 100vh —— 外层 .page-content 有 18px 内边距，
+     写死会导致整体超高、底部被裁，滚动条看不到 */
+  height: 100%;
+  min-height: 0;
   gap: 12px;
   overflow: hidden;
   box-sizing: border-box;
@@ -1180,14 +1221,29 @@ function handleStartPublish() {
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
-.detail-bar-right {
+/* 单位选择器：与「发布工作台 / 上传视频」同款（透明底 + 无框 + 主色字） */
+.unit-wrap {
   margin-left: auto;
-  display: flex;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 2px;
 }
-.view-select { width: 190px; }
-.vlb-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.level-select {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0;
+  margin: 0;
+  border-radius: 6px;
+  line-height: 17px;
+  color: var(--primary-color);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  outline: none;
+}
 
 /* 状态徽章（detail-bar 内使用） */
 .detail-status {
@@ -1208,9 +1264,12 @@ function handleStartPublish() {
 
 /* 明细表 */
 .plan-detail-table {
-  flex: 1;
-  min-height: 120px;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* 兜底：即使上面几层 flex 高度链没传下来，也保证表格内部可滚 */
+  max-height: 52vh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   margin-top: 10px;
 }
 .plan-detail-table table {
@@ -1242,7 +1301,7 @@ function handleStartPublish() {
 /* 单元格文字（与对应表一致：主文字 12px，次要 11px） */
 .col-order { text-align: center; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .cell-main { font-size: 12px; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cell-sub  { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.cell-sub  { font-size: 11px; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; }
 .status-pill.success { color: var(--status-success); }
 .status-pill.failed  { color: var(--status-danger); }
@@ -1258,16 +1317,17 @@ function handleStartPublish() {
 /* 日志区 */
 .detail-logs {
   flex: 0 0 auto;
-  max-height: 30%;
+  max-height: 180px;          /* 固定上限，表格拿到确定的空间 */
   overflow: hidden;
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border-subtle);
-  padding-top: 8px; margin-top: 8px;
+  padding-top: 8px;
+  margin-top: 8px;
 }
 .logs-title { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
 .logs-list {
-  flex: 1; min-height: 60px; overflow-y: auto;
+  flex: 1; min-height: 0; overflow-y: auto;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11.5px; line-height: 1.6;
 }
@@ -1292,22 +1352,62 @@ function handleStartPublish() {
 
 
 
-.detail-group { border-bottom: 1px solid var(--border-subtle); }
-.detail-group:last-child { border-bottom: none; }
-.detail-group-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 6px; cursor: pointer; border-radius: 6px;
+/* ---- 分组明细行：与「内容与账号对应表」同款 ---- */
+.detail-group-row td { padding: 9px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
+.detail-group-row:hover td { background: rgba(99, 102, 241, 0.06); }
+
+/* 序号圆标 */
+.order-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  font-size: 11px; font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
 }
-.detail-group-head:hover { background: var(--bg-input); }
-.dg-arrow { font-size: 11px; color: var(--text-muted); transition: transform .18s; }
-.dg-arrow.open { transform: rotate(90deg); }
-.dg-label { font-size: 12.5px; font-weight: 600; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.dg-progress { font-size: 11.5px; color: var(--text-muted); font-weight: 600; flex-shrink: 0; }
-.dg-chip { font-size: 11.5px; flex-shrink: 0; }
-.dg-chip.ok     { color: var(--status-success); }
-.dg-chip.bad    { color: var(--status-danger); }
-.dg-chip.run    { color: var(--primary-color); }
-.dg-chip.queued { color: var(--text-muted); }
+
+/* 内容列 */
+.folder-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.folder-ic { font-size: 14px; color: var(--primary-color); flex-shrink: 0; }
+.gname { font-size: 12px; font-weight: 600; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cn { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+
+/* 账号胶囊（与 ContentAccountTable.vue 同款） */
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.acct {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 8px 2px 3px;
+  border-radius: 11px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: border-color .14s, background-color .14s;
+}
+.acct:hover { border-color: var(--primary-color); }
+.acct.is-selected { border-color: var(--primary-color); background: rgba(79, 70, 229, 0.10); }
+.acct .av {
+  width: 15px; height: 15px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; color: #fff; flex-shrink: 0;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+.acct .acct-name { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct .acct-cnt { font-size: 10px; color: var(--text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.acct.success .acct-cnt { color: var(--status-success); }
+.acct.failed  .acct-cnt { color: var(--status-danger); }
+.acct .st { font-size: 11px; flex-shrink: 0; }
+.acct .st.ok { color: var(--status-success); }
+.acct .st.bad { color: var(--status-danger); }
+.acct .st.run { color: var(--primary-color); }
+.acct .st.queued { color: var(--text-muted); }
+
+/* 结果 badge */
+.badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+.badge.ok     { color: var(--status-success); background: rgba(16, 185, 129, 0.10); }
+.badge.bad    { color: var(--status-danger);  background: rgba(239, 68, 68, 0.10); }
+.badge.run    { color: var(--primary-color);  background: rgba(79, 70, 229, 0.10); }
+.badge.queued { color: var(--text-muted);     background: var(--bg-input); }
 
 /* ===== 工作台布局 ===== */
 .task-workspace {
