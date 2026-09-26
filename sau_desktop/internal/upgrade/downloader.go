@@ -33,7 +33,7 @@ func NewDownloader(host ...string) *Downloader {
 	}
 }
 
-// GetCandidateURLs 构建平台升级包候选地址列表（按优先级依次尝试）
+// GetCandidateURLs 构建平台升级包候选地址列表（按优先级依次尝试，含产品隔离目录与根目录兼容）
 func (d *Downloader) GetCandidateURLs(latestVersion string) []string {
 	vClean := CleanVersion(latestVersion)
 	vNoDots := strings.ReplaceAll(vClean, ".", "")
@@ -41,14 +41,26 @@ func (d *Downloader) GetCandidateURLs(latestVersion string) []string {
 	var names []string
 	if runtime.GOOS == "windows" {
 		names = []string{
+			// 1. 分发助手独立子目录 (优先隔离，防止多产品共享 pkg/ 时冲突)
+			fmt.Sprintf("zidongfabu/upgrade_win_%s.zip", vClean),
+			fmt.Sprintf("zidongfabu/upgrade_win_%s.zip", vNoDots),
+			"zidongfabu/upgrade_win.zip",
+			// 2. 根目录带版本号包 (小映传统规范)
 			fmt.Sprintf("upgrade_win_%s.zip", vClean),
 			fmt.Sprintf("upgrade_win_%s.zip", vNoDots),
+			// 3. 根目录兜底
 			"upgrade_win.zip",
 		}
 	} else {
 		names = []string{
+			// 1. 分发助手独立子目录
+			fmt.Sprintf("zidongfabu/upgrade_mac_%s.zip", vClean),
+			fmt.Sprintf("zidongfabu/upgrade_mac_%s.zip", vNoDots),
+			"zidongfabu/upgrade_mac.zip",
+			// 2. 根目录带版本号包
 			fmt.Sprintf("upgrade_mac_%s.zip", vClean),
 			fmt.Sprintf("upgrade_mac_%s.zip", vNoDots),
+			// 3. 根目录兜底
 			"upgrade_mac.zip",
 		}
 	}

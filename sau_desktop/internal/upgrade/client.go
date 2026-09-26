@@ -14,7 +14,7 @@ import (
 const (
 	ServerHost   = "https://xyrun.cn"
 	ToolIDInt    = 4 // 分发助手数字 ID
-	ToolIDString = "4"
+	ToolIDString = "1"
 )
 
 // Client 版本检查与升级包下载 HTTP 客户端
