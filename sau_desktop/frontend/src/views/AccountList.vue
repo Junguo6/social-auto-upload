@@ -1,52 +1,5 @@
 <template>
   <div class="account-browser-workspace">
-    <!-- 顶部汇总条：一眼看清整体状况 + 两个主入口 -->
-    <div class="account-summary-bar">
-      <div class="sum-left">
-        <span class="sum-total">共 {{ accountStore.accounts.length }} 个账号</span>
-        <span class="sum-sep">·</span>
-        <button
-          class="sum-invalid"
-          :class="{ zero: invalidCount === 0 }"
-          :disabled="invalidCount === 0"
-          @click="filterOnlyInvalid"
-        >
-          {{ invalidCount > 0 ? `${invalidCount} 个需重新登录` : '全部登录正常' }}
-        </button>
-      </div>
-
-      <!-- 有勾选 → 显示批量操作栏（无勾选时完全隐藏） -->
-      <div class="sum-batch" v-if="checkedAccounts.length > 0">
-        <span class="batch-count">已选 {{ checkedAccounts.length }} 个</span>
-
-        <el-button size="small" plain :loading="batchChecking" @click="handleBatchCheck">
-          <el-icon><Search /></el-icon><span>检测登录状态</span>
-        </el-button>
-
-        <el-dropdown trigger="click" @command="handleBatchMove">
-          <el-button size="small" plain>
-            <FolderIcon :size="13" /><span>移动到分组</span>
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item
-                v-for="g in accountStore.groups"
-                :key="g"
-                :command="g"
-              >{{ g }}（{{ accountStore.groupCounts[g] || 0 }}）</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-
-        <el-button size="small" plain type="danger" @click="handleBatchDelete">
-          <el-icon><Delete /></el-icon><span>删除</span>
-        </el-button>
-
-        <el-button size="small" text @click="checkedAccounts = []">取消</el-button>
-      </div>
-    </div>
-
     <!-- 左右两栏 -->
     <div class="accounts-body" :class="{ 'collapsed': browserCollapsed }">
       <!-- 👈 左侧：账号列表侧边栏 -->
@@ -86,9 +39,9 @@
             />
           </div>
 
-          <!-- 平台与业务双维度快速筛选 -->
+          <!-- 平台筛选（分组相关控件已移至右侧分组卡片） -->
           <div class="sidebar-filter-bar">
-            <el-select v-model="currentPlatformFilter" size="small" style="width: 110px;">
+            <el-select v-model="currentPlatformFilter" size="small" style="flex: 1;">
               <el-option label="全部平台" value="all" />
               <el-option
                 v-for="plat in availablePlatforms"
@@ -97,22 +50,6 @@
                 :value="plat.id"
               />
             </el-select>
-
-            <el-select v-model="currentGroupFilter" size="small" style="flex: 1;">
-              <el-option label="全部分组" value="all" />
-              <el-option
-                v-for="grp in accountStore.groups"
-                :key="grp"
-                :label="grp"
-                :value="grp"
-              />
-            </el-select>
-
-            <el-tooltip content="管理/新建分组" placement="top">
-              <el-button size="small" type="info" plain circle @click="showGroupDialog = true">
-                <el-icon><FolderAdd /></el-icon>
-              </el-button>
-            </el-tooltip>
           </div>
         </div>
 
@@ -192,21 +129,14 @@
             :class="{ 'is-active': activeTabId === `${acc.platform}:${acc.account}`, dragging: isDragging(acc) }"
             :title="(acc.groups && acc.groups.length) ? '所属分组：' + acc.groups.join('、') : '未分组'"
             @mousedown="onCardMouseDown(acc, $event)"
-            @click="onCardClick(acc)"
+            @click="onCardToggleCheck(acc)"
           >
-            <!-- 左侧勾选热区：点这一整条都能切换勾选 -->
-            <div
-              class="acc-check-zone"
-              :class="{ on: checkedAccounts.includes(accKey(acc)) }"
-              @click.stop="toggleAccountCheck(acc, !checkedAccounts.includes(accKey(acc)))"
-            >
-              <el-checkbox
-                class="acc-check"
-                :model-value="checkedAccounts.includes(accKey(acc))"
-                @click.stop
-                @change="(v: any) => toggleAccountCheck(acc, !!v)"
-              />
-            </div>
+            <!-- 勾选框：点击由整卡处理，这里只是状态指示 -->
+            <el-checkbox
+              class="acc-check"
+              :model-value="checkedAccounts.includes(accKey(acc))"
+              @click.stop="onCardToggleCheck(acc)"
+            />
 
             <!-- 头像模块 -->
             <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(acc.platform).gradient }">
@@ -267,7 +197,7 @@
 
           <!-- 底部操作提示（固定在卡片底部，不随列表滚动） -->
           <div class="pane-tip" v-if="accountStore.groups.length > 0">
-            💡 拖拽账号到右侧分组即可归类（一个账号可属于多个分组）
+            💡 单击选中账号 · <b>拖拽到右侧分组</b>即可归类 · 一个账号可属于多个分组
           </div>
           <div class="pane-tip" v-else>
             💡 先在右侧新建一个分组，再把账号拖进去归类
@@ -393,21 +323,14 @@
               :class="{ dragging: isDragging(m) }"
               :title="(m.groups && m.groups.length) ? '所属分组：' + m.groups.join('、') : '未分组'"
               @mousedown="onCardMouseDown(m, $event)"
-              @click="onCardClick(m)"
+              @click="onCardToggleCheck(m)"
             >
-              <!-- 勾选框（与左侧全局选择联动） -->
-              <div
-                class="acc-check-zone"
-                :class="{ on: checkedAccounts.includes(accKey(m)) }"
-                @click.stop="toggleAccountCheck(m, !checkedAccounts.includes(accKey(m)))"
-              >
-                <el-checkbox
-                  class="acc-check"
-                  :model-value="checkedAccounts.includes(accKey(m))"
-                  @click.stop
-                  @change="(v: any) => toggleAccountCheck(m, !!v)"
-                />
-              </div>
+              <!-- 勾选框：点击由整卡处理，这里只是状态指示 -->
+              <el-checkbox
+                class="acc-check"
+                :model-value="checkedAccounts.includes(accKey(m))"
+                @click.stop="onCardToggleCheck(m)"
+              />
 
               <!-- 头像 -->
               <div class="contact-avatar-wrapper" :style="{ background: getPlatformStyle(m.platform).gradient }">
@@ -598,7 +521,7 @@ import { LoginAccountWithAppWindow, StopTaskById } from '../../wailsjs/go/main/A
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import {
   Plus, Search, Delete, Monitor, ArrowDown, ArrowLeft,
-  ArrowRight, FolderAdd, UserFilled, Loading, Check,
+  ArrowRight, UserFilled, Loading, Check,
   CircleClose, Refresh, RefreshRight, CircleCheck, Compass,
   MoreFilled, EditPen, Setting, Select
 } from '@element-plus/icons-vue'
@@ -626,7 +549,6 @@ const openTabs = ref<BrowserTab[]>([])
 const activeTabId = ref<string>('')
 
 const currentPlatformFilter = ref('all')
-const currentGroupFilter = ref('all')
 const searchKeyword = ref('')
 
 /** 只看"需重新登录"的账号 */
@@ -692,9 +614,6 @@ const filteredAccounts = computed(() => {
     if (currentPlatformFilter.value !== 'all' && acc.platform !== currentPlatformFilter.value) {
       return false
     }
-    if (currentGroupFilter.value !== 'all' && !acc.groups?.includes(currentGroupFilter.value)) {
-      return false
-    }
     if (searchKeyword.value) {
       const kw = searchKeyword.value.toLowerCase()
       const accMatch = acc.account.toLowerCase().includes(kw)
@@ -711,13 +630,6 @@ const filteredAccounts = computed(() => {
 const invalidCount = computed(() =>
   accountStore.accounts.filter(a => a.checked && !a.isValid).length
 )
-
-/** 点汇总条上的"N 个需重新登录" → 只筛失效账号 */
-function filterOnlyInvalid() {
-  currentPlatformFilter.value = 'all'
-  currentGroupFilter.value = 'all'
-  filterOnlyInvalidFlag.value = true
-}
 
 const getPlatformStyle = (platformId: string) => {
   return getPlatformConfig(platformId)
@@ -861,7 +773,7 @@ function onCardMouseDown(acc: AccountItem, e: MouseEvent) {
   if (e.button !== 0) return                    // 只响应左键
   const el = e.target as HTMLElement
   // 点在勾选框 / 操作图标 / 分组标签上时不启动拖拽
-  if (el.closest('.acc-check-zone, .acc-check, .acc-acts, .el-checkbox')) return
+  if (el.closest('.acc-check, .acc-acts, .el-checkbox')) return
   pendingDrag = { acc, startX: e.clientX, startY: e.clientY }
 }
 
@@ -940,10 +852,10 @@ function onWindowBlurOrLeave() {
   if (dragState.active || pendingDrag) resetDrag()
 }
 
-/** 卡片点击（拖拽结束后吞掉 click） */
-function onCardClick(acc: AccountItem) {
+/** 单击卡片 = 切换勾选（主操作） */
+function onCardToggleCheck(acc: AccountItem) {
   if (swallowNextClick) return
-  openAccountTab(acc)
+  toggleAccountCheck(acc, !checkedAccounts.value.includes(accKey(acc)))
 }
 
 /* ───────── 文件夹展开 ───────── */
@@ -1543,80 +1455,6 @@ watch(() => accountStore.accounts, (newAccounts) => {
   box-sizing: border-box;
 }
 
-/* 顶部汇总条 */
-.account-summary-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 11px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
-  box-shadow: var(--shadow-card);
-  margin: 14px 14px 0;
-  flex-shrink: 0;
-}
-.sum-left { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
-.sum-total { color: var(--text-main); font-weight: 600; }
-.sum-sep { opacity: .4; }
-.sum-invalid {
-  /* 完全重置原生 button 外观，呈文字链接样式 */
-  all: unset;
-  display: inline;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--status-danger);
-}
-.sum-invalid:hover { text-decoration: underline; }
-.sum-invalid.zero { color: var(--status-success); cursor: default; }
-.sum-invalid:disabled { cursor: default; }
-.acc-check-zone {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  align-self: stretch;
-  width: 34px;
-  min-width: 34px;
-  margin-left: -6px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background-color .15s;
-}
-
-.acc-check-zone:hover {
-  background: rgba(79, 70, 229, .09);
-}
-
-.acc-check-zone.on {
-  background: rgba(79, 70, 229, .07);
-}
-
-.acc-check {
-  margin-right: 0;
-  flex-shrink: 0;
-  transform: scale(1.2);
-  transform-origin: center;
-  pointer-events: none;
-}
-
-.sum-batch {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-left: 12px;
-  margin-left: auto;
-  border-left: 1px solid var(--border-subtle);
-}
-
-.batch-count {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--primary-color);
-  white-space: nowrap;
-}
-
 /* 👈 左侧：账号列表侧边栏 */
 .account-sidebar-pane {
   width: 420px;
@@ -1630,6 +1468,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: var(--shadow-card);
+  padding: 14px 16px;
 }
 
 /* 收起浏览器时左侧撑满全宽，右边留空白 */
@@ -1639,7 +1478,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
 }
 
 .sidebar-header-section {
-  padding: 12px 14px 10px 14px;
+  padding: 12px 0 10px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1694,7 +1533,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .sidebar-contact-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 8px 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1735,12 +1574,14 @@ watch(() => accountStore.accounts, (newAccounts) => {
 }
 
 .contact-card-item:hover {
-  background: var(--bg-detail);
+  background: rgba(79, 70, 229, .05);
+  border-color: rgba(79, 70, 229, .28);
 }
 
 .contact-card-item.is-active {
-  background: rgba(99, 102, 241, 0.12);
-  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(79, 70, 229, .09);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, .12);
 }
 
 .contact-card-item.is-active::before {
@@ -2202,7 +2043,8 @@ watch(() => accountStore.accounts, (newAccounts) => {
   background: transparent;
 }
 .gd-member:hover {
-  background: var(--bg-detail);
+  background: rgba(79, 70, 229, .05);
+  border-color: rgba(79, 70, 229, .28);
 }
 .gd-member.dragging {
   opacity: .45;
