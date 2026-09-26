@@ -233,55 +233,6 @@
               </div>
 
               <div class="contact-second-row">
-                <!-- 点这里直接改分组 -->
-                <el-popover
-                  :width="200"
-                  trigger="click"
-                  placement="right-start"
-                  popper-class="group-picker-popover"
-                  @show="newGroupNameForAccount = ''"
-                >
-                  <template #reference>
-                    <span class="contact-group-name clickable">
-                      {{ (acc.groups && acc.groups.length) ? '#' + acc.groups.join(' #') : '未分组' }}
-                      <el-icon class="grp-caret"><ArrowDown /></el-icon>
-                    </span>
-                  </template>
-
-                  <div class="group-picker">
-                    <div class="gp-title">移动到分组</div>
-                    <div
-                      v-for="grp in accountStore.groups"
-                      :key="grp"
-                      class="gp-item"
-                      :class="{ on: (acc.groups || []).includes(grp) }"
-                      @click="assignGroup(acc, grp)"
-                    >
-                      <el-icon v-if="(acc.groups || []).includes(grp)" class="gp-check"><Check /></el-icon>
-                      <span v-else class="gp-check placeholder" />
-                      <span class="gp-name">{{ grp }}</span>
-                      <span class="gp-count">{{ accountStore.groupCounts[grp] || 0 }}</span>
-                    </div>
-
-                    <div class="gp-divider" />
-
-                    <div class="gp-new">
-                      <el-input
-                        v-model="newGroupNameForAccount"
-                        size="small"
-                        placeholder="新建分组…"
-                        @keyup.enter="createGroupAndAssign(acc)"
-                      />
-                      <el-button
-                        size="small"
-                        type="primary"
-                        :disabled="!newGroupNameForAccount.trim()"
-                        @click="createGroupAndAssign(acc)"
-                      >新建</el-button>
-                    </div>
-                  </div>
-                </el-popover>
-
                 <span
                   class="contact-status-label"
                   :class="{ 'status-err': acc.checked && !acc.isValid, 'status-ok': acc.checked && acc.isValid, 'status-syncing': acc.isSyncing || acc.loading }"
@@ -331,7 +282,7 @@
           <span class="pch-title">分组列表</span>
           <span class="pch-badge">{{ accountStore.groups.length }}</span>
           <span class="pch-spacer"></span>
-          <el-button size="small" type="primary" plain @click="showGroupDialog = true">
+          <el-button type="primary" size="small" @click="showGroupDialog = true">
             <el-icon><Plus /></el-icon>
             <span>新建分组</span>
           </el-button>
@@ -910,7 +861,7 @@ function onCardMouseDown(acc: AccountItem, e: MouseEvent) {
   if (e.button !== 0) return                    // 只响应左键
   const el = e.target as HTMLElement
   // 点在勾选框 / 操作图标 / 分组标签上时不启动拖拽
-  if (el.closest('.acc-check-zone, .acc-check, .acc-acts, .acc-gtag, .acc-tag, .el-checkbox')) return
+  if (el.closest('.acc-check-zone, .acc-check, .acc-acts, .el-checkbox')) return
   pendingDrag = { acc, startX: e.clientX, startY: e.clientY }
 }
 
@@ -1382,23 +1333,6 @@ const handleCreateGroup = () => {
   accountStore.addGroup(newGroupName.value.trim())
   ElMessage.success(`已创建分组「${newGroupName.value.trim()}」`)
   newGroupName.value = ''
-}
-
-/** 卡片上"改分组"弹层里新建分组的输入 */
-const newGroupNameForAccount = ref('')
-
-/** 把账号加入分组（已在组内则移除） */
-function assignGroup(acc: AccountItem, groupName: string) {
-  accountStore.toggleAccountGroup(acc.platform, acc.account, groupName)
-}
-
-/** 新建分组并把当前账号放进去 */
-function createGroupAndAssign(acc: AccountItem) {
-  const name = newGroupNameForAccount.value.trim()
-  if (!name) return
-  accountStore.addGroup(name)
-  assignGroup(acc, name)
-  newGroupNameForAccount.value = ''
 }
 
 /** 重命名分组 */
@@ -1992,6 +1926,10 @@ watch(() => accountStore.accounts, (newAccounts) => {
   border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 12px;
   flex-shrink: 0;
+}
+.pane-card-head .el-button {
+  min-width: 96px;
+  justify-content: center;
 }
 .pch-title {
   font-size: 13px;
