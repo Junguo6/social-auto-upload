@@ -1791,13 +1791,13 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .folder-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
-  gap: 12px;
+  gap: 18px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   align-content: start;
-  padding: 2px;              /* 给放大后的格子留点空间 */
+  padding: 20px;              /* 给放大后的格子留点空间 */
 }
 
 .fcell {

@@ -1279,34 +1279,60 @@ class TencentBaseUploader(BaseVideoUploader):
         try:
             display_wrap = await self._find_first_locator(
                 page,
-                "div.activity-display-wrap, .post-activity-wrap .activity-display, .post-activity-wrap"
+                "div.activity-display-wrap, .post-activity-wrap .activity-display-wrap, .post-activity-wrap .activity-display, div.activity-display, .activity-display"
             )
+            if await display_wrap.count() == 0:
+                # 备用：寻找活动设置行内部的可交互框
+                display_wrap = await self._find_first_locator(
+                    page,
+                    ".post-activity-wrap div.display-wrap, .post-activity-wrap"
+                )
             if await display_wrap.count() == 0:
                 tencent_logger.info(_msg("🧾", "未找到活动设置入口，跳过"))
                 return
+
             try:
                 await display_wrap.scroll_into_view_if_needed(timeout=3000)
-                await display_wrap.click(timeout=4000)
+                await display_wrap.click(timeout=3000)
             except Exception:
                 await display_wrap.evaluate("el => el.click()")
-            await page.wait_for_timeout(600)
+            await page.wait_for_timeout(400)
 
-            # 在搜索框中输入活动名（规避不可见元素）
+            # 动态等待搜索框出现并可见（支持重试点击触发器，防止滚动过程中点击丢失或展开动画延迟）
             frames_to_search = [await self._get_content_target(page), page] + [f for f in page.frames if "empty.html" not in f.url]
             search_input = None
-            for ctx in frames_to_search:
-                cands = ctx.locator("input[placeholder*='搜索活动'], input[placeholder='搜索活动'], .activity-filter-wrap input")
-                try:
-                    cnt = await cands.count()
-                    for i in range(cnt):
-                        it = cands.nth(i)
-                        if await it.is_visible():
-                            search_input = it
-                            break
-                except Exception:
-                    pass
+            wait_search_deadline = time.monotonic() + 4.5
+            has_retried_click = False
+
+            while time.monotonic() < wait_search_deadline:
+                for ctx in frames_to_search:
+                    cands = ctx.locator(
+                        "input[placeholder*='搜索活动'], input[placeholder='搜索活动'], .activity-filter-wrap input, .activity-dropdown-wrap input, .activity-list-wrap input"
+                    )
+                    try:
+                        cnt = await cands.count()
+                        for i in range(cnt):
+                            it = cands.nth(i)
+                            if await it.is_visible():
+                                box = await it.bounding_box()
+                                if box and box["width"] > 20 and box["height"] > 20:
+                                    search_input = it
+                                    break
+                    except Exception:
+                        pass
+                    if search_input:
+                        break
                 if search_input:
                     break
+
+                # 若 1.2 秒后仍未检测到可见搜索框，尝试对 display_wrap 执行强制点击补发
+                if not has_retried_click and time.monotonic() > wait_search_deadline - 3.2:
+                    has_retried_click = True
+                    try:
+                        await display_wrap.evaluate("el => el.click()")
+                    except Exception:
+                        pass
+                await asyncio.sleep(0.4)
 
             if search_input and await search_input.count() > 0:
                 await search_input.scroll_into_view_if_needed()

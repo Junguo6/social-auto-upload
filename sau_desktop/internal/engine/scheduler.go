@@ -527,6 +527,11 @@ func (s *PublishScheduler) ExecBatchPublish(param BatchPublishParam, onEvent fun
 			Bgm:                param.Bgm,
 			Note:               param.Note,
 			Notef:              param.Notef,
+			Location:           param.Location,
+			LinkType:           param.LinkType,
+			LinkUrl:            param.LinkUrl,
+			LinkTitle:          param.LinkTitle,
+			ActivityName:       param.ActivityName,
 			Headless:           param.Headless,
 		})
 	}

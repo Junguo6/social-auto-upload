@@ -198,7 +198,7 @@
           style="width: 100%"
           clearable
         >
-          <el-option label="无需标注" value="" />
+          <el-option label="无需标注" value="无需标注" />
           <el-option label="含AI生成内容" value="含AI生成内容" />
           <el-option label="内容为虚构剧情，仅供娱乐" value="内容为虚构剧情，仅供娱乐" />
           <el-option label="个人观点，仅供参考" value="个人观点，仅供参考" />

@@ -33,6 +33,11 @@ type PublishParam struct {
 	Bgm                string   `json:"bgm"`                // 图文配乐搜索名
 	Note               string   `json:"note"`               // 图文正文
 	Notef              string   `json:"notef"`              // 长正文文件路径
+	Location           string   `json:"location"`           // 视频号位置: auto(按平台定位) / none(不显示位置)
+	LinkType           string   `json:"linkType"`           // 视频号链接类型: none / article / redpacket / series / minidrama
+	LinkUrl            string   `json:"linkUrl"`            // 视频号链接URL
+	LinkTitle          string   `json:"linkTitle"`          // 视频号链接名称或搜索关键字
+	ActivityName       string   `json:"activityName"`       // 视频号参与活动名称
 	Headless           bool     `json:"headless"`
 }
 

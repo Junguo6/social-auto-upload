@@ -929,6 +929,9 @@ async function hydrateMediaMeta(targets: MediaItem[]) {
 .req-star { color: var(--status-danger); }
 
 .badge-count {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12px;
   color: var(--primary-color);
   background: rgba(99, 102, 241, 0.12);

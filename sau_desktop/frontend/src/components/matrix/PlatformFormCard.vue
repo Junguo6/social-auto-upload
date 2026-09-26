@@ -200,7 +200,7 @@ function confirmSync() {
 .sync-fields-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* gap: 10px; */
 }
 
 .sync-actions-row {

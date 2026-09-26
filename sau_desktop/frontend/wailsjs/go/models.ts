@@ -559,6 +559,11 @@ export namespace engine {
 	    bgm: string;
 	    note: string;
 	    notef: string;
+	    location: string;
+	    linkType: string;
+	    linkUrl: string;
+	    linkTitle: string;
+	    activityName: string;
 	    headless: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -592,6 +597,11 @@ export namespace engine {
 	        this.bgm = source["bgm"];
 	        this.note = source["note"];
 	        this.notef = source["notef"];
+	        this.location = source["location"];
+	        this.linkType = source["linkType"];
+	        this.linkUrl = source["linkUrl"];
+	        this.linkTitle = source["linkTitle"];
+	        this.activityName = source["activityName"];
 	        this.headless = source["headless"];
 	    }
 	}
