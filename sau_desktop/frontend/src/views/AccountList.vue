@@ -80,6 +80,38 @@
           </span>
         </div>
 
+        <!-- 批量操作（勾选账号后出现） -->
+        <div class="batch-bar" v-if="checkedAccounts.length > 0">
+          <span class="batch-count">已选 {{ checkedAccounts.length }} 个</span>
+
+          <el-button size="small" plain :loading="batchChecking" @click="handleBatchCheck">
+            <el-icon><Search /></el-icon><span>检测登录状态</span>
+          </el-button>
+
+          <el-dropdown trigger="click" @command="handleBatchMove">
+            <el-button size="small" plain>
+              <FolderIcon :size="13" /><span>移动到分组</span>
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="g in accountStore.groups"
+                  :key="g"
+                  :command="g"
+                >{{ g }}（{{ accountStore.groupCounts[g] || 0 }}）</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+
+          <el-button size="small" plain type="danger" @click="handleBatchDelete">
+            <el-icon><Delete /></el-icon><span>删除</span>
+          </el-button>
+
+          <span class="batch-spacer"></span>
+          <el-button size="small" text @click="checkedAccounts = []">取消</el-button>
+        </div>
+
         <!-- 2. 账号联系人滚动列表 -->
         <div class="sidebar-contact-list custom-scrollbar">
           <!-- 空状态：仅在没有任何账号且无正在接入任务时显示 -->
@@ -126,7 +158,7 @@
             v-for="acc in filteredAccounts"
             :key="acc.platform + ':' + acc.account"
             class="contact-card-item"
-            :class="{ 'is-active': activeTabId === `${acc.platform}:${acc.account}`, dragging: isDragging(acc) }"
+            :class="{ checked: checkedAccounts.includes(accKey(acc)), dragging: isDragging(acc) }"
             :title="(acc.groups && acc.groups.length) ? '所属分组：' + acc.groups.join('、') : '未分组'"
             @mousedown="onCardMouseDown(acc, $event)"
             @click="onCardToggleCheck(acc)"
@@ -320,7 +352,7 @@
               v-for="m in groupMembers(openedGroup)"
               :key="`${m.platform}:${m.account}`"
               class="gd-member"
-              :class="{ dragging: isDragging(m) }"
+              :class="{ checked: checkedAccounts.includes(accKey(m)), dragging: isDragging(m) }"
               :title="(m.groups && m.groups.length) ? '所属分组：' + m.groups.join('、') : '未分组'"
               @mousedown="onCardMouseDown(m, $event)"
               @click="onCardToggleCheck(m)"
@@ -1578,13 +1610,13 @@ watch(() => accountStore.accounts, (newAccounts) => {
   border-color: rgba(79, 70, 229, .28);
 }
 
-.contact-card-item.is-active {
+.contact-card-item.checked {
   background: rgba(79, 70, 229, .09);
   border-color: var(--primary-color);
   box-shadow: 0 0 0 2px rgba(79, 70, 229, .12);
 }
 
-.contact-card-item.is-active::before {
+.contact-card-item.checked::before {
   content: '';
   position: absolute;
   left: 0;
@@ -1686,7 +1718,7 @@ watch(() => accountStore.accounts, (newAccounts) => {
   vertical-align: 1px;
   white-space: nowrap;
 }
-.contact-card-item.is-active .plat-chip {
+.contact-card-item.checked .plat-chip {
   color: var(--primary-color);
   border-color: rgba(79, 70, 229, 0.32);
 }
@@ -2052,6 +2084,24 @@ watch(() => accountStore.accounts, (newAccounts) => {
   border-style: dashed;
 }
 
+.gd-member.checked {
+  background: rgba(79, 70, 229, .09);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, .12);
+}
+
+.gd-member.checked::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: var(--primary-color);
+  box-shadow: 0 0 8px var(--primary-color);
+}
+
 /* .gdm-x 在 .acc-acts 容器内，受 .acc-act 样式支配，此处微调 */
 .gdm-x {
   font-size: 13px;
@@ -2143,6 +2193,30 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .acc-chip.warn.on { border-color: var(--status-warning, #d97706); background: rgba(217, 119, 6, .07); }
 .acc-chip.warn.on .chip-n { background: rgba(217, 119, 6, .18); }
 .acc-chip.warn.disabled { opacity: .5; cursor: default; }
+
+/* ── 批量操作条（卡片内） ── */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  margin-bottom: 11px;
+  border-radius: 8px;
+  background: rgba(79, 70, 229, .07);
+  border: 1px solid rgba(79, 70, 229, .22);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.batch-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-color);
+  white-space: nowrap;
+}
+
+.batch-spacer { flex: 1; }
 
 /* ── 账号卡片 ── */
 .acc-acts { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
