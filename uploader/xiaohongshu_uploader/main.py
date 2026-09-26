@@ -330,7 +330,7 @@ async def xiaohongshu_cookie_gen(
     headless: bool = LOCAL_CHROME_HEADLESS,
 ):
     if headless:
-        xiaohongshu_logger.info(_msg("🖼️", "小红书登录将以无头模式运行，小人会输出终端二维码并保存本地二维码图片"))
+        xiaohongshu_logger.info(_msg("🖼️", "小红书登录将以无头模式运行，小映会输出终端二维码并保存本地二维码图片"))
 
     account_path = Path(account_file)
     account_path.parent.mkdir(parents=True, exist_ok=True)
@@ -347,7 +347,7 @@ async def xiaohongshu_cookie_gen(
             await page.goto(_build_xhs_creator_url("/login"))
             qrcode_info = await _save_xhs_qrcode(page, account_file, qrcode_callback=qrcode_callback)
             qrcode_path = Path(qrcode_info["image_path"])
-            xiaohongshu_logger.info(_msg("🧍", "请扫码，小人正在耐心等待登录完成"))
+            xiaohongshu_logger.info(_msg("🧍", "请扫码，小映正在耐心等待登录完成"))
 
             for _ in range(max_checks):
                 if await _is_xhs_login_completed(page):
@@ -464,7 +464,7 @@ class XiaoHongShuBaseUploader(BaseVideoUploader):
             self.publish_date = 0
 
     async def set_schedule_time_xiaohongshu(self, page: Page, publish_date: datetime):
-        xiaohongshu_logger.info(_msg("🕒", f"小人准备设置定时发布时间: {publish_date.strftime(self.date_format)}"))
+        xiaohongshu_logger.info(_msg("🕒", f"小映准备设置定时发布时间: {publish_date.strftime(self.date_format)}"))
         await page.locator('.custom-switch-card').filter(has_text="定时发布").locator('.d-switch').click()
         await asyncio.sleep(1)
         publish_date_hour = publish_date.strftime("%Y-%m-%d %H:%M")
@@ -476,7 +476,7 @@ class XiaoHongShuBaseUploader(BaseVideoUploader):
         if not location:
             return True
 
-        xiaohongshu_logger.info(_msg("📍", f"小人准备设置位置: {location}"))
+        xiaohongshu_logger.info(_msg("📍", f"小映准备设置位置: {location}"))
         loc_ele = await page.wait_for_selector('div.d-text.d-select-placeholder.d-text-ellipsis.d-text-nowrap')
         await loc_ele.click()
         await page.wait_for_timeout(1000)
@@ -486,7 +486,7 @@ class XiaoHongShuBaseUploader(BaseVideoUploader):
         try:
             await page.wait_for_selector(dropdown_selector, timeout=3000)
         except Exception:
-            xiaohongshu_logger.warning(_msg("😵", "位置下拉列表没按预期出现，小人继续按旧逻辑查找"))
+            xiaohongshu_logger.warning(_msg("😵", "位置下拉列表没按预期出现，小映继续按旧逻辑查找"))
         await page.wait_for_timeout(1000)
         flexible_xpath = (
             f'//div[contains(@class, "d-popover") and contains(@class, "d-dropdown")]'
@@ -681,14 +681,14 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
             self.thumbnail_path = str(self.validate_image_file(self.thumbnail_path))
 
     async def handle_upload_error(self, page: Page):
-        xiaohongshu_logger.warning(_msg("😵", "视频上传摔了一跤，小人马上重新上传"))
+        xiaohongshu_logger.warning(_msg("😵", "视频上传摔了一跤，小映马上重新上传"))
         await page.locator('div.progress-div [class^="upload-btn-input"]').set_input_files(self.file_path)
 
     async def set_thumbnail(self, page: Page, thumbnail_path: str):
         if not thumbnail_path:
             return
 
-        xiaohongshu_logger.info(_msg("🖼️", "小人准备设置封面"))
+        xiaohongshu_logger.info(_msg("🖼️", "小映准备设置封面"))
 
         # 封面设置为增强步骤：失败时记 warning 跳过、继续发布（用视频首帧兜底）。
         try:
@@ -744,8 +744,8 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
                 pass
 
     async def upload_video_content(self, page: Page) -> None:
-        xiaohongshu_logger.info(_msg("🏃", f"小人开始搬运视频: {self.title}.mp4"))
-        xiaohongshu_logger.info(_msg("🧭", "小人正在赶往视频发布页"))
+        xiaohongshu_logger.info(_msg("🏃", f"小映开始搬运视频: {self.title}.mp4"))
+        xiaohongshu_logger.info(_msg("🧭", "小映正在赶往视频发布页"))
         publish_url = _build_xhs_creator_url(
             "/publish/publish?from=homepage&target=video"
         )
@@ -779,19 +779,19 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
                     if self.debug:
                         normalized_text = all_text.strip().replace("\n", " ")
                         xiaohongshu_logger.debug(_msg("🧍", f"预览区域内容: {normalized_text}"))
-                    xiaohongshu_logger.debug(_msg("🧍", "还没看到上传成功标识，小人继续等一会"))
+                    xiaohongshu_logger.debug(_msg("🧍", "还没看到上传成功标识，小映继续等一会"))
                 else:
                     # 尝试检查标题输入框是否已经出现，如果是，说明已经进入编辑状态
                     title_container = page.locator('input[placeholder*="填写标题"]')
                     if await title_container.count() > 0 and await title_container.is_visible():
-                        xiaohongshu_logger.success(_msg("🥳", "虽然没看到预览区，但标题框出来了，小人继续"))
+                        xiaohongshu_logger.success(_msg("🥳", "虽然没看到预览区，但标题框出来了，小映继续"))
                         break
-                    xiaohongshu_logger.debug(_msg("🧍", "还没拿到预览区域，小人继续等一会"))
+                    xiaohongshu_logger.debug(_msg("🧍", "还没拿到预览区域，小映继续等一会"))
             except Exception as e:
-                xiaohongshu_logger.debug(_msg("😵", f"上传状态还没稳定下来，小人继续观察: {e}"))
+                xiaohongshu_logger.debug(_msg("😵", f"上传状态还没稳定下来，小映继续观察: {e}"))
             await asyncio.sleep(2)
 
-        xiaohongshu_logger.info(_msg("✍️", "小人开始填标题、描述和话题"))
+        xiaohongshu_logger.info(_msg("✍️", "小映开始填标题、描述和话题"))
         await self.fill_meta(page)
 
         await self.set_thumbnail(page, self.thumbnail_path)
@@ -818,10 +818,10 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
                     XHS_PUBLISH_SUCCESS_URL_PATTERN,
                     timeout=3000
                 )
-                xiaohongshu_logger.success(_msg("🥳", "视频发布成功，小人开心收工"))
+                xiaohongshu_logger.success(_msg("🥳", "视频发布成功，小映开心收工"))
                 break
             except Exception:
-                xiaohongshu_logger.info(_msg("🏃", f"小人正在冲刺发布视频 (第 {pub_attempts}/{max_pub_attempts} 次)"))
+                xiaohongshu_logger.info(_msg("🏃", f"小映正在冲刺发布视频 (第 {pub_attempts}/{max_pub_attempts} 次)"))
                 if self.debug:
                     await page.screenshot(full_page=True)
                 await asyncio.sleep(1)
@@ -830,7 +830,7 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
             raise RuntimeError("小红书视频发布超时，未能触发发布成功跳转，请检查敏感词或图片合规")
 
     async def upload(self, playwright: Playwright) -> None:
-        xiaohongshu_logger.info(_msg("🧍", "小人先检查 cookie、视频文件、封面和发布时间"))
+        xiaohongshu_logger.info(_msg("🧍", "小映先检查 cookie、视频文件、封面和发布时间"))
         await self.validate_upload_args()
         xiaohongshu_logger.info(_msg("🥳", "上传前检查通过"))
         browser = await playwright.chromium.launch(headless=self.headless, channel="chromium")
@@ -900,8 +900,8 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
         self.image_paths = normalized_image_paths
 
     async def upload_note_content(self, page: Page) -> None:
-        xiaohongshu_logger.info(_msg("🏃", f"小人开始搬运图文，共 {len(self.image_paths)} 张图片"))
-        xiaohongshu_logger.info(_msg("🧭", "小人正在赶往图文发布页"))
+        xiaohongshu_logger.info(_msg("🏃", f"小映开始搬运图文，共 {len(self.image_paths)} 张图片"))
+        xiaohongshu_logger.info(_msg("🧭", "小映正在赶往图文发布页"))
         publish_url = _build_xhs_creator_url(
             "/publish/publish?from=homepage&target=image"
         )
@@ -913,7 +913,7 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
             upload_input = page.locator("div[class^='upload-content'] input[class='upload-input']").first
 
         await upload_input.wait_for(state="attached", timeout=30000)
-        xiaohongshu_logger.info(_msg("📤", "小人正在上传图片"))
+        xiaohongshu_logger.info(_msg("📤", "小映正在上传图片"))
         await upload_input.set_input_files(self.image_paths)
 
         while True:
@@ -923,10 +923,10 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
                 xiaohongshu_logger.success(_msg("🥳", "图文素材已经传完，可以开始填写内容了"))
                 break
             except Exception:
-                xiaohongshu_logger.debug(_msg("🧍", "图文素材还在上传，小人继续等一会"))
+                xiaohongshu_logger.debug(_msg("🧍", "图文素材还在上传，小映继续等一会"))
                 await asyncio.sleep(1)
 
-        xiaohongshu_logger.info(_msg("✍️", "小人开始填标题、描述和话题"))
+        xiaohongshu_logger.info(_msg("✍️", "小映开始填标题、描述和话题"))
         await self.fill_meta(page)
 
         await self.check_original_declaration(page)
@@ -949,10 +949,10 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
                     XHS_PUBLISH_SUCCESS_URL_PATTERN,
                     timeout=3000
                 )
-                xiaohongshu_logger.success(_msg("🥳", "图文发布成功，小人开心收工"))
+                xiaohongshu_logger.success(_msg("🥳", "图文发布成功，小映开心收工"))
                 break
             except Exception:
-                xiaohongshu_logger.info(_msg("🏃", f"小人正在冲刺发布图文 (第 {pub_attempts}/{max_pub_attempts} 次)"))
+                xiaohongshu_logger.info(_msg("🏃", f"小映正在冲刺发布图文 (第 {pub_attempts}/{max_pub_attempts} 次)"))
                 if self.debug:
                     await page.screenshot(full_page=True)
                 await asyncio.sleep(1)
@@ -961,7 +961,7 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
             raise RuntimeError("小红书图文发布超时，未能触发发布成功跳转，请检查敏感词或图片合规")
 
     async def upload(self, playwright: Playwright) -> None:
-        xiaohongshu_logger.info(_msg("🧍", "小人先检查 cookie、图片和发布时间"))
+        xiaohongshu_logger.info(_msg("🧍", "小映先检查 cookie、图片和发布时间"))
         await self.validate_upload_args()
         xiaohongshu_logger.info(_msg("🥳", "图文上传前检查通过"))
         browser = await playwright.chromium.launch(headless=self.headless, channel="chromium")

@@ -68,6 +68,16 @@
     <div class="matrix-block glass-card">
       <div class="block-head">
         <div class="block-title"><span class="idx">2</span>内容与账号对应表</div>
+        <div class="block-tools">
+          <el-button
+            size="small"
+            class="matrix-view-btn"
+            @click="crossMatrixModalVisible = true"
+          >
+            <el-icon><Grid /></el-icon>
+            <span>全景矩阵透视与微调</span>
+          </el-button>
+        </div>
       </div>
 
       <!-- 下半区：内容与账号对应表（层级表格） -->
@@ -132,6 +142,39 @@
       :selected-targets="activeAccounts"
       @confirm-sync="handleExecuteSyncConfig"
     />
+
+    <!-- 5. 全景矩阵透视与微调大弹窗 -->
+    <el-dialog
+      v-model="crossMatrixModalVisible"
+      title="全景矩阵透视与差异化微调"
+      width="94vw"
+      top="4vh"
+      append-to-body
+      :z-index="2500"
+      :close-on-click-modal="true"
+      :close-on-press-escape="true"
+      class="cross-matrix-dialog"
+    >
+      <div class="cross-matrix-modal-wrap custom-scrollbar">
+        <CrossPublishMatrix
+          :media-list="activeMediaList"
+          :selected-accounts="activeAccounts"
+          :matrix-map="matrixMap"
+          :master-form="masterForm"
+          :rule-config="ruleConfig"
+          :platform-overrides="platformOverrides"
+          @update:matrix-map="onMatrixMapUpdate"
+        />
+      </div>
+      <template #footer>
+        <div class="matrix-dialog-foot">
+          <span class="foot-tip">💡 在上方流水线或透视表中可针对单个视频 × 单个账号独立修改标题、独立定时排期或覆盖参数。所有微调实时生效。</span>
+          <el-button type="primary" @click="crossMatrixModalVisible = false">
+            完成微调并返回
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
 
     <!-- 创建发布计划确认框 -->
     <el-dialog
@@ -203,7 +246,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Promotion, WarningFilled } from '@element-plus/icons-vue'
+import { Promotion, WarningFilled, Grid } from '@element-plus/icons-vue'
 import { useAccountStore } from '../stores/accountStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useAuthStore } from '../stores/authStore'
@@ -233,9 +276,10 @@ const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
 const { createCrossMatrixPublishBatch } = useMatrixPublish()
 
-// ---- 创建确认框状态 ----
+// ---- 创建确认框与矩阵透视弹窗状态 ----
 const batchName = ref('')
 const createConfirmVisible = ref(false)
+const crossMatrixModalVisible = ref(false)
 let confirmResolve: ((v: boolean) => void) | null = null
 
 /**
@@ -860,6 +904,70 @@ onMounted(() => {
 }
 .summary-row.limit-exceeded b {
   color: var(--status-danger) !important;
+}
+
+/* 矩阵弹窗按钮与全景透视弹窗 */
+.matrix-view-btn {
+  background: rgba(64, 158, 255, 0.08);
+  border: 1px solid rgba(64, 158, 255, 0.3);
+  color: var(--el-color-primary, #409eff);
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.matrix-view-btn:hover {
+  background: rgba(64, 158, 255, 0.16);
+  border-color: var(--el-color-primary, #409eff);
+  transform: translateY(-1px);
+}
+
+.cross-matrix-modal-wrap {
+  max-height: 75vh;
+  overflow-y: auto;
+  padding: 4px 6px;
+}
+
+:global(.cross-matrix-dialog) {
+  border-radius: 14px !important;
+  background: var(--bg-card, #1e293b) !important;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1)) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5) !important;
+  overflow: hidden !important;
+}
+
+:global(.cross-matrix-dialog .el-dialog__header) {
+  padding: 16px 20px !important;
+  margin-right: 0 !important;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08)) !important;
+}
+
+:global(.cross-matrix-dialog .el-dialog__title) {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: var(--text-main, #f8fafc) !important;
+}
+
+:global(.cross-matrix-dialog .el-dialog__body) {
+  padding: 16px 20px !important;
+  background: transparent !important;
+}
+
+:global(.cross-matrix-dialog .el-dialog__footer) {
+  padding: 14px 20px !important;
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08)) !important;
+  background: rgba(0, 0, 0, 0.15) !important;
+}
+
+.matrix-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.matrix-dialog-foot .foot-tip {
+  font-size: 12px;
+  color: var(--text-secondary, #909399);
 }
 
 /* 试用版超标警告 */

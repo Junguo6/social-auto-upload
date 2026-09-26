@@ -4,7 +4,7 @@ import { useTaskStore } from '../stores/taskStore'
 import { useAuthStore } from '../stores/authStore'
 import { engine } from '../../wailsjs/go/models'
 import type { MasterForm, PlatformOverrideSetting, SelectedTargetAccount, BatchRuleConfig, MediaItem } from '../types/matrix'
-import { resolveMediaTitle } from '../utils/matrixHelper'
+import { resolveMediaTitle, resolveTemplateString } from '../utils/matrixHelper'
 
 export function useMatrixPublish() {
   const router = useRouter()
@@ -53,7 +53,7 @@ export function useMatrixPublish() {
 
     // 提取视频源文件名用于单视频变量替换
     const videoFileName = masterForm.filePath ? masterForm.filePath.split(/[/\\]/).pop() || '' : ''
-    const singleMedia = { fileName: videoFileName }
+    const singleMedia = { fileName: videoFileName, filePath: masterForm.filePath }
 
     for (const tgt of selectedTargets) {
       const platOv = platformOverrides[tgt.platform]
@@ -73,14 +73,14 @@ export function useMatrixPublish() {
       }
       finalTitle = resolveMediaTitle(finalTitle, singleMedia, 0)
 
-      // 2. 正文文案 (支持 {视频名}、{集数}、{日期} 变量解析)
+      // 2. 正文文案 (支持 {文件夹名}、{视频名}、{集数}、{日期} 变量解析)
       let finalDesc = masterForm.desc
       if (isAccCust && accOv.desc !== undefined && accOv.desc !== '') {
         finalDesc = accOv.desc
       } else if (isPlatCust && platOv.desc !== undefined && platOv.desc !== '') {
         finalDesc = platOv.desc
       }
-      finalDesc = resolveMediaTitle(finalDesc, singleMedia, 0)
+      finalDesc = resolveTemplateString(finalDesc, singleMedia, 0)
 
       // 3. 标签
       let finalTags = masterForm.tags
@@ -111,7 +111,37 @@ export function useMatrixPublish() {
 
       let finalShortTitle = activeExclusive ? activeExclusive.shortTitle : ''
       if (finalShortTitle) {
-        finalShortTitle = resolveMediaTitle(finalShortTitle, singleMedia, 0)
+        finalShortTitle = resolveTemplateString(finalShortTitle, singleMedia, 0)
+      }
+
+      let finalCollection = activeExclusive ? activeExclusive.collection : ''
+      if (finalCollection) {
+        finalCollection = resolveTemplateString(finalCollection, singleMedia, 0)
+      }
+
+      let finalProductTitle = activeExclusive ? activeExclusive.productTitle : ''
+      if (finalProductTitle) {
+        finalProductTitle = resolveTemplateString(finalProductTitle, singleMedia, 0)
+      }
+
+      let finalPlaylist = activeExclusive ? activeExclusive.playlist : ''
+      if (finalPlaylist) {
+        finalPlaylist = resolveTemplateString(finalPlaylist, singleMedia, 0)
+      }
+
+      let finalNote = activeExclusive ? activeExclusive.note : ''
+      if (finalNote) {
+        finalNote = resolveTemplateString(finalNote, singleMedia, 0)
+      }
+
+      let finalLinkTitle = activeExclusive ? activeExclusive.linkTitle : ''
+      if (finalLinkTitle) {
+        finalLinkTitle = resolveTemplateString(finalLinkTitle, singleMedia, 0)
+      }
+
+      let finalActivityName = activeExclusive ? activeExclusive.activityName : ''
+      if (finalActivityName) {
+        finalActivityName = resolveTemplateString(finalActivityName, singleMedia, 0)
       }
 
       const task = engine.AccountPublishTask.createFrom({
@@ -133,19 +163,19 @@ export function useMatrixPublish() {
         draft: activeExclusive ? activeExclusive.draft : false,
         schedule: finalSchedule,
         declaration: activeExclusive ? activeExclusive.declaration : '',
-        collection: activeExclusive ? activeExclusive.collection : '',
+        collection: finalCollection,
         productLink: activeExclusive ? activeExclusive.productLink : '',
-        productTitle: activeExclusive ? activeExclusive.productTitle : '',
+        productTitle: finalProductTitle,
         visibility: activeExclusive ? activeExclusive.visibility : '0',
-        playlist: activeExclusive ? activeExclusive.playlist : '',
+        playlist: finalPlaylist,
         bgm: activeExclusive ? activeExclusive.bgm : '',
-        note: activeExclusive ? activeExclusive.note : '',
+        note: finalNote,
         notef: activeExclusive ? activeExclusive.notef : '',
         location: activeExclusive ? (activeExclusive.location || 'auto') : 'auto',
         linkType: activeExclusive ? (activeExclusive.linkType || 'none') : 'none',
         linkUrl: activeExclusive ? (activeExclusive.linkUrl || '') : '',
-        linkTitle: activeExclusive ? (activeExclusive.linkTitle || '') : '',
-        activityName: activeExclusive ? (activeExclusive.activityName || '') : '',
+        linkTitle: finalLinkTitle,
+        activityName: finalActivityName,
         headless: isHeadless
       })
 
@@ -306,7 +336,37 @@ export function useMatrixPublish() {
 
         let finalShortTitle = activeExclusive ? activeExclusive.shortTitle : (ov.shortTitle || '')
         if (finalShortTitle) {
-          finalShortTitle = resolveMediaTitle(finalShortTitle, media, mIdx, ruleConfig)
+          finalShortTitle = resolveTemplateString(finalShortTitle, media, mIdx, ruleConfig)
+        }
+
+        let finalCollection = activeExclusive ? activeExclusive.collection : (ov.collection || '')
+        if (finalCollection) {
+          finalCollection = resolveTemplateString(finalCollection, media, mIdx, ruleConfig)
+        }
+
+        let finalProductTitle = activeExclusive ? activeExclusive.productTitle : (ov.productTitle || '')
+        if (finalProductTitle) {
+          finalProductTitle = resolveTemplateString(finalProductTitle, media, mIdx, ruleConfig)
+        }
+
+        let finalPlaylist = activeExclusive ? activeExclusive.playlist : (ov.playlist || '')
+        if (finalPlaylist) {
+          finalPlaylist = resolveTemplateString(finalPlaylist, media, mIdx, ruleConfig)
+        }
+
+        let finalNote = activeExclusive ? activeExclusive.note : (ov.note || '')
+        if (finalNote) {
+          finalNote = resolveTemplateString(finalNote, media, mIdx, ruleConfig)
+        }
+
+        let finalLinkTitle = activeExclusive ? activeExclusive.linkTitle : (ov.linkTitle || '')
+        if (finalLinkTitle) {
+          finalLinkTitle = resolveTemplateString(finalLinkTitle, media, mIdx, ruleConfig)
+        }
+
+        let finalActivityName = activeExclusive ? activeExclusive.activityName : (ov.activityName || '')
+        if (finalActivityName) {
+          finalActivityName = resolveTemplateString(finalActivityName, media, mIdx, ruleConfig)
         }
 
         const task = engine.AccountPublishTask.createFrom({
@@ -328,19 +388,19 @@ export function useMatrixPublish() {
           draft: activeExclusive ? activeExclusive.draft : (ov.draft || false),
           schedule: finalSchedule,
           declaration: activeExclusive ? activeExclusive.declaration : (ov.declaration || ''),
-          collection: activeExclusive ? activeExclusive.collection : (ov.collection || ''),
+          collection: finalCollection,
           productLink: activeExclusive ? activeExclusive.productLink : (ov.productLink || ''),
-          productTitle: activeExclusive ? activeExclusive.productTitle : (ov.productTitle || ''),
+          productTitle: finalProductTitle,
           visibility: activeExclusive ? activeExclusive.visibility : (ov.visibility || 'public'),
-          playlist: activeExclusive ? activeExclusive.playlist : (ov.playlist || ''),
+          playlist: finalPlaylist,
           bgm: activeExclusive ? activeExclusive.bgm : (ov.bgm || ''),
-          note: activeExclusive ? activeExclusive.note : (ov.note || ''),
+          note: finalNote,
           notef: activeExclusive ? activeExclusive.notef : (ov.notef || ''),
           location: activeExclusive ? (activeExclusive.location || 'auto') : (ov.location || 'auto'),
           linkType: activeExclusive ? (activeExclusive.linkType || 'none') : (ov.linkType || 'none'),
           linkUrl: activeExclusive ? (activeExclusive.linkUrl || '') : (ov.linkUrl || ''),
-          linkTitle: activeExclusive ? (activeExclusive.linkTitle || '') : (ov.linkTitle || ''),
-          activityName: activeExclusive ? (activeExclusive.activityName || '') : (ov.activityName || ''),
+          linkTitle: finalLinkTitle,
+          activityName: finalActivityName,
           headless: isHeadless
         })
 

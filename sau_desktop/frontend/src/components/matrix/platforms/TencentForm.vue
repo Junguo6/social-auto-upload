@@ -9,29 +9,28 @@
             v-model="override.desc"
             type="textarea"
             :rows="4"
-            placeholder="添加描述"
+            placeholder="添加描述，支持插入 {文件夹名}、{视频名}、{集数} 等变量"
             maxlength="1000"
             show-word-limit
             class="wechat-textarea"
           />
           <div class="desc-action-bar">
-            <div class="var-insert-group">
-              <span class="action-caption">变量:</span>
-              <span class="action-link" @click="insertVar('{视频名}')">{视频名}</span>
-              <span class="action-link" @click="insertVar('{集数}')">{集数}</span>
-              <span class="action-link" @click="insertVar('{日期}')">{日期}</span>
-              <span
-                v-if="ruleConfig"
-                class="action-rule-btn"
-                @click="showEpisodeRule = !showEpisodeRule"
-              >
-                {{ showEpisodeRule ? '收起规则' : '分集规则' }}
-              </span>
-            </div>
-
+            <VariableChips
+              :current-value="override.desc"
+              :rule-config="ruleConfig"
+              @insert="insertVarToDesc"
+            />
             <div class="tag-insert-group">
               <button type="button" class="wechat-tag-pill" @click="addHashTag">
                 #话题
+              </button>
+              <button
+                v-if="ruleConfig"
+                type="button"
+                class="wechat-tag-pill ep-rule-pill"
+                @click="showEpisodeRule = !showEpisodeRule"
+              >
+                {{ showEpisodeRule ? '收起分集规则' : ' 分集规则' }}
               </button>
             </div>
           </div>
@@ -39,17 +38,17 @@
 
         <!-- 轻量分集规则面板 -->
         <el-collapse-transition>
-          <div v-show="showEpisodeRule && ruleConfig" class="episode-mini-panel">
+          <div v-if="showEpisodeRule" class="episode-mini-panel">
             <div class="mini-rule-row">
               <span class="mini-label">模式:</span>
-              <el-select v-model="ruleConfig!.episodeMode" size="small" style="width: 130px">
+              <el-select v-model="safeRuleConfig.episodeMode" size="small" style="width: 130px">
                 <el-option label="智能提取文件名" value="auto" />
                 <el-option label="强制递增编号" value="sequence" />
               </el-select>
 
               <span class="mini-label">起始:</span>
               <el-input-number
-                v-model="ruleConfig!.startEpisode"
+                v-model="safeRuleConfig.startEpisode"
                 :min="1"
                 :max="9999"
                 size="small"
@@ -58,7 +57,7 @@
 
               <span class="mini-label">步长:</span>
               <el-input-number
-                v-model="ruleConfig!.episodeStep"
+                v-model="safeRuleConfig.episodeStep"
                 :min="1"
                 :max="10"
                 size="small"
@@ -80,10 +79,15 @@
       <div class="row-content">
         <el-input
           v-model="override.shortTitle"
-          placeholder="填写短标题有机会获得更多流量"
-          maxlength="20"
+          placeholder="填写短标题（支持变量，如：{文件夹名} 第{集数}集）"
+          maxlength="30"
           clearable
           class="wechat-input"
+        />
+        <VariableChips
+          :current-value="override.shortTitle"
+          :rule-config="ruleConfig"
+          @insert="insertVarToShortTitle"
         />
       </div>
     </div>
@@ -109,9 +113,14 @@
       <div class="row-content">
         <el-input
           v-model="override.collection"
-          placeholder="选择或输入合集名称"
+          placeholder="选择或输入合集名称（支持变量，如：{文件夹名}）"
           clearable
           class="wechat-input"
+        />
+        <VariableChips
+          :current-value="override.collection"
+          :rule-config="ruleConfig"
+          @insert="insertVarToCollection"
         />
       </div>
     </div>
@@ -149,12 +158,18 @@
             <div class="component-choose-box" @click="openLinkDialog">
               <span v-if="override.linkTitle" class="selected-text">{{ override.linkTitle }}</span>
               <span v-else class="placeholder-text">
-                {{ currentLinkType === 'series' ? '选择需要添加的视频号剧集' : '选择需要添加的小程序短剧' }}
+                {{ currentLinkType === 'series' ? '选择或设置关联的视频号剧集名称' : '选择或设置关联的小程序短剧名称' }}
               </span>
               <el-button size="small" type="primary" link>
-                {{ override.linkTitle ? '修改' : '选择' }}
+                {{ override.linkTitle ? '修改' : '设置' }}
               </el-button>
             </div>
+            <VariableChips
+              v-if="override.linkTitle"
+              :current-value="override.linkTitle"
+              :rule-config="ruleConfig"
+              @insert="insertVarToLinkTitleDirect"
+            />
           </div>
         </div>
       </div>
@@ -179,9 +194,14 @@
           <div v-if="currentActivityMode === 'search'" class="activity-sub-input">
             <el-input
               v-model="override.activityName"
-              placeholder="输入要参与的活动名称搜索（如：微信创作者激励计划）"
+              placeholder="输入活动名搜索（支持变量，如：{文件夹名}激励计划）"
               clearable
               class="wechat-input"
+            />
+            <VariableChips
+              :current-value="override.activityName"
+              :rule-config="ruleConfig"
+              @insert="insertVarToActivity"
             />
           </div>
         </div>
@@ -240,19 +260,24 @@
     <!-- 剧集 / 短剧选择弹窗 -->
     <el-dialog
       v-model="showLinkDialog"
-      :title="currentLinkType === 'series' ? '选择需要关联的视频号剧集' : '选择需要关联的小程序短剧'"
-      width="480px"
+      :title="currentLinkType === 'series' ? '设置需要关联的视频号剧集' : '设置需要关联的小程序短剧'"
+      width="520px"
       append-to-body
       destroy-on-close
       class="wechat-dialog"
     >
-      <div class="dialog-tip">内容需与视频内容相关，不相关将减少推荐</div>
+      <div class="dialog-tip">内容需与视频内容相关，支持直接输入名称或插入变量（如 {文件夹名}）</div>
       <div class="dialog-body">
         <el-input
           v-model="tempDialogKeyword"
-          :placeholder="currentLinkType === 'series' ? '输入视频号剧集名称或关键字' : '输入小程序短剧名称或关键字'"
+          :placeholder="currentLinkType === 'series' ? '输入剧集名称（支持变量，如：{文件夹名}）' : '输入短剧名称（支持变量）'"
           clearable
           @keyup.enter="confirmLinkSelect"
+        />
+        <VariableChips
+          :current-value="tempDialogKeyword"
+          :rule-config="ruleConfig"
+          @insert="insertVarToLinkKeyword"
         />
       </div>
       <template #footer>
@@ -270,14 +295,27 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { SelectLocalFile } from '../../../../wailsjs/go/main/App'
 import type { PlatformOverrideSetting, BatchRuleConfig } from '../../../types/matrix'
+import VariableChips from '../VariableChips.vue'
 
 const props = defineProps<{
   override: PlatformOverrideSetting
   ruleConfig?: BatchRuleConfig
 }>()
 
+const defaultRuleConfig: BatchRuleConfig = {
+  titleTemplate: '{视频名}',
+  episodeMode: 'auto',
+  startEpisode: 1,
+  episodeStep: 1,
+  padZero: false,
+  scheduleType: 'immediate',
+  startScheduleTime: '',
+  intervalMinutes: 30
+}
+const safeRuleConfig = computed(() => props.ruleConfig || defaultRuleConfig)
+
 // 默认按平台定位
-if (!props.override.location) {
+if (props.override && !props.override.location) {
   props.override.location = 'auto'
 }
 
@@ -330,13 +368,35 @@ function handleActivityModeChange(val: string) {
   }
 }
 
-function insertVar(varStr: string) {
+// 变量插入辅助函数
+function insertVarToDesc(v: string) {
   const current = props.override.desc || ''
-  if (!current) {
-    props.override.desc = varStr
-  } else if (!current.includes(varStr)) {
-    props.override.desc = `${current} ${varStr}`
-  }
+  props.override.desc = current ? `${current} ${v}` : v
+}
+
+function insertVarToShortTitle(v: string) {
+  const current = props.override.shortTitle || ''
+  props.override.shortTitle = current ? `${current}${v}` : v
+}
+
+function insertVarToCollection(v: string) {
+  const current = props.override.collection || ''
+  props.override.collection = current ? `${current}${v}` : v
+}
+
+function insertVarToActivity(v: string) {
+  const current = props.override.activityName || ''
+  props.override.activityName = current ? `${current}${v}` : v
+}
+
+function insertVarToLinkKeyword(v: string) {
+  const current = tempDialogKeyword.value || ''
+  tempDialogKeyword.value = current ? `${current}${v}` : v
+}
+
+function insertVarToLinkTitleDirect(v: string) {
+  const current = props.override.linkTitle || ''
+  props.override.linkTitle = current ? `${current}${v}` : v
 }
 
 function addHashTag() {

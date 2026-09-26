@@ -106,22 +106,85 @@ export function resolveEpisodeNumber(
   return String(epNum)
 }
 
+export interface AvailableVariable {
+  key: string
+  label: string
+  desc: string
+}
+
+export const AVAILABLE_VARIABLES: AvailableVariable[] = [
+  { key: '{文件夹名}', label: '文件夹名', desc: '上级文件夹名 (如剧名)' },
+  { key: '{视频名}', label: '视频名', desc: '去后缀的文件名' },
+  { key: '{集数}', label: '集数', desc: '智能提取/自增集数' },
+  { key: '{序号}', label: '序号', desc: '视频在列表中的顺序 (1, 2...)' },
+  { key: '{日期}', label: '日期', desc: '当前日期 (YYYY-MM-DD)' },
+  { key: '{时间}', label: '时间', desc: '当前时间 (HH:mm)' },
+  { key: '{根目录}', label: '根目录', desc: '素材库第一级根目录名' },
+]
+
+/**
+ * 从媒体对象中提取父级文件夹名与根目录名
+ */
+export function extractFolderNames(media: { folderCrumbs?: string[]; filePath?: string }): { folderName: string; rootFolder: string } {
+  if (media.folderCrumbs && media.folderCrumbs.length > 0) {
+    const folderName = media.folderCrumbs[media.folderCrumbs.length - 1] || ''
+    const rootFolder = media.folderCrumbs[0] || ''
+    return { folderName, rootFolder }
+  }
+
+  if (media.filePath) {
+    const parts = media.filePath.replace(/\\/g, '/').split('/').filter(Boolean)
+    if (parts.length >= 2) {
+      const folderName = parts[parts.length - 2] || ''
+      const rootFolder = parts[0] || ''
+      return { folderName, rootFolder }
+    }
+  }
+
+  return { folderName: '默认目录', rootFolder: '素材库' }
+}
+
+/**
+ * 统一模板字符串变量解析器 (支持标题、描述、短标题、合集、剧集、活动等)
+ */
+export function resolveTemplateString(
+  template: string,
+  media: { parsedEpisode?: number; fileName?: string; filePath?: string; folderCrumbs?: string[] },
+  mediaIndex: number = 0,
+  ruleConfig?: Partial<BatchRuleConfig>
+): string {
+  if (!template) return ''
+
+  const fileName = media.fileName || (media.filePath ? media.filePath.split(/[/\\]/).pop() || '' : '视频')
+  const epStr = resolveEpisodeNumber({ parsedEpisode: media.parsedEpisode, fileName }, mediaIndex, ruleConfig)
+  const baseName = fileName.replace(/\.[^/.]+$/, '')
+  const { folderName, rootFolder } = extractFolderNames(media)
+  
+  const now = new Date()
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const orderNumStr = String(mediaIndex + 1)
+
+  return template
+    .replace(/\{文件夹名\}/g, folderName)
+    .replace(/\{上级目录\}/g, folderName)
+    .replace(/\{根目录\}/g, rootFolder)
+    .replace(/\{视频名\}/g, baseName)
+    .replace(/\{集数\}/g, epStr)
+    .replace(/\{序号\}/g, orderNumStr)
+    .replace(/\{日期\}/g, todayStr)
+    .replace(/\{时间\}/g, timeStr)
+}
+
 /**
  * 统一根据规则生成视频的最终主标题
  */
 export function resolveMediaTitle(
   template: string,
-  media: { parsedEpisode?: number; fileName: string },
-  mediaIndex: number,
+  media: { parsedEpisode?: number; fileName: string; filePath?: string; folderCrumbs?: string[] },
+  mediaIndex: number = 0,
   ruleConfig?: Partial<BatchRuleConfig>
 ): string {
   const tpl = template.trim() || media.fileName
-  const epStr = resolveEpisodeNumber(media, mediaIndex, ruleConfig)
-  const baseName = media.fileName.replace(/\.[^/.]+$/, '')
-  const todayStr = new Date().toISOString().split('T')[0]
-
-  return tpl
-    .replace(/\{集数\}/g, epStr)
-    .replace(/\{视频名\}/g, baseName)
-    .replace(/\{日期\}/g, todayStr)
+  return resolveTemplateString(tpl, media, mediaIndex, ruleConfig)
 }

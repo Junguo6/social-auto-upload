@@ -317,6 +317,7 @@
     <CellConfigDrawer
       v-model="drawerVisible"
       :cell-data="activeCellData"
+      :rule-config="ruleConfig"
       @open-sync="$emit('open-sync', activeCellData)"
     />
   </div>
@@ -334,13 +335,36 @@ const getMediaEpisodeText = (media: MediaItem, mediaIndex: number): string => {
   return resolveEpisodeNumber(media, mediaIndex, props.ruleConfig)
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   mediaList: MediaItem[]
   selectedAccounts: Array<{ platform: string; account: string; nickname?: string; isValid?: boolean }>
   matrixMap: Record<string, Record<string, MatrixCellConfig>>
-  masterForm: MasterForm
-  ruleConfig: BatchRuleConfig
-}>()
+  masterForm?: Partial<MasterForm>
+  ruleConfig?: Partial<BatchRuleConfig>
+  platformOverrides?: Record<string, any>
+}>(), {
+  masterForm: () => ({
+    action: 'upload-video',
+    filePath: '',
+    images: [],
+    title: '{视频名}',
+    desc: '',
+    tags: '',
+    thumbnail: '',
+    schedule: ''
+  }),
+  ruleConfig: () => ({
+    titleTemplate: '{视频名}',
+    episodeMode: 'auto',
+    startEpisode: 1,
+    episodeStep: 1,
+    padZero: false,
+    scheduleType: 'immediate',
+    startScheduleTime: '',
+    intervalMinutes: 30
+  }),
+  platformOverrides: () => ({})
+})
 
 const emit = defineEmits<{
   (e: 'update:matrixMap', map: Record<string, Record<string, MatrixCellConfig>>): void
@@ -386,54 +410,60 @@ const pagedAccounts = computed(() => {
 const drawerVisible = ref(false)
 const activeCellData = ref<CellDataWrap | null>(null)
 
-// 获取或初始化单元格配置
+// 生成默认空单元格配置 (未分配/未激活)
+const createBlankCell = (acc: { platform: string; account: string }): MatrixCellConfig => ({
+  enabled: false,
+  scheduleMode: 'inherit',
+  isCustomized: false,
+  override: {
+    isCustomized: false,
+    title: '',
+    desc: '',
+    tags: '',
+    thumbnail: '',
+    thumbnailLandscape: '',
+    thumbnailPortrait: '',
+    tid: acc.platform === 'bilibili' ? 230 : 0,
+    shortTitle: '',
+    category: '',
+    draft: false,
+    schedule: '',
+    declaration: '',
+    collection: '',
+    productLink: '',
+    productTitle: '',
+    visibility: 'public',
+    playlist: '',
+    bgm: '',
+    note: '',
+    notef: ''
+  }
+})
+
+// 获取单元格配置 (纯只读查询，绝不擅自篡改 props.matrixMap 避免污染外层对应关系)
 const getCell = (mediaId: string, acc: { platform: string; account: string }): MatrixCellConfig => {
   const accKey = `${acc.platform}:${acc.account}`
-  if (!props.matrixMap[mediaId]) {
-    props.matrixMap[mediaId] = {}
+  const existing = props.matrixMap[mediaId]?.[accKey]
+  if (existing) {
+    return existing
   }
-  if (!props.matrixMap[mediaId][accKey]) {
-    props.matrixMap[mediaId][accKey] = {
-      enabled: true,
-      scheduleMode: 'inherit',
-      isCustomized: false,
-      override: {
-        isCustomized: false,
-        title: '',
-        desc: '',
-        tags: '',
-        thumbnail: '',
-        thumbnailLandscape: '',
-        thumbnailPortrait: '',
-        tid: acc.platform === 'bilibili' ? 230 : 0,
-        shortTitle: '',
-        category: '',
-        draft: false,
-        schedule: '',
-        declaration: '',
-        collection: '',
-        productLink: '',
-        productTitle: '',
-        visibility: 'public',
-        playlist: '',
-        bgm: '',
-        note: '',
-        notef: ''
-      }
-    }
-  }
-  return props.matrixMap[mediaId][accKey]
+  return createBlankCell(acc)
 }
 
 // 解析通用标题模板
 const resolveTitleTemplate = (media: MediaItem, mediaIndex: number): string => {
-  return resolveMediaTitle(props.masterForm.title, media, mediaIndex, props.ruleConfig)
+  const tpl = props.masterForm?.title || '{视频名}'
+  return resolveMediaTitle(tpl, media, mediaIndex, props.ruleConfig)
 }
 
-// 解析单元格最终标题
+// 解析单元格最终标题 (单元格定制 -> 平台定制 -> 全局模板)
 const resolveCellTitle = (media: MediaItem, acc: { platform: string; account: string }, mediaIndex: number): string => {
   const cell = getCell(media.id, acc)
   if (cell.customTitle) return cell.customTitle
+  const platOv = props.platformOverrides?.[acc.platform]
+  if (platOv?.title?.trim()) {
+    return resolveMediaTitle(platOv.title, media, mediaIndex, props.ruleConfig)
+  }
   return resolveTitleTemplate(media, mediaIndex)
 }
 
@@ -464,7 +494,7 @@ const getCellStatusText = (mediaId: string, acc: { platform: string; account: st
     }
     return `递增+${mediaIndex * (props.ruleConfig.intervalMinutes || 30)}m`
   }
-  if (props.masterForm.schedule) {
+  if (props.masterForm?.schedule) {
     return props.masterForm.schedule.substring(5)
   }
   return '立即发布'
@@ -479,29 +509,78 @@ const getCellStatusClass = (mediaId: string, acc: { platform: string; account: s
   return 'status-immediate'
 }
 
-// 流水线视图：切换单渠道开关
+// 流水线视图：切换单渠道开关 (显式更新 matrixMap)
 const toggleCellEnabled = (mediaId: string, acc: { platform: string; account: string }) => {
-  const cell = getCell(mediaId, acc)
-  cell.enabled = !cell.enabled
+  const accKey = `${acc.platform}:${acc.account}`
+  const currentCell = getCell(mediaId, acc)
+  const nextMap: Record<string, Record<string, MatrixCellConfig>> = { ...props.matrixMap }
+  if (!nextMap[mediaId]) {
+    nextMap[mediaId] = {}
+  } else {
+    nextMap[mediaId] = { ...nextMap[mediaId] }
+  }
+  nextMap[mediaId][accKey] = {
+    ...currentCell,
+    enabled: !currentCell.enabled
+  }
+  emit('update:matrixMap', nextMap)
 }
 
 // 流水线视图：对某视频全部渠道启用
 const enableAllChannelsForMedia = (mediaId: string) => {
+  const nextMap: Record<string, Record<string, MatrixCellConfig>> = { ...props.matrixMap }
+  if (!nextMap[mediaId]) {
+    nextMap[mediaId] = {}
+  } else {
+    nextMap[mediaId] = { ...nextMap[mediaId] }
+  }
   props.selectedAccounts.forEach(acc => {
-    getCell(mediaId, acc).enabled = true
+    const accKey = `${acc.platform}:${acc.account}`
+    const currentCell = getCell(mediaId, acc)
+    nextMap[mediaId][accKey] = {
+      ...currentCell,
+      enabled: true
+    }
   })
+  emit('update:matrixMap', nextMap)
 }
 
 // 流水线视图：对某视频全部渠道暂停
 const disableAllChannelsForMedia = (mediaId: string) => {
+  const nextMap: Record<string, Record<string, MatrixCellConfig>> = { ...props.matrixMap }
+  if (!nextMap[mediaId]) {
+    nextMap[mediaId] = {}
+  } else {
+    nextMap[mediaId] = { ...nextMap[mediaId] }
+  }
   props.selectedAccounts.forEach(acc => {
-    getCell(mediaId, acc).enabled = false
+    const accKey = `${acc.platform}:${acc.account}`
+    const currentCell = getCell(mediaId, acc)
+    nextMap[mediaId][accKey] = {
+      ...currentCell,
+      enabled: false
+    }
   })
+  emit('update:matrixMap', nextMap)
 }
 
 // 打开微调抽屉
 const handleOpenDrawer = (media: MediaItem, acc: { platform: string; account: string; nickname?: string }) => {
-  const cell = getCell(media.id, acc)
+  const accKey = `${acc.platform}:${acc.account}`
+  let cell = props.matrixMap[media.id]?.[accKey]
+  if (!cell) {
+    // 首次对未分配渠道进行微调时，生成并激活单元格写入 matrixMap
+    cell = {
+      ...createBlankCell(acc),
+      enabled: true
+    }
+    const nextMap = { ...props.matrixMap }
+    if (!nextMap[media.id]) nextMap[media.id] = {}
+    else nextMap[media.id] = { ...nextMap[media.id] }
+    nextMap[media.id][accKey] = cell
+    emit('update:matrixMap', nextMap)
+  }
+
   const mIdx = props.mediaList.findIndex(m => m.id === media.id)
   activeCellData.value = {
     mediaId: media.id,
@@ -511,8 +590,8 @@ const handleOpenDrawer = (media: MediaItem, acc: { platform: string; account: st
     nickname: acc.nickname,
     cell,
     inheritedTitle: resolveTitleTemplate(media, mIdx >= 0 ? mIdx : 0),
-    inheritedDesc: props.masterForm.desc,
-    inheritedTags: props.masterForm.tags,
+    inheritedDesc: props.masterForm?.desc || '',
+    inheritedTags: props.masterForm?.tags || '',
     inheritedSchedule: getCellStatusText(media.id, acc, mIdx >= 0 ? mIdx : 0)
   }
   drawerVisible.value = true

@@ -54,21 +54,31 @@
                   <span
                     v-for="{ acc, order } in visibleAccountsOfWithIndex(g)"
                     :key="acc.key"
-                    class="acct"
+                    class="acct interactive"
                     :class="{ auto: isAutoMatchedGroup(g, acc.key) }"
-                    :title="`点击移除（该文件夹下全部视频）· 覆盖 ${acc.count} 个视频`"
-                    @click="removeAssignFromGroup(g.key, acc.key)"
+                    title="点击更换指定账号"
+                    @click.stop="openGroupPicker(g.key)"
                   >
                     <span class="av" :style="{ background: platformMeta(acc.platform).color }">
                       {{ platformMeta(acc.platform).short }}
                     </span>
                     <span class="chip-order">{{ order }}</span>{{ acc.name }}
+                    <el-icon
+                      class="chip-close-icon"
+                      title="移除此账号"
+                      @click.stop="removeAssignFromGroup(g.key, acc.key)"
+                    >
+                      <Close />
+                    </el-icon>
                   </span>
                   <span v-if="g.accountList.length > MAX_VISIBLE_ACCTS" class="acct more">
                     +{{ g.accountList.length - MAX_VISIBLE_ACCTS }}
                   </span>
                   <span v-if="g.accountList.length === 0" class="acct empty" @click="openGroupPicker(g.key)">
                     + 点击指定账号
+                  </span>
+                  <span v-else class="acct edit-btn" title="更换或增减指定账号" @click="openGroupPicker(g.key)">
+                    ✎ 更换
                   </span>
                 </div>
               </td>
@@ -127,17 +137,27 @@
                   <span
                     v-for="key in getAssigned(r.id)"
                     :key="key"
-                    class="acct"
+                    class="acct interactive"
                     :class="{ auto: autoMatchedIds.includes(r.id + '|' + key) }"
-                    title="点击移除"
-                    @click.stop="removeAssign(r.id, key)"
+                    title="点击更换指定账号"
+                    @click.stop="openPicker(r.id)"
                   >
                     <span class="av" :style="{ background: platformMeta(key.split(':')[0]).color }">
                       {{ platformMeta(key.split(':')[0]).short }}
                     </span>{{ getAccountName(key) }}
+                    <el-icon
+                      class="chip-close-icon"
+                      title="移除此账号"
+                      @click.stop="removeAssign(r.id, key)"
+                    >
+                      <Close />
+                    </el-icon>
                   </span>
                   <span v-if="getAssigned(r.id).length === 0" class="acct empty" @click.stop="openPicker(r.id)">
                     + 指定账号
+                  </span>
+                  <span v-else class="acct edit-btn" title="更换或增减指定账号" @click.stop="openPicker(r.id)">
+                    ✎ 更换
                   </span>
                 </div>
               </td>
@@ -157,7 +177,16 @@
     </div><!-- /views-panel -->
 
     <!-- 指定账号弹窗 -->
-    <el-dialog v-model="pickerVisible" title="指定发布账号" width="420px">
+    <el-dialog
+      v-model="pickerVisible"
+      title="指定发布账号"
+      width="440px"
+      append-to-body
+      :z-index="2800"
+      :close-on-click-modal="true"
+      align-center
+      class="account-picker-dialog"
+    >
       <div class="picker-list">
         <div
           v-for="acc in selectedAccounts"
@@ -776,10 +805,11 @@ tbody tr.group-row:hover td { background: rgba(99, 102, 241, 0.07); }
 .acct.empty { border-style: dashed; color: var(--text-muted); }
 .acct.empty:hover { border-color: var(--primary-color); color: var(--primary-color); }
 
-.picker-list { display: flex; flex-direction: column; gap: 7px; }
-.picker-item { display: flex; justify-content: space-between; padding: 9px 12px; border: 1px solid var(--border-subtle); border-radius: 8px; cursor: pointer; font-size: 13px; }
-.picker-item.on { border-color: var(--primary-color); background: rgba(99, 102, 241, 0.1); }
-.picker-item .plat { font-size: 11px; color: var(--text-muted); }
+:global(.account-picker-dialog .picker-list) { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+:global(.account-picker-dialog .picker-item) { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border: 1px solid var(--border-subtle); border-radius: 8px; cursor: pointer; font-size: 13px; transition: all 0.2s ease; }
+:global(.account-picker-dialog .picker-item:hover) { border-color: var(--primary-color); background: rgba(99, 102, 241, 0.05); }
+:global(.account-picker-dialog .picker-item.on) { border-color: var(--primary-color); background: rgba(99, 102, 241, 0.12); font-weight: 600; }
+:global(.account-picker-dialog .picker-item .plat) { font-size: 11px; color: var(--text-muted); }
 
 /* 视角面板：页签 + 内容（同一外框） */
 .views-panel {
@@ -953,8 +983,42 @@ tbody tr.group-row:hover td { background: rgba(99, 102, 241, 0.07); }
   font-size: 9px; color: #fff; font-weight: 600; margin-right: 4px; flex: 0 0 auto;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22); /* 深色主题：保证抖音黑色头像有可见轮廓 */
 }
+.acct.interactive {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.acct.interactive:hover {
+  border-color: var(--primary-color);
+  background: rgba(99, 102, 241, 0.12);
+}
+.chip-close-icon {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-radius: 50%;
+  padding: 1px;
+  transition: all 0.15s ease;
+}
+.chip-close-icon:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
 .acct.more { border-style: dashed; color: var(--text-muted); background: transparent; cursor: default; }
 .acct.more:hover { border-color: var(--border-subtle); }
+.acct.edit-btn {
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: var(--primary-color, #6366f1);
+  background: rgba(99, 102, 241, 0.08);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+.acct.edit-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--primary-color, #6366f1);
+  transform: translateY(-1px);
+}
 .acct .d { display: none; }
 
 /* ===== 状态徽标 ===== */

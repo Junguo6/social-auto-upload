@@ -1,45 +1,39 @@
 <template>
-  <el-dialog
-    v-model="visible"
-    :width="isFullscreen ? '100vw' : '1180px'"
-    :fullscreen="isFullscreen"
-    top="4vh"
-    align-center
-    append-to-body
-    :before-close="handleBeforeClose"
-    destroy-on-close
-    class="cell-config-global-dialog"
-  >
-    <!-- 全局自适应高质感标题栏 -->
-    <template #header>
-      <div class="dialog-custom-header" v-if="cellData">
-        <div class="header-left">
-          <span class="plat-pill" :style="{ background: getPlatformColor(cellData.platform) }">
-            {{ getPlatformName(cellData.platform) }}
-          </span>
-          <span class="header-title">全局发布微调 · @{{ cellData.nickname || cellData.account }}</span>
-          <el-tag :type="cellData.cell.enabled ? 'success' : 'info'" size="small" class="status-tag">
-            {{ cellData.cell.enabled ? '已激活本通道' : '跳过不发布' }}
-          </el-tag>
-        </div>
-        <div class="header-right">
-          <div class="banner-media-info">
-            <el-icon class="media-icon"><Film /></el-icon>
-            <span class="media-name" :title="cellData.mediaName">{{ cellData.mediaName }}</span>
+  <Teleport to="body">
+    <transition name="slide-panel">
+      <div v-if="visible && cellData" class="cell-config-drawer-overlay" @click.self="handleCancel">
+        <div class="cell-config-slide-panel" :class="{ fullscreen: isFullscreen }">
+          <!-- 顶部自适应高质感标题栏 -->
+          <div class="panel-custom-header">
+            <div class="header-left">
+              <span class="plat-pill" :style="{ background: getPlatformColor(cellData.platform) }">
+                {{ getPlatformName(cellData.platform) }}
+              </span>
+              <span class="header-title">发布微调 · @{{ cellData.nickname || cellData.account }}</span>
+              <el-tag :type="cellData.cell.enabled ? 'success' : 'info'" size="small" class="status-tag">
+                {{ cellData.cell.enabled ? '已激活本通道' : '跳过不发布' }}
+              </el-tag>
+            </div>
+            <div class="header-right">
+              <div class="banner-media-info">
+                <el-icon class="media-icon"><Film /></el-icon>
+                <span class="media-name" :title="cellData.mediaName">{{ cellData.mediaName }}</span>
+              </div>
+              <el-tooltip :content="isFullscreen ? '退出全屏' : '全屏展开'" placement="bottom">
+                <el-button
+                  circle
+                  size="small"
+                  class="fullscreen-toggle-btn"
+                  @click="isFullscreen = !isFullscreen"
+                >
+                  <el-icon><FullScreen /></el-icon>
+                </el-button>
+              </el-tooltip>
+              <button class="panel-close-btn" @click="handleCancel" title="关闭">
+                <el-icon><Close /></el-icon>
+              </button>
+            </div>
           </div>
-          <el-tooltip :content="isFullscreen ? '退出全屏' : '全屏展开'" placement="bottom">
-            <el-button
-              circle
-              size="small"
-              class="fullscreen-toggle-btn"
-              @click="isFullscreen = !isFullscreen"
-            >
-              <el-icon><FullScreen /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </div>
-      </div>
-    </template>
 
     <!-- 双栏开阔全局工作台 (彻底告别单列抽屉狭小局促感) -->
     <div v-if="cellData" class="dialog-body custom-scrollbar">
@@ -182,39 +176,41 @@
             </div>
 
             <div class="platform-form-wrapper">
-              <TencentForm v-if="cellData.platform === 'tencent'" :override="cellData.cell.override" />
-              <BilibiliForm v-else-if="cellData.platform === 'bilibili'" :override="cellData.cell.override" />
-              <DouyinForm v-else-if="cellData.platform === 'douyin'" :override="cellData.cell.override" />
-              <XiaohongshuForm v-else-if="cellData.platform === 'xiaohongshu'" :override="cellData.cell.override" />
-              <GenericForm v-else :override="cellData.cell.override" />
+              <TencentForm v-if="cellData.platform === 'tencent' || cellData.platform === 'wechat'" :override="cellData.cell.override" :rule-config="ruleConfig" />
+              <BilibiliForm v-else-if="cellData.platform === 'bilibili'" :override="cellData.cell.override" :rule-config="ruleConfig" />
+              <DouyinForm v-else-if="cellData.platform === 'douyin'" :override="cellData.cell.override" :rule-config="ruleConfig" />
+              <XiaohongshuForm v-else-if="cellData.platform === 'xiaohongshu'" :override="cellData.cell.override" :rule-config="ruleConfig" />
+              <GenericForm v-else :override="cellData.cell.override" :rule-config="ruleConfig" />
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 底部全局操作栏 -->
-    <template #footer>
-      <div class="dialog-footer">
-        <el-button size="small" type="primary" link @click="$emit('open-sync')">
-          <el-icon><Connection /></el-icon> 一键克隆同步到同平台其他账号
-        </el-button>
-        <div class="btn-group">
-          <el-button size="default" @click="handleCancel">取消</el-button>
-          <el-button size="default" type="primary" class="gradient-btn" @click="handleSave">
-            完成并保存微调
-          </el-button>
+          <!-- 底部操作栏 -->
+          <div class="panel-footer">
+            <el-button size="small" type="primary" link @click="$emit('open-sync')">
+              <el-icon><Connection /></el-icon> 一键克隆同步到同平台其他账号
+            </el-button>
+            <div class="btn-group">
+              <el-button size="default" @click="handleCancel">取消</el-button>
+              <el-button size="default" type="primary" class="gradient-btn" @click="handleSave">
+                完成并保存微调
+              </el-button>
+            </div>
+          </div>
         </div>
       </div>
-    </template>
-  </el-dialog>
+    </transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Close, Film, FullScreen, Connection, CopyDocument, DocumentCopy, Timer, EditPen, Setting } from '@element-plus/icons-vue'
 import { getPlatformConfig } from '../../config/platforms'
-import type { MatrixCellConfig } from '../../types/matrix'
+import type { MatrixCellConfig, BatchRuleConfig } from '../../types/matrix'
 
 // 平台专属表单子组件
 import TencentForm from './platforms/TencentForm.vue'
@@ -239,6 +235,7 @@ export interface CellDataWrap {
 const props = defineProps<{
   modelValue: boolean
   cellData: CellDataWrap | null
+  ruleConfig?: Partial<BatchRuleConfig>
 }>()
 
 const emit = defineEmits<{
@@ -263,6 +260,31 @@ watch(
   () => props.modelValue,
   (isOpen) => {
     if (isOpen && props.cellData?.cell) {
+      if (!props.cellData.cell.override) {
+        props.cellData.cell.override = {
+          isCustomized: false,
+          title: '',
+          desc: '',
+          tags: '',
+          thumbnail: '',
+          thumbnailLandscape: '',
+          thumbnailPortrait: '',
+          tid: props.cellData.platform === 'bilibili' ? 230 : 0,
+          shortTitle: '',
+          category: '',
+          draft: false,
+          schedule: '',
+          declaration: '',
+          collection: '',
+          productLink: '',
+          productTitle: '',
+          visibility: 'public',
+          playlist: '',
+          bgm: '',
+          note: '',
+          notef: ''
+        }
+      }
       isSaved = false
       originalSnapshot = JSON.stringify({
         customTitle: props.cellData.cell.customTitle || '',
@@ -375,42 +397,45 @@ const getPlatformColor = (platId?: string): string => {
 </script>
 
 <style scoped>
-/* 全局挂载 Dialog 顶层样式 */
-:deep(.el-dialog.cell-config-global-dialog) {
-  border-radius: 16px;
-  overflow: hidden;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.36);
-  transition: all 0.25s ease-in-out;
+/* 原生独立抽屉遮罩与面板 */
+.cell-config-drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  z-index: 3500;
+  display: flex;
+  justify-content: flex-end;
 }
 
-:deep(.el-dialog__header) {
-  margin: 0;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-detail);
+.cell-config-slide-panel {
+  width: 880px;
+  max-width: 90vw;
+  height: 100vh;
+  background: var(--bg-card, #1e293b);
+  border-left: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  box-shadow: -16px 0 60px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.25s ease;
 }
 
-:deep(.el-dialog__body) {
-  padding: 22px 26px;
-  max-height: 80vh;
-  overflow-y: auto;
-}
-
-:deep(.el-dialog__footer) {
-  padding: 14px 26px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--bg-detail);
+.cell-config-slide-panel.fullscreen {
+  width: 100vw;
+  max-width: 100vw;
 }
 
 /* 顶部标题栏 */
-.dialog-custom-header {
+.panel-custom-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  width: 100%;
-  padding-right: 28px;
+  padding: 16px 22px;
+  background: var(--bg-detail, rgba(0, 0, 0, 0.25));
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
 }
 
 .header-left {
@@ -432,7 +457,66 @@ const getPlatformColor = (platId?: string): string => {
 .header-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text-main);
+  color: var(--text-main, #f8fafc);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.panel-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.panel-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* 主体内容滚动区 */
+.panel-body,
+.dialog-body {
+  flex: 1;
+  padding: 22px;
+  overflow-y: auto;
+}
+
+/* 底部操作栏 */
+.panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  background: var(--bg-detail, rgba(0, 0, 0, 0.25));
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+/* 滑动动画 */
+.slide-panel-enter-active,
+.slide-panel-leave-active {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-panel-enter-from,
+.slide-panel-leave-to {
+  opacity: 0;
+}
+
+.slide-panel-enter-from .cell-config-slide-panel,
+.slide-panel-leave-to .cell-config-slide-panel {
+  transform: translateX(100%);
 }
 
 .header-right {
