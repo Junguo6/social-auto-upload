@@ -6,12 +6,24 @@ export function ApplyActiveCode(arg1) {
   return window['go']['main']['App']['ApplyActiveCode'](arg1);
 }
 
+export function ApplyUpdate() {
+  return window['go']['main']['App']['ApplyUpdate']();
+}
+
 export function BatchPublishMedia(arg1) {
   return window['go']['main']['App']['BatchPublishMedia'](arg1);
 }
 
+export function CancelDownloadUpdate() {
+  return window['go']['main']['App']['CancelDownloadUpdate']();
+}
+
 export function CheckAccountStatus(arg1, arg2) {
   return window['go']['main']['App']['CheckAccountStatus'](arg1, arg2);
+}
+
+export function CheckUpdate() {
+  return window['go']['main']['App']['CheckUpdate']();
 }
 
 export function CloseOrder(arg1) {
@@ -48,6 +60,10 @@ export function GetAuthOverview() {
 
 export function GetDeviceID() {
   return window['go']['main']['App']['GetDeviceID']();
+}
+
+export function GetDownloadProgress() {
+  return window['go']['main']['App']['GetDownloadProgress']();
 }
 
 export function GetOrderPackages() {
@@ -90,6 +106,10 @@ export function QueryOrder(arg1) {
   return window['go']['main']['App']['QueryOrder'](arg1);
 }
 
+export function QuitApp() {
+  return window['go']['main']['App']['QuitApp']();
+}
+
 export function ResumeAccount(arg1, arg2) {
   return window['go']['main']['App']['ResumeAccount'](arg1, arg2);
 }
@@ -112,6 +132,10 @@ export function SelectLocalFolder(arg1) {
 
 export function SendBrowserInput(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
   return window['go']['main']['App']['SendBrowserInput'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+}
+
+export function StartDownloadUpdate() {
+  return window['go']['main']['App']['StartDownloadUpdate']();
 }
 
 export function StopActivePublish() {

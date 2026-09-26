@@ -145,6 +145,8 @@
 
       <!-- 全局授权与激活弹窗 -->
       <AuthModal />
+      <!-- 全局在线升级弹窗 -->
+      <UpgradeModal />
     </main>
   </div>
 </template>
@@ -155,14 +157,17 @@ import { useRoute } from 'vue-router'
 import { useThemeStore } from './stores/themeStore'
 import { useAuthStore } from './stores/authStore'
 import { useTaskStore } from './stores/taskStore'
+import { useUpgradeStore } from './stores/upgradeStore'
 import { Medal, Lock, Moon, Sunny } from '@element-plus/icons-vue'
 import { GetAppVersion } from '../wailsjs/go/main/App'
 import AuthModal from './components/AuthModal.vue'
+import UpgradeModal from './components/UpgradeModal.vue'
 
 const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const taskStore = useTaskStore()
+const upgradeStore = useUpgradeStore()
 
 const appVersion = ref('')
 
@@ -187,6 +192,8 @@ onMounted(async () => {
   } catch {
     appVersion.value = ''
   }
+  // 启动时静默检查更新 (仅在有弹窗/强制更新时提醒)
+  upgradeStore.checkUpdate(true)
 })
 </script>
 

@@ -729,3 +729,105 @@ export namespace main {
 
 }
 
+export namespace upgrade {
+	
+	export class VersionInfo {
+	    id?: string;
+	    tool_id?: string;
+	    version: string;
+	    desc: string;
+	    brief: string;
+	    is_pop_up: boolean;
+	    is_official: boolean;
+	    is_forced: boolean;
+	    created_at: string;
+	    updated_at?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VersionInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.tool_id = source["tool_id"];
+	        this.version = source["version"];
+	        this.desc = source["desc"];
+	        this.brief = source["brief"];
+	        this.is_pop_up = source["is_pop_up"];
+	        this.is_official = source["is_official"];
+	        this.is_forced = source["is_forced"];
+	        this.created_at = source["created_at"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
+	export class CheckUpdateResult {
+	    has_update: boolean;
+	    current_version: string;
+	    latest_version: string;
+	    version_info?: VersionInfo;
+	    message: string;
+	    // Go type: time
+	    check_time: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new CheckUpdateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.has_update = source["has_update"];
+	        this.current_version = source["current_version"];
+	        this.latest_version = source["latest_version"];
+	        this.version_info = this.convertValues(source["version_info"], VersionInfo);
+	        this.message = source["message"];
+	        this.check_time = this.convertValues(source["check_time"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DownloadProgress {
+	    percentage: number;
+	    downloaded: number;
+	    total: number;
+	    downloaded_mb: number;
+	    total_mb: number;
+	    status: string;
+	    message?: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DownloadProgress(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.percentage = source["percentage"];
+	        this.downloaded = source["downloaded"];
+	        this.total = source["total"];
+	        this.downloaded_mb = source["downloaded_mb"];
+	        this.total_mb = source["total_mb"];
+	        this.status = source["status"];
+	        this.message = source["message"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+
