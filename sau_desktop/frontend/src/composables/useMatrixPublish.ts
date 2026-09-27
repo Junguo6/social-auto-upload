@@ -4,7 +4,7 @@ import { useTaskStore } from '../stores/taskStore'
 import { useAuthStore } from '../stores/authStore'
 import { engine } from '../../wailsjs/go/models'
 import type { MasterForm, PlatformOverrideSetting, SelectedTargetAccount, BatchRuleConfig, MediaItem } from '../types/matrix'
-import { resolveMediaTitle } from '../utils/matrixHelper'
+import { resolveMediaTitle, resolveTemplateString } from '../utils/matrixHelper'
 
 export function useMatrixPublish() {
   const router = useRouter()
@@ -53,7 +53,7 @@ export function useMatrixPublish() {
 
     // 提取视频源文件名用于单视频变量替换
     const videoFileName = masterForm.filePath ? masterForm.filePath.split(/[/\\]/).pop() || '' : ''
-    const singleMedia = { fileName: videoFileName }
+    const singleMedia = { fileName: videoFileName, filePath: masterForm.filePath }
 
     for (const tgt of selectedTargets) {
       const platOv = platformOverrides[tgt.platform]
@@ -73,14 +73,14 @@ export function useMatrixPublish() {
       }
       finalTitle = resolveMediaTitle(finalTitle, singleMedia, 0)
 
-      // 2. 正文文案 (支持 {视频名}、{集数}、{日期} 变量解析)
+      // 2. 正文文案 (支持 {文件夹名}、{视频名}、{集数}、{日期} 变量解析)
       let finalDesc = masterForm.desc
       if (isAccCust && accOv.desc !== undefined && accOv.desc !== '') {
         finalDesc = accOv.desc
       } else if (isPlatCust && platOv.desc !== undefined && platOv.desc !== '') {
         finalDesc = platOv.desc
       }
-      finalDesc = resolveMediaTitle(finalDesc, singleMedia, 0)
+      finalDesc = resolveTemplateString(finalDesc, singleMedia, 0)
 
       // 3. 标签
       let finalTags = masterForm.tags
@@ -111,7 +111,37 @@ export function useMatrixPublish() {
 
       let finalShortTitle = activeExclusive ? activeExclusive.shortTitle : ''
       if (finalShortTitle) {
-        finalShortTitle = resolveMediaTitle(finalShortTitle, singleMedia, 0)
+        finalShortTitle = resolveTemplateString(finalShortTitle, singleMedia, 0)
+      }
+
+      let finalCollection = activeExclusive ? activeExclusive.collection : ''
+      if (finalCollection) {
+        finalCollection = resolveTemplateString(finalCollection, singleMedia, 0)
+      }
+
+      let finalProductTitle = activeExclusive ? activeExclusive.productTitle : ''
+      if (finalProductTitle) {
+        finalProductTitle = resolveTemplateString(finalProductTitle, singleMedia, 0)
+      }
+
+      let finalPlaylist = activeExclusive ? activeExclusive.playlist : ''
+      if (finalPlaylist) {
+        finalPlaylist = resolveTemplateString(finalPlaylist, singleMedia, 0)
+      }
+
+      let finalNote = activeExclusive ? activeExclusive.note : ''
+      if (finalNote) {
+        finalNote = resolveTemplateString(finalNote, singleMedia, 0)
+      }
+
+      let finalLinkTitle = activeExclusive ? activeExclusive.linkTitle : ''
+      if (finalLinkTitle) {
+        finalLinkTitle = resolveTemplateString(finalLinkTitle, singleMedia, 0)
+      }
+
+      let finalActivityName = activeExclusive ? activeExclusive.activityName : ''
+      if (finalActivityName) {
+        finalActivityName = resolveTemplateString(finalActivityName, singleMedia, 0)
       }
 
       const task = engine.AccountPublishTask.createFrom({
@@ -133,19 +163,19 @@ export function useMatrixPublish() {
         draft: activeExclusive ? activeExclusive.draft : false,
         schedule: finalSchedule,
         declaration: activeExclusive ? activeExclusive.declaration : '',
-        collection: activeExclusive ? activeExclusive.collection : '',
+        collection: finalCollection,
         productLink: activeExclusive ? activeExclusive.productLink : '',
-        productTitle: activeExclusive ? activeExclusive.productTitle : '',
+        productTitle: finalProductTitle,
         visibility: activeExclusive ? activeExclusive.visibility : '0',
-        playlist: activeExclusive ? activeExclusive.playlist : '',
+        playlist: finalPlaylist,
         bgm: activeExclusive ? activeExclusive.bgm : '',
-        note: activeExclusive ? activeExclusive.note : '',
+        note: finalNote,
         notef: activeExclusive ? activeExclusive.notef : '',
         location: activeExclusive ? (activeExclusive.location || 'auto') : 'auto',
         linkType: activeExclusive ? (activeExclusive.linkType || 'none') : 'none',
         linkUrl: activeExclusive ? (activeExclusive.linkUrl || '') : '',
-        linkTitle: activeExclusive ? (activeExclusive.linkTitle || '') : '',
-        activityName: activeExclusive ? (activeExclusive.activityName || '') : '',
+        linkTitle: finalLinkTitle,
+        activityName: finalActivityName,
         headless: isHeadless
       })
 
@@ -190,6 +220,7 @@ export function useMatrixPublish() {
     concurrency: number
     isHeadless: boolean
     batchName?: string
+    unitLevel?: number
   }) => {
     // 兜底检查：调用方（PublishCenter）已做过一次「扣次 + 放行」的鉴权，
     // 这里只在「连试用机会都没有」时才拦，且只引导不扣次，
@@ -241,12 +272,14 @@ export function useMatrixPublish() {
 
         // 1. 计算该单元格最终标题 (单元格定制 -> 平台配置 -> 兜底默认)
         let finalTitle = ''
-        if (cell?.customTitle?.trim()) {
-          finalTitle = cell.customTitle.trim()
+        if (cell?.override?.title?.trim()) {
+          finalTitle = resolveMediaTitle(cell.override.title.trim(), media, mIdx, ruleConfig, params.unitLevel)
+        } else if (cell?.customTitle?.trim()) {
+          finalTitle = resolveMediaTitle(cell.customTitle.trim(), media, mIdx, ruleConfig, params.unitLevel)
         } else if (platOv?.title?.trim()) {
-          finalTitle = resolveMediaTitle(platOv.title, media, mIdx, ruleConfig)
+          finalTitle = resolveMediaTitle(platOv.title, media, mIdx, ruleConfig, params.unitLevel)
         } else {
-          finalTitle = resolveMediaTitle(masterForm?.title || '{视频名}', media, mIdx, ruleConfig)
+          finalTitle = resolveMediaTitle(masterForm?.title || '{视频名}', media, mIdx, ruleConfig, params.unitLevel)
         }
 
         // 2. 计算描述与标签 (单元格定制 -> 平台配置 -> 兜底默认)
@@ -258,7 +291,7 @@ export function useMatrixPublish() {
         } else {
           finalDesc = masterForm?.desc || ''
         }
-        finalDesc = resolveMediaTitle(finalDesc, media, mIdx, ruleConfig)
+        finalDesc = resolveMediaTitle(finalDesc, media, mIdx, ruleConfig, params.unitLevel)
 
         let finalTags = ''
         if (cell?.override?.tags !== undefined && cell.override.tags !== '') {
@@ -306,7 +339,37 @@ export function useMatrixPublish() {
 
         let finalShortTitle = activeExclusive ? activeExclusive.shortTitle : (ov.shortTitle || '')
         if (finalShortTitle) {
-          finalShortTitle = resolveMediaTitle(finalShortTitle, media, mIdx, ruleConfig)
+          finalShortTitle = resolveTemplateString(finalShortTitle, media, mIdx, ruleConfig, params.unitLevel)
+        }
+
+        let finalCollection = activeExclusive ? activeExclusive.collection : (ov.collection || '')
+        if (finalCollection) {
+          finalCollection = resolveTemplateString(finalCollection, media, mIdx, ruleConfig, params.unitLevel)
+        }
+
+        let finalProductTitle = activeExclusive ? activeExclusive.productTitle : (ov.productTitle || '')
+        if (finalProductTitle) {
+          finalProductTitle = resolveTemplateString(finalProductTitle, media, mIdx, ruleConfig, params.unitLevel)
+        }
+
+        let finalPlaylist = activeExclusive ? activeExclusive.playlist : (ov.playlist || '')
+        if (finalPlaylist) {
+          finalPlaylist = resolveTemplateString(finalPlaylist, media, mIdx, ruleConfig, params.unitLevel)
+        }
+
+        let finalNote = activeExclusive ? activeExclusive.note : (ov.note || '')
+        if (finalNote) {
+          finalNote = resolveTemplateString(finalNote, media, mIdx, ruleConfig, params.unitLevel)
+        }
+
+        let finalLinkTitle = activeExclusive ? activeExclusive.linkTitle : (ov.linkTitle || '')
+        if (finalLinkTitle) {
+          finalLinkTitle = resolveTemplateString(finalLinkTitle, media, mIdx, ruleConfig, params.unitLevel)
+        }
+
+        let finalActivityName = activeExclusive ? activeExclusive.activityName : (ov.activityName || '')
+        if (finalActivityName) {
+          finalActivityName = resolveTemplateString(finalActivityName, media, mIdx, ruleConfig, params.unitLevel)
         }
 
         const task = engine.AccountPublishTask.createFrom({
@@ -328,19 +391,19 @@ export function useMatrixPublish() {
           draft: activeExclusive ? activeExclusive.draft : (ov.draft || false),
           schedule: finalSchedule,
           declaration: activeExclusive ? activeExclusive.declaration : (ov.declaration || ''),
-          collection: activeExclusive ? activeExclusive.collection : (ov.collection || ''),
+          collection: finalCollection,
           productLink: activeExclusive ? activeExclusive.productLink : (ov.productLink || ''),
-          productTitle: activeExclusive ? activeExclusive.productTitle : (ov.productTitle || ''),
+          productTitle: finalProductTitle,
           visibility: activeExclusive ? activeExclusive.visibility : (ov.visibility || 'public'),
-          playlist: activeExclusive ? activeExclusive.playlist : (ov.playlist || ''),
+          playlist: finalPlaylist,
           bgm: activeExclusive ? activeExclusive.bgm : (ov.bgm || ''),
-          note: activeExclusive ? activeExclusive.note : (ov.note || ''),
+          note: finalNote,
           notef: activeExclusive ? activeExclusive.notef : (ov.notef || ''),
           location: activeExclusive ? (activeExclusive.location || 'auto') : (ov.location || 'auto'),
           linkType: activeExclusive ? (activeExclusive.linkType || 'none') : (ov.linkType || 'none'),
           linkUrl: activeExclusive ? (activeExclusive.linkUrl || '') : (ov.linkUrl || ''),
-          linkTitle: activeExclusive ? (activeExclusive.linkTitle || '') : (ov.linkTitle || ''),
-          activityName: activeExclusive ? (activeExclusive.activityName || '') : (ov.activityName || ''),
+          linkTitle: finalLinkTitle,
+          activityName: finalActivityName,
           headless: isHeadless
         })
 

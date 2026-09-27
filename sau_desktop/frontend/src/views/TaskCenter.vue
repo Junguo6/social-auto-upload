@@ -1645,7 +1645,7 @@ function handleStartPublish() {
 /* 日志区 */
 .detail-logs {
   flex: 0 0 auto;
-  max-height: 180px;          /* 固定上限，表格拿到确定的空间 */
+  max-height: 480px;          
   overflow: hidden;
   display: flex;
   flex-direction: column;

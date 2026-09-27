@@ -38,6 +38,8 @@
           :override="currentConfig"
           :rule-config="ruleConfig"
           :other-platforms="otherPlatforms"
+          :media-list="mediaList"
+          :unit-level="unitLevel"
           @sync-to-platforms="handleSyncToPlatforms"
         />
       </div>
@@ -55,7 +57,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { PLATFORMS } from '../../config/platforms'
-import type { PlatformOverrideSetting, BatchRuleConfig } from '../../types/matrix'
+import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../types/matrix'
 import PlatformIcon from './PlatformIcon.vue'
 import PlatformFormCard from './PlatformFormCard.vue'
 import ScheduleTimingBar from './ScheduleTimingBar.vue'
@@ -65,10 +67,14 @@ const props = withDefaults(defineProps<{
   ruleConfig: BatchRuleConfig
   selectedAccounts: Array<{ platform: string; account: string; nickname?: string }>
   mediaCount?: number
+  mediaList?: MediaItem[]
+  unitLevel?: number
 }>(), {
   platformConfigs: () => ({}),
   selectedAccounts: () => [],
-  mediaCount: 1
+  mediaCount: 1,
+  mediaList: () => [],
+  unitLevel: 0
 })
 
 const emit = defineEmits<{

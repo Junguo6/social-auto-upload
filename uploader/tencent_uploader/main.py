@@ -431,7 +431,7 @@ async def _wait_for_tencent_login(
             scanned_logged = True
 
         if await _is_tencent_qrcode_expired(page):
-            tencent_logger.warning(_msg("😵", "二维码失效了，小人马上去刷新"))
+            tencent_logger.warning(_msg("😵", "二维码失效了，小映马上去刷新"))
             await _refresh_tencent_qrcode(page)
             await asyncio.sleep(1)
             try:
@@ -477,7 +477,7 @@ async def tencent_cookie_gen(
                 )
                 qrcode_info = None
                 qrcode_path = None
-            tencent_logger.info(_msg("🧍", "请扫码，小人正在耐心等待登录完成"))
+            tencent_logger.info(_msg("🧍", "请扫码，小映正在耐心等待登录完成"))
             result = await _wait_for_tencent_login(
                 page,
                 account_file,
@@ -1279,34 +1279,60 @@ class TencentBaseUploader(BaseVideoUploader):
         try:
             display_wrap = await self._find_first_locator(
                 page,
-                "div.activity-display-wrap, .post-activity-wrap .activity-display, .post-activity-wrap"
+                "div.activity-display-wrap, .post-activity-wrap .activity-display-wrap, .post-activity-wrap .activity-display, div.activity-display, .activity-display"
             )
+            if await display_wrap.count() == 0:
+                # 备用：寻找活动设置行内部的可交互框
+                display_wrap = await self._find_first_locator(
+                    page,
+                    ".post-activity-wrap div.display-wrap, .post-activity-wrap"
+                )
             if await display_wrap.count() == 0:
                 tencent_logger.info(_msg("🧾", "未找到活动设置入口，跳过"))
                 return
+
             try:
                 await display_wrap.scroll_into_view_if_needed(timeout=3000)
-                await display_wrap.click(timeout=4000)
+                await display_wrap.click(timeout=3000)
             except Exception:
                 await display_wrap.evaluate("el => el.click()")
-            await page.wait_for_timeout(600)
+            await page.wait_for_timeout(400)
 
-            # 在搜索框中输入活动名（规避不可见元素）
+            # 动态等待搜索框出现并可见（支持重试点击触发器，防止滚动过程中点击丢失或展开动画延迟）
             frames_to_search = [await self._get_content_target(page), page] + [f for f in page.frames if "empty.html" not in f.url]
             search_input = None
-            for ctx in frames_to_search:
-                cands = ctx.locator("input[placeholder*='搜索活动'], input[placeholder='搜索活动'], .activity-filter-wrap input")
-                try:
-                    cnt = await cands.count()
-                    for i in range(cnt):
-                        it = cands.nth(i)
-                        if await it.is_visible():
-                            search_input = it
-                            break
-                except Exception:
-                    pass
+            wait_search_deadline = time.monotonic() + 4.5
+            has_retried_click = False
+
+            while time.monotonic() < wait_search_deadline:
+                for ctx in frames_to_search:
+                    cands = ctx.locator(
+                        "input[placeholder*='搜索活动'], input[placeholder='搜索活动'], .activity-filter-wrap input, .activity-dropdown-wrap input, .activity-list-wrap input"
+                    )
+                    try:
+                        cnt = await cands.count()
+                        for i in range(cnt):
+                            it = cands.nth(i)
+                            if await it.is_visible():
+                                box = await it.bounding_box()
+                                if box and box["width"] > 20 and box["height"] > 20:
+                                    search_input = it
+                                    break
+                    except Exception:
+                        pass
+                    if search_input:
+                        break
                 if search_input:
                     break
+
+                # 若 1.2 秒后仍未检测到可见搜索框，尝试对 display_wrap 执行强制点击补发
+                if not has_retried_click and time.monotonic() > wait_search_deadline - 3.2:
+                    has_retried_click = True
+                    try:
+                        await display_wrap.evaluate("el => el.click()")
+                    except Exception:
+                        pass
+                await asyncio.sleep(0.4)
 
             if search_input and await search_input.count() > 0:
                 await search_input.scroll_into_view_if_needed()
@@ -1726,7 +1752,7 @@ class TencentVideo(TencentBaseUploader):
                 await crop_confirm_button.click()
                 await page.wait_for_timeout(1000)
         except Exception as exc:
-            tencent_logger.warning(_msg("😵", f"封面裁剪确认时出错，小人继续尝试保存主弹窗: {exc}"))
+            tencent_logger.warning(_msg("😵", f"封面裁剪确认时出错，小映继续尝试保存主弹窗: {exc}"))
 
     async def upload_thumbnail_in_dialog(self, page: Page, cover_dialog, thumbnail_path: str) -> None:
         await cover_dialog.wait_for(state="visible", timeout=5000)
@@ -1751,7 +1777,7 @@ class TencentVideo(TencentBaseUploader):
     ) -> None:
         cover_dialog = await self.open_thumbnail_dialog(page, selectors, dialog_titles)
         if not cover_dialog:
-            tencent_logger.info(_msg("🧍", f"当前页面没有出现{label}封面编辑弹窗，小人先跳过"))
+            tencent_logger.info(_msg("🧍", f"当前页面没有出现{label}封面编辑弹窗，小映先跳过"))
             return
 
         try:
@@ -1764,7 +1790,7 @@ class TencentVideo(TencentBaseUploader):
         if not self.thumbnail_landscape_path and not self.thumbnail_portrait_path:
             return
 
-        tencent_logger.info(_msg("🖼️", "小人准备设置封面"))
+        tencent_logger.info(_msg("🖼️", "小映准备设置封面"))
 
         landscape_selectors = [
             'div.horizontal-cover-wrap:has-text("4:3")',
@@ -1804,7 +1830,7 @@ class TencentVideo(TencentBaseUploader):
         # 改到 wait_for_upload_complete 之后再选，见 upload()。
 
     async def upload(self, playwright: Playwright) -> None:
-        tencent_logger.info(_msg("🧍", "小人先检查 cookie、视频文件和发布时间"))
+        tencent_logger.info(_msg("🧍", "小映先检查 cookie、视频文件和发布时间"))
         await self.validate_upload_args()
         tencent_logger.info(_msg("🥳", "上传前检查通过"))
 
@@ -1814,7 +1840,7 @@ class TencentVideo(TencentBaseUploader):
         try:
             page = await context.new_page()
             await self.open_upload_page(page)
-            tencent_logger.info(_msg("🏃", f"小人开始搬运视频: {self.title}"))
+            tencent_logger.info(_msg("🏃", f"小映开始搬运视频: {self.title}"))
 
             await self.upload_video_file(page, self.file_path)
             # 等待 3 秒确保文件上传动作被页面接收，微前端表单稳定就绪
@@ -1926,7 +1952,7 @@ class TencentNote(TencentBaseUploader):
         await self.prepare_note_for_publish(page)
 
     async def upload(self, playwright: Playwright) -> None:
-        tencent_logger.info(_msg("🧍", "小人先检查 cookie、图文图片和发布时间"))
+        tencent_logger.info(_msg("🧍", "小映先检查 cookie、图文图片和发布时间"))
         await self.validate_upload_args()
         tencent_logger.info(_msg("🥳", "图文上传前检查通过"))
 
@@ -1937,7 +1963,7 @@ class TencentNote(TencentBaseUploader):
         try:
             page = await context.new_page()
             await self.open_upload_page(page)
-            tencent_logger.info(_msg("🏃", f"小人开始搬运图文，共 {len(self.image_paths)} 张图片"))
+            tencent_logger.info(_msg("🏃", f"小映开始搬运图文，共 {len(self.image_paths)} 张图片"))
 
             await self.upload_note_content(page)
 

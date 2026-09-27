@@ -65,6 +65,8 @@
         :is="activeFormComponent"
         :override="override"
         :rule-config="ruleConfig"
+        :sample-media="sampleMedia"
+        :unit-level="unitLevel"
       />
     </div>
   </div>
@@ -74,7 +76,7 @@
 import { ref, computed, defineAsyncComponent } from 'vue'
 import { ElMessage } from 'element-plus'
 import { PLATFORMS } from '../../config/platforms'
-import type { PlatformOverrideSetting, BatchRuleConfig } from '../../types/matrix'
+import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../types/matrix'
 
 // 动态载入平台独立表单组件
 const BilibiliForm = defineAsyncComponent(() => import('./platforms/BilibiliForm.vue'))
@@ -88,7 +90,16 @@ const props = defineProps<{
   override: PlatformOverrideSetting
   ruleConfig: BatchRuleConfig
   otherPlatforms?: Array<{ id: string; name: string }>
+  mediaList?: MediaItem[]
+  unitLevel?: number
 }>()
+
+const sampleMedia = computed(() => {
+  if (props.mediaList && props.mediaList.length > 0) {
+    return props.mediaList[0]
+  }
+  return undefined
+})
 
 const emit = defineEmits<{
   (e: 'sync-to-platforms', payload: {
@@ -200,7 +211,7 @@ function confirmSync() {
 .sync-fields-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* gap: 10px; */
 }
 
 .sync-actions-row {

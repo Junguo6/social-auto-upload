@@ -108,7 +108,7 @@ export interface MatrixCellConfig {
 // 9. 批量变量与规则配置 (Batch Rule Config)
 export interface BatchRuleConfig {
   titleTemplate: string       // 如: "{视频名} - 第{集数}集"
-  episodeMode?: 'auto' | 'sequence' // auto: 优先文件名智能识别; sequence: 强制按序号递增，默认 auto
+  episodeMode?: 'auto' | 'sequence' // auto: 优先文件名智能识别; sequence: 强制按序号递增，默认 sequence
   startEpisode?: number       // 起始集数，默认 1
   episodeStep?: number        // 集数递进步长，默认 1
   padZero?: boolean           // 是否补零 (如 01, 02)，默认 false

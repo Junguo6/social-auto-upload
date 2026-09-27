@@ -228,6 +228,15 @@ type BrowserEnvironmentInfo struct {
 
 // DetectBrowserStatus 诊断当前环境是否已具备自动化浏览器内核
 func (r *RuntimeManager) DetectBrowserStatus() BrowserEnvironmentInfo {
+	execDir := filepath.Dir(r.EngineBin)
+	if execDir == "" || execDir == "." {
+		cwd, _ := os.Getwd()
+		execDir = cwd
+	}
+
+	r.BrowsersDir = resolveBrowsersDir(r.WorkDir, execDir)
+	r.LocalChromePath = resolveSystemChrome()
+
 	if r.BrowsersDir != "" {
 		return BrowserEnvironmentInfo{
 			IsReady:     true,

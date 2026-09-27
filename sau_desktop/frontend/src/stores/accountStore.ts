@@ -1,6 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { CheckAccountStatus, DeleteAccountCredential, LoginAccount } from '../../wailsjs/go/main/App'
+import {
+  CheckAccountStatus,
+  DeleteAccountCredential,
+  LoginAccount,
+  SyncAccountsWithCookies
+} from '../../wailsjs/go/main/App'
+import { createDualStorage } from '../utils/storageAdapter'
 
 /** 分组只存在于用户创建的分组里；账号可以不属于任何分组（groups 为空数组） */
 
@@ -22,35 +28,51 @@ export interface AccountItem {
   checkedAt?: number
 }
 
+/** 老数据迁移：group: string → groups: string[]（幂等，可重复执行） */
+function migrateAccountGroups(acc: any): AccountItem {
+  if (Array.isArray(acc.groups)) {
+    acc.groups = acc.groups.filter((g: string) => !!g && g !== '默认分组')
+    return acc
+  }
+  const legacy = typeof acc.group === 'string' ? acc.group.trim() : ''
+  acc.groups = (legacy && legacy !== '默认分组') ? [legacy] : []
+  delete acc.group
+  return acc
+}
+
+const accountStorage = createDualStorage<AccountItem[]>({
+  diskKey: 'accounts',
+  localKey: 'sau_accounts',
+  getDefault: () => [],
+  debounceMs: 300,
+  transformLoad: (raw) => {
+    if (!Array.isArray(raw)) return []
+    return raw.map((a: any) => {
+      let item = migrateAccountGroups(a)
+      if (item.platform === 'tencent' && item.account === 'auto' && item.finderUid) {
+        item.account = item.finderUid
+      }
+      item.loading = false
+      item.isSyncing = false
+      return item
+    })
+  },
+  transformSave: (list) => {
+    return list.map(a => {
+      const { loading, isSyncing, ...rest } = a
+      return rest
+    })
+  }
+})
+
 export const useAccountStore = defineStore('account', () => {
   // 分组列表：全部从已有账号的 groups 字段重建
   const groups = ref<string[]>([])
 
-  // 默认初始账号数据 (初始为空)
-  const defaultAccounts: AccountItem[] = []
+  // 从本地加载热缓存或使用默认值
+  const accounts = ref<AccountItem[]>(accountStorage.get())
 
-  // 从本地加载或使用默认值
-  const savedAccs = localStorage.getItem('sau_accounts')
-  let parsedAccs: AccountItem[] = defaultAccounts
-  if (savedAccs) {
-    try {
-      parsedAccs = JSON.parse(savedAccs)
-      parsedAccs = parsedAccs.map(acc => {
-        acc = migrateAccountGroups(acc)             // ← Step 1.2 新增
-        if (acc.platform === 'tencent' && acc.account === 'auto' && acc.finderUid) {
-          acc.account = acc.finderUid
-        }
-        acc.loading = false
-        acc.isSyncing = false
-        return acc
-      })
-    } catch (e) {
-      parsedAccs = defaultAccounts
-    }
-  }
-  const accounts = ref<AccountItem[]>(parsedAccs)
-
-  // 从账号数据里补齐分组列表（老数据可能只存在于账号的 group 字段里）
+  // 从账号数据里补齐分组列表
   const rebuildGroups = () => {
     const seen = new Set<string>(groups.value)
     accounts.value.forEach(a => (a.groups || []).forEach(g => seen.add(g)))
@@ -59,28 +81,10 @@ export const useAccountStore = defineStore('account', () => {
   rebuildGroups()
 
   const saveToStorage = () => {
-    // 持久化存储时剔除 loading 和 isSyncing 运行时临时状态，杜绝污染本地存储导致永久卡在同步中
-    const cleanList = accounts.value.map(a => {
-      const { loading, isSyncing, ...rest } = a
-      return rest
-    })
-    localStorage.setItem('sau_accounts', JSON.stringify(cleanList))
+    accountStorage.save(accounts.value)
   }
 
   const checkingAll = ref(false)
-
-  /** 老数据迁移：group: string → groups: string[]（幂等，可重复执行） */
-  function migrateAccountGroups(acc: any): AccountItem {
-    if (Array.isArray(acc.groups)) {
-      // 已经是新格式：过滤掉历史遗留的"默认分组"空值
-      acc.groups = acc.groups.filter((g: string) => !!g && g !== '默认分组')
-      return acc
-    }
-    const legacy = typeof acc.group === 'string' ? acc.group.trim() : ''
-    acc.groups = (legacy && legacy !== '默认分组') ? [legacy] : []
-    delete acc.group
-    return acc
-  }
 
   // 添加新分组
   const addGroup = (groupName: string) => {
@@ -301,21 +305,36 @@ export const useAccountStore = defineStore('account', () => {
     return res
   }
 
-  // 刷新并从本地存储重新同步账号数据
-  const fetchAccounts = () => {
-    const saved = localStorage.getItem('sau_accounts')
-    if (saved) {
-      try {
-        const list = JSON.parse(saved)
-        accounts.value = list.map((a: any) => ({
-          ...migrateAccountGroups({ ...a }),
-          loading: false,
-          isSyncing: false
-        }))
+  // 刷新并从后端物理文件及本地 Cookie 目录重新同步账号数据 (自动反向发现与双向对齐)
+  const fetchAccounts = async () => {
+    try {
+      // 1. 通过通用存储适配器完成首屏与磁盘双向同步及冷迁移
+      await accountStorage.load((synced) => {
+        accounts.value = synced
         rebuildGroups()
-      } catch (e) {}
+      })
+
+      // 2. 将数据与本地 cookies/*.json 文件进行全量对齐与反向发现
+      if (typeof (window as any).go !== 'undefined' && SyncAccountsWithCookies) {
+        const syncedJSON = await SyncAccountsWithCookies(JSON.stringify(accountStorage.get()))
+        if (syncedJSON) {
+          const list = JSON.parse(syncedJSON)
+          accounts.value = list.map((a: any) => ({
+            ...migrateAccountGroups({ ...a }),
+            loading: false,
+            isSyncing: false
+          }))
+          rebuildGroups()
+          accountStorage.save(accounts.value)
+        }
+      }
+    } catch (e) {
+      console.warn('Sync accounts with backend failed, fallback to local cache', e)
     }
   }
+
+  // 初始化时自动触发一次全量物理对齐
+  fetchAccounts()
 
   // 快捷保存/更新刚识别到的账号凭证 (严格防串号与防误覆盖)
   const saveLoggedInAccount = (platform: string, account: string, nickname?: string, finderUid?: string, isValid?: boolean, avatar?: string) => {

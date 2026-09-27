@@ -100,13 +100,27 @@
         <div class="setting-list">
           <div class="setting-item">
             <div class="setting-meta">
-              <span class="title">软件版本信息</span>
-              <span class="desc">小映分发助手</span>
+              <span class="title">软件版本信息与在线更新</span>
+              <span class="desc">
+                小映分发助手 矩阵发布桌面端
+                <span v-if="upgradeStore.hasUpdate" style="color: var(--el-color-warning); margin-left: 8px; font-weight: bold;">
+                  · 发现新版本 v{{ upgradeStore.latestVersion }}
+                </span>
+              </span>
             </div>
-            <div class="setting-control">
+            <div class="setting-control" style="display: flex; align-items: center; gap: 10px;">
               <el-tag size="default" type="success" effect="dark">
                 v{{ appVersion || '…' }} Pro Edition
               </el-tag>
+              <el-button 
+                type="primary" 
+                size="small" 
+                :loading="upgradeStore.checking"
+                @click="upgradeStore.checkUpdate(false)"
+              >
+                <el-icon><RefreshRight /></el-icon>
+                <span>检查更新</span>
+              </el-button>
             </div>
           </div>
 
@@ -143,15 +157,17 @@
 <script setup lang="ts">
 import { reactive, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Key } from '@element-plus/icons-vue'
+import { Key, RefreshRight, InfoFilled, Check, Cpu } from '@element-plus/icons-vue'
 import { DetectBrowserStatus, GetAppVersion } from '../../wailsjs/go/main/App'
 import { useSettingsStore } from '../stores/settingsStore'
 import { usePublishStore } from '../stores/publishStore'
 import { useAuthStore } from '../stores/authStore'
+import { useUpgradeStore } from '../stores/upgradeStore'
 
 const settingsStore = useSettingsStore()
 const publishStore = usePublishStore()
 const authStore = useAuthStore()
+const upgradeStore = useUpgradeStore()
 
 const browserInfo = ref<any>(null)
 const appVersion = ref('')

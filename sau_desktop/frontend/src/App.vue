@@ -5,7 +5,7 @@
       <!-- 品牌区域 -->
       <div class="brand">
         <div class="logo-box">
-          <span class="logo-text">小映</span>
+          <img :src="appLogo" class="logo-img" alt="小映分发助手" />
         </div>
         <div class="brand-info" v-if="!isSidebarCollapsed">
           <div class="brand-title">小映分发助手</div>
@@ -145,6 +145,8 @@
 
       <!-- 全局授权与激活弹窗 -->
       <AuthModal />
+      <!-- 全局在线升级弹窗 -->
+      <UpgradeModal />
     </main>
   </div>
 </template>
@@ -155,14 +157,18 @@ import { useRoute } from 'vue-router'
 import { useThemeStore } from './stores/themeStore'
 import { useAuthStore } from './stores/authStore'
 import { useTaskStore } from './stores/taskStore'
+import { useUpgradeStore } from './stores/upgradeStore'
 import { Medal, Lock, Moon, Sunny } from '@element-plus/icons-vue'
 import { GetAppVersion } from '../wailsjs/go/main/App'
 import AuthModal from './components/AuthModal.vue'
+import UpgradeModal from './components/UpgradeModal.vue'
+import appLogo from './assets/images/logo-universal.png'
 
 const route = useRoute()
 const themeStore = useThemeStore()
 const authStore = useAuthStore()
 const taskStore = useTaskStore()
+const upgradeStore = useUpgradeStore()
 
 const appVersion = ref('')
 
@@ -187,6 +193,8 @@ onMounted(async () => {
   } catch {
     appVersion.value = ''
   }
+  // 启动时静默检查更新 (仅在有弹窗/强制更新时提醒)
+  upgradeStore.checkUpdate(true)
 })
 </script>
 
@@ -237,19 +245,20 @@ onMounted(async () => {
 .logo-box {
   width: 36px;
   height: 36px;
-  background: var(--primary-gradient);
   border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-.logo-text {
-  font-weight: 800;
-  font-size: 13px;
-  color: #fff;
-  letter-spacing: -0.5px;
+.logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .brand-info {

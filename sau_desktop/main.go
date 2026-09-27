@@ -30,6 +30,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 15, G: 23, B: 42, A: 1},
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		// 启用原生文件/文件夹拖拽（Wails v2.10+）：拖入后返回绝对路径，
 		// 由 app.go 的 OnFileDrop 回调解析文件夹结构
 		DragAndDrop: &options.DragAndDrop{

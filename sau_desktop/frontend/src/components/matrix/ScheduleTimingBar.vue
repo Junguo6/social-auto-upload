@@ -79,6 +79,7 @@ const localConfig = computed({
   border: 1px solid var(--el-border-color-lighter, #ebeef5);
   border-radius: 8px;
   padding: 14px 20px;
+  margin-bottom: 20px;
 }
 
 .timing-row {

@@ -7,15 +7,19 @@ import (
 	godebug "runtime/debug"
 	"sau_desktop/internal/auth"
 	"sau_desktop/internal/engine"
+	"sau_desktop/internal/storage"
+	"sau_desktop/internal/upgrade"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
 type App struct {
-	ctx      context.Context
-	executor *engine.Executor
-	authMgr  *auth.AuthManager
+	ctx        context.Context
+	executor   *engine.Executor
+	authMgr    *auth.AuthManager
+	upgradeMgr *upgrade.UpgradeManager
+	storageMgr *storage.StorageManager
 }
 
 // PanicRecover 捕获 Wails 暴露方法内的 panic，避免整个应用崩溃。
@@ -48,9 +52,24 @@ func NewApp() *App {
 		fmt.Printf("警告: 鉴权模块初始化异常: %v\n", err)
 	}
 
+	upgradeManager := upgrade.NewManager(auth.CurrentAppVersion, func() string {
+		if authManager != nil {
+			return authManager.GetDeviceID()
+		}
+		return ""
+	}, auth.ServerHost)
+
+	workDir := ""
+	if exec != nil {
+		workDir = exec.WorkDir()
+	}
+	storageManager := storage.NewStorageManager(workDir)
+
 	return &App{
-		executor: exec,
-		authMgr:  authManager,
+		executor:   exec,
+		authMgr:    authManager,
+		upgradeMgr: upgradeManager,
+		storageMgr: storageManager,
 	}
 }
 
@@ -64,6 +83,22 @@ func (a *App) startup(ctx context.Context) {
 	go runtime.OnFileDrop(ctx, func(x, y int, paths []string) {
 		a.handleNativeFileDrop(paths)
 	})
+}
+
+// shutdown is called when the app terminates.
+func (a *App) shutdown(ctx context.Context) {
+	a.ctx = ctx
+	if a.upgradeMgr != nil {
+		_ = a.upgradeMgr.ApplyUpdate()
+	}
+}
+
+// QuitApp 退出客户端主程序
+func (a *App) QuitApp() {
+	defer a.PanicRecover("QuitApp", nil)
+	if a.ctx != nil {
+		runtime.Quit(a.ctx)
+	}
 }
 
 // GetAuthOverview 获取机器识别码与授权状态概览
@@ -486,4 +521,80 @@ func (a *App) GetAppVersion() string {
 	defer a.PanicRecover("GetAppVersion", nil)
 	return auth.CurrentAppVersion
 }
+
+// CheckUpdate 检测服务端是否有最新版本发布
+func (a *App) CheckUpdate() (*upgrade.CheckUpdateResult, error) {
+	defer a.PanicRecover("CheckUpdate", nil)
+	if a.upgradeMgr == nil {
+		return nil, fmt.Errorf("升级服务未初始化")
+	}
+	return a.upgradeMgr.CheckUpdate()
+}
+
+// StartDownloadUpdate 开始下载升级包并通过 Wails 事件实时推送进度 (sau-upgrade-progress)
+func (a *App) StartDownloadUpdate() (*upgrade.DownloadProgress, error) {
+	defer a.PanicRecover("StartDownloadUpdate", nil)
+	if a.upgradeMgr == nil {
+		return nil, fmt.Errorf("升级服务未初始化")
+	}
+	return a.upgradeMgr.StartDownload(a.ctx, func(progress upgrade.DownloadProgress) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "sau-upgrade-progress", progress)
+		}
+	})
+}
+
+// CancelDownloadUpdate 取消正在进行的升级下载
+func (a *App) CancelDownloadUpdate() {
+	defer a.PanicRecover("CancelDownloadUpdate", nil)
+	if a.upgradeMgr != nil {
+		a.upgradeMgr.CancelDownload()
+	}
+}
+
+// ApplyUpdate 执行更新替换安装
+func (a *App) ApplyUpdate() error {
+	defer a.PanicRecover("ApplyUpdate", nil)
+	if a.upgradeMgr == nil {
+		return fmt.Errorf("升级服务未初始化")
+	}
+	return a.upgradeMgr.ApplyUpdate()
+}
+
+// GetDownloadProgress 获取当前下载进度状态
+func (a *App) GetDownloadProgress() upgrade.DownloadProgress {
+	defer a.PanicRecover("GetDownloadProgress", nil)
+	if a.upgradeMgr == nil {
+		return upgrade.DownloadProgress{Status: "idle"}
+	}
+	return a.upgradeMgr.GetDownloadProgress()
+}
+
+// LoadAppData 从本地磁盘读取指定业务 key 的持久化 JSON 字符串
+func (a *App) LoadAppData(key string) (string, error) {
+	defer a.PanicRecover("LoadAppData", map[string]interface{}{"key": key})
+	if a.storageMgr == nil {
+		return "", fmt.Errorf("存储引擎未初始化")
+	}
+	return a.storageMgr.LoadData(key)
+}
+
+// SaveAppData 原子性将指定业务 key 的 JSON 字符串持久化到磁盘文件
+func (a *App) SaveAppData(key string, payload string) error {
+	defer a.PanicRecover("SaveAppData", map[string]interface{}{"key": key})
+	if a.storageMgr == nil {
+		return fmt.Errorf("存储引擎未初始化")
+	}
+	return a.storageMgr.SaveData(key, payload)
+}
+
+// SyncAccountsWithCookies 扫描本地 cookies/*.json，与前端账号列表做双向对齐与反向发现
+func (a *App) SyncAccountsWithCookies(clientAccountsJSON string) (string, error) {
+	defer a.PanicRecover("SyncAccountsWithCookies", nil)
+	if a.storageMgr == nil {
+		return clientAccountsJSON, fmt.Errorf("存储引擎未初始化")
+	}
+	return a.storageMgr.SyncAccountsWithCookies(clientAccountsJSON)
+}
+
 

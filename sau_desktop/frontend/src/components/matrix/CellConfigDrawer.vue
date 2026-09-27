@@ -1,45 +1,39 @@
 <template>
-  <el-dialog
-    v-model="visible"
-    :width="isFullscreen ? '100vw' : '1180px'"
-    :fullscreen="isFullscreen"
-    top="4vh"
-    align-center
-    append-to-body
-    :before-close="handleBeforeClose"
-    destroy-on-close
-    class="cell-config-global-dialog"
-  >
-    <!-- 全局自适应高质感标题栏 -->
-    <template #header>
-      <div class="dialog-custom-header" v-if="cellData">
-        <div class="header-left">
-          <span class="plat-pill" :style="{ background: getPlatformColor(cellData.platform) }">
-            {{ getPlatformName(cellData.platform) }}
-          </span>
-          <span class="header-title">全局发布微调 · @{{ cellData.nickname || cellData.account }}</span>
-          <el-tag :type="cellData.cell.enabled ? 'success' : 'info'" size="small" class="status-tag">
-            {{ cellData.cell.enabled ? '已激活本通道' : '跳过不发布' }}
-          </el-tag>
-        </div>
-        <div class="header-right">
-          <div class="banner-media-info">
-            <el-icon class="media-icon"><Film /></el-icon>
-            <span class="media-name" :title="cellData.mediaName">{{ cellData.mediaName }}</span>
+  <Teleport to="body">
+    <transition name="slide-panel">
+      <div v-if="visible && cellData" class="cell-config-drawer-overlay" @click.self="handleCancel">
+        <div class="cell-config-slide-panel" :class="{ fullscreen: isFullscreen }">
+          <!-- 顶部自适应高质感标题栏 -->
+          <div class="panel-custom-header">
+            <div class="header-left">
+              <span class="plat-pill" :style="{ background: getPlatformColor(cellData.platform) }">
+                {{ getPlatformName(cellData.platform) }}
+              </span>
+              <span class="header-title">发布微调 · @{{ cellData.nickname || cellData.account }}</span>
+              <el-tag :type="cellData.cell.enabled ? 'success' : 'info'" size="small" class="status-tag">
+                {{ cellData.cell.enabled ? '已激活本通道' : '跳过不发布' }}
+              </el-tag>
+            </div>
+            <div class="header-right">
+              <div class="banner-media-info">
+                <el-icon class="media-icon"><Film /></el-icon>
+                <span class="media-name" :title="cellData.mediaName">{{ cellData.mediaName }}</span>
+              </div>
+              <el-tooltip :content="isFullscreen ? '退出全屏' : '全屏展开'" placement="bottom">
+                <el-button
+                  circle
+                  size="small"
+                  class="fullscreen-toggle-btn"
+                  @click="isFullscreen = !isFullscreen"
+                >
+                  <el-icon><FullScreen /></el-icon>
+                </el-button>
+              </el-tooltip>
+              <button class="panel-close-btn" @click="handleCancel" title="关闭">
+                <el-icon><Close /></el-icon>
+              </button>
+            </div>
           </div>
-          <el-tooltip :content="isFullscreen ? '退出全屏' : '全屏展开'" placement="bottom">
-            <el-button
-              circle
-              size="small"
-              class="fullscreen-toggle-btn"
-              @click="isFullscreen = !isFullscreen"
-            >
-              <el-icon><FullScreen /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </div>
-      </div>
-    </template>
 
     <!-- 双栏开阔全局工作台 (彻底告别单列抽屉狭小局促感) -->
     <div v-if="cellData" class="dialog-body custom-scrollbar">
@@ -115,106 +109,97 @@
           </div>
         </div>
 
-        <!-- 右栏：专属文案与平台高级专属特性 (占 64%) -->
+        <!-- 右栏：平台微调表单 (与发布信息内的表单结构 100% 一致) -->
         <div class="column-right">
-          <!-- 3. 专属标题与正文文案微调 -->
-          <div class="config-section" v-if="cellData.cell.enabled">
+          <div class="config-section platform-main-config" v-if="cellData.cell.enabled">
             <div class="section-title-row">
               <div class="section-title">
-                <el-icon><EditPen /></el-icon>
-                <span>专属标题与正文文案微调</span>
+                <span class="plat-badge" :style="{ background: getPlatformColor(cellData.platform) }">
+                  {{ getPlatformName(cellData.platform) }}
+                </span>
+                <span>平台发布微调表单</span>
+            
               </div>
               <el-button v-if="cellData.cell.isCustomized" size="small" link type="warning" @click="resetToInherit">
-                恢复继承全局
+                恢复继承基准
               </el-button>
             </div>
 
-            <div class="field-col">
-              <div class="label-with-hint">
-                <span class="field-label">专属稿件标题:</span>
-                <span class="field-hint">留空则自动继承全局统一标题</span>
-              </div>
-              <el-input
-                v-model="cellData.cell.customTitle"
-                placeholder="输入该账号独立微调标题..."
-                clearable
-                size="default"
-                @input="handleDirty"
+            <!-- 直接呈现对应的完整平台表单，不再有多余的中间层级与重复标题框 -->
+            <div class="platform-form-wrapper">
+              <TencentForm
+                v-if="cellData.platform === 'tencent' || cellData.platform === 'wechat'"
+                :override="cellData.cell.override"
+                :rule-config="ruleConfig"
+                :sample-media="currentSampleMedia"
+                :unit-level="unitLevel"
+                :hide-variables="true"
               />
-            </div>
-
-            <div class="field-col">
-              <div class="label-with-hint">
-                <span class="field-label">专属正文简介描述:</span>
-                <span class="field-hint">留空则继承全局统一文案</span>
-              </div>
-              <el-input
-                v-model="cellData.cell.override.desc"
-                type="textarea"
-                :rows="4"
-                placeholder="针对该账号个性化微调的文案、话术、引导语或专属口播词..."
-                size="default"
-                @input="handleDirty"
+              <BilibiliForm
+                v-else-if="cellData.platform === 'bilibili'"
+                :override="cellData.cell.override"
+                :rule-config="ruleConfig"
+                :sample-media="currentSampleMedia"
+                :unit-level="unitLevel"
+                :hide-variables="true"
               />
-            </div>
-
-            <div class="field-col">
-              <div class="label-with-hint">
-                <span class="field-label">专属话题标签:</span>
-                <span class="field-hint">多个标签用逗号分隔</span>
-              </div>
-              <el-input
-                v-model="cellData.cell.override.tags"
-                placeholder="如：专属话题A, 专属话题B"
-                clearable
-                size="default"
-                @input="handleDirty"
+              <DouyinForm
+                v-else-if="cellData.platform === 'douyin'"
+                :override="cellData.cell.override"
+                :rule-config="ruleConfig"
+                :sample-media="currentSampleMedia"
+                :unit-level="unitLevel"
+                :hide-variables="true"
+              />
+              <XiaohongshuForm
+                v-else-if="cellData.platform === 'xiaohongshu'"
+                :override="cellData.cell.override"
+                :rule-config="ruleConfig"
+                :sample-media="currentSampleMedia"
+                :unit-level="unitLevel"
+                :hide-variables="true"
+              />
+              <GenericForm
+                v-else
+                :override="cellData.cell.override"
+                :rule-config="ruleConfig"
+                :sample-media="currentSampleMedia"
+                :unit-level="unitLevel"
+                :hide-variables="true"
               />
             </div>
           </div>
-
-          <!-- 4. 平台专属高级特性 (组件化全局复用) -->
-          <div class="config-section" v-if="cellData.cell.enabled">
-            <div class="section-title">
-              <el-icon><Setting /></el-icon>
-              <span>{{ getPlatformName(cellData.platform) }} 平台专属高级特性</span>
-              <span class="sub-hint">(必填主分区、版权合规声明与平台专属控制)</span>
-            </div>
-
-            <div class="platform-form-wrapper">
-              <TencentForm v-if="cellData.platform === 'tencent'" :override="cellData.cell.override" />
-              <BilibiliForm v-else-if="cellData.platform === 'bilibili'" :override="cellData.cell.override" />
-              <DouyinForm v-else-if="cellData.platform === 'douyin'" :override="cellData.cell.override" />
-              <XiaohongshuForm v-else-if="cellData.platform === 'xiaohongshu'" :override="cellData.cell.override" />
-              <GenericForm v-else :override="cellData.cell.override" />
-            </div>
+          <div v-else class="channel-disabled-empty">
+            <el-empty description="当前发布通道已跳过，开启左侧开关即可微调发布内容" :image-size="80" />
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 底部全局操作栏 -->
-    <template #footer>
-      <div class="dialog-footer">
-        <el-button size="small" type="primary" link @click="$emit('open-sync')">
-          <el-icon><Connection /></el-icon> 一键克隆同步到同平台其他账号
-        </el-button>
-        <div class="btn-group">
-          <el-button size="default" @click="handleCancel">取消</el-button>
-          <el-button size="default" type="primary" class="gradient-btn" @click="handleSave">
-            完成并保存微调
-          </el-button>
+          <!-- 底部操作栏 -->
+          <div class="panel-footer">
+            <el-button size="small" type="primary" link @click="handleCloneToSamePlatform">
+              <el-icon><Connection /></el-icon> 一键克隆同步到同平台其他账号
+            </el-button>
+            <div class="btn-group">
+              <el-button size="default" @click="handleCancel">取消</el-button>
+              <el-button size="default" type="primary" class="gradient-btn" @click="handleSave">
+                完成并保存微调
+              </el-button>
+            </div>
+          </div>
         </div>
       </div>
-    </template>
-  </el-dialog>
+    </transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Close, Film, FullScreen, Connection, CopyDocument, DocumentCopy, Timer } from '@element-plus/icons-vue'
 import { getPlatformConfig } from '../../config/platforms'
-import type { MatrixCellConfig } from '../../types/matrix'
+import type { MatrixCellConfig, BatchRuleConfig } from '../../types/matrix'
 
 // 平台专属表单子组件
 import TencentForm from './platforms/TencentForm.vue'
@@ -226,6 +211,8 @@ import GenericForm from './platforms/GenericForm.vue'
 export interface CellDataWrap {
   mediaId: string
   mediaName: string
+  folderCrumbs?: string[]
+  filePath?: string
   platform: string
   account: string
   nickname?: string
@@ -234,16 +221,30 @@ export interface CellDataWrap {
   inheritedDesc?: string
   inheritedTags?: string
   inheritedSchedule?: string
+  inheritedOverride?: Record<string, any>
 }
 
 const props = defineProps<{
   modelValue: boolean
   cellData: CellDataWrap | null
+  ruleConfig?: Partial<BatchRuleConfig>
+  unitLevel?: number
+  selectedAccounts?: Array<{ platform: string; account: string; nickname?: string }>
 }>()
+
+const currentSampleMedia = computed(() => {
+  if (!props.cellData) return undefined
+  return {
+    id: props.cellData.mediaId,
+    fileName: props.cellData.mediaName,
+    folderCrumbs: props.cellData.folderCrumbs || [],
+    filePath: props.cellData.filePath || ''
+  }
+})
 
 const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void
-  (e: 'open-sync'): void
+  (e: 'clone-to-accounts', payload: { mediaId: string; sourceCell: MatrixCellConfig; targetAccounts: any[] }): void
 }>()
 
 const visible = computed({
@@ -263,6 +264,31 @@ watch(
   () => props.modelValue,
   (isOpen) => {
     if (isOpen && props.cellData?.cell) {
+      if (!props.cellData.cell.override) {
+        props.cellData.cell.override = {
+          isCustomized: false,
+          title: '',
+          desc: '',
+          tags: '',
+          thumbnail: '',
+          thumbnailLandscape: '',
+          thumbnailPortrait: '',
+          tid: props.cellData.platform === 'bilibili' ? 230 : 0,
+          shortTitle: '',
+          category: '',
+          draft: false,
+          schedule: '',
+          declaration: '',
+          collection: '',
+          productLink: '',
+          productTitle: '',
+          visibility: 'public',
+          playlist: '',
+          bgm: '',
+          note: '',
+          notef: ''
+        }
+      }
       isSaved = false
       originalSnapshot = JSON.stringify({
         customTitle: props.cellData.cell.customTitle || '',
@@ -280,6 +306,7 @@ watch(
 // 判断是否有实质性的专属定制内容
 const hasActiveCustomization = (cell: MatrixCellConfig): boolean => {
   if (cell.customTitle && cell.customTitle.trim()) return true
+  if (cell.override?.title && cell.override.title.trim()) return true
   if (cell.override?.desc && cell.override.desc.trim()) return true
   if (cell.override?.tags && cell.override.tags.trim()) return true
   if (cell.scheduleMode && cell.scheduleMode !== 'inherit') return true
@@ -287,8 +314,10 @@ const hasActiveCustomization = (cell: MatrixCellConfig): boolean => {
   // 平台专属字段是否被定制
   const ov = cell.override
   if (ov) {
-    if (ov.collection || ov.productTitle || ov.productLink || ov.shortTitle || ov.category || ov.draft) return true
+    if (ov.collection || ov.productTitle || ov.productLink || ov.shortTitle || ov.category || ov.draft || ov.activityName || ov.linkTitle) return true
     if (ov.declaration && ov.declaration !== '1' && ov.declaration !== '') return true
+    if (ov.location && ov.location !== 'auto') return true
+    if (ov.tid && ov.tid !== 0 && ov.tid !== 230) return true
   }
   return false
 }
@@ -302,6 +331,10 @@ const handleDirty = () => {
 const handleSave = () => {
   if (props.cellData?.cell) {
     isSaved = true
+    // 如果平台表单设置了 override.title，同步到 customTitle 保证兼容
+    if (props.cellData.cell.override?.title?.trim()) {
+      props.cellData.cell.customTitle = props.cellData.cell.override.title.trim()
+    }
     const hasCustom = hasActiveCustomization(props.cellData.cell)
     props.cellData.cell.isCustomized = hasCustom
     if (hasCustom) {
@@ -337,30 +370,113 @@ const handleBeforeClose = (done: () => void) => {
   done()
 }
 
-// 一键复制继承原值到覆盖输入框
+// 一键复制继承原值到覆盖输入框（深度将第二步基准配置完整注入）
 const copyInheritedToOverride = () => {
-  if (!props.cellData) return
+  if (!props.cellData?.cell) return
+  const inh = props.cellData.inheritedOverride || {}
+
+  // 深度复制平台基准配置
+  const copiedOverride = JSON.parse(JSON.stringify(inh))
+
+  // 针对标题对齐：
   if (props.cellData.inheritedTitle) {
+    copiedOverride.title = props.cellData.inheritedTitle
     props.cellData.cell.customTitle = props.cellData.inheritedTitle
   }
   if (props.cellData.inheritedDesc) {
-    props.cellData.cell.override.desc = props.cellData.inheritedDesc
+    copiedOverride.desc = props.cellData.inheritedDesc
   }
   if (props.cellData.inheritedTags) {
-    props.cellData.cell.override.tags = props.cellData.inheritedTags
+    copiedOverride.tags = props.cellData.inheritedTags
   }
-  handleDirty()
-  ElMessage.success('已将全局继承原值复制到个性化微调输入框')
+
+  props.cellData.cell.override = copiedOverride
+  props.cellData.cell.isCustomized = true
+  ElMessage.success('已将该平台的基准配置完整带入微调表单，您可直接微调')
 }
 
-// 恢复继承全局
+// 恢复继承全局基准
 const resetToInherit = () => {
-  if (!props.cellData) return
+  if (!props.cellData?.cell) return
   props.cellData.cell.customTitle = ''
-  props.cellData.cell.override.desc = ''
-  props.cellData.cell.override.tags = ''
+  props.cellData.cell.override = {
+    isCustomized: false,
+    title: '',
+    desc: '',
+    tags: '',
+    thumbnail: '',
+    thumbnailLandscape: '',
+    thumbnailPortrait: '',
+    tid: props.cellData.platform === 'bilibili' ? 230 : 0,
+    shortTitle: '',
+    category: '',
+    draft: false,
+    schedule: '',
+    declaration: '',
+    collection: '',
+    productLink: '',
+    productTitle: '',
+    visibility: props.cellData.platform === 'douyin' ? '0' : 'public',
+    playlist: '',
+    bgm: '',
+    note: '',
+    notef: '',
+    location: 'auto',
+    linkType: 'none',
+    linkUrl: '',
+    linkTitle: '',
+    activityName: ''
+  }
   props.cellData.cell.isCustomized = false
-  ElMessage.info('已清除专属文案，恢复为实时继承全局')
+  ElMessage.info('已恢复为实时继承全局基准')
+}
+
+// 查找同平台其他账号
+const samePlatformAccounts = computed(() => {
+  if (!props.cellData || !props.selectedAccounts) return []
+  return props.selectedAccounts.filter(
+    acc => acc.platform === props.cellData!.platform && acc.account !== props.cellData!.account
+  )
+})
+
+// 一键克隆同步到同平台其他账号
+const handleCloneToSamePlatform = async () => {
+  if (!props.cellData?.cell) return
+  const targets = samePlatformAccounts.value
+  const platName = getPlatformName(props.cellData.platform)
+
+  if (targets.length === 0) {
+    ElMessage.info(`步骤②中未选择其他【${platName}】账号，无需克隆`)
+    return
+  }
+
+  const targetNames = targets.map(t => `@${t.nickname || t.account}`).join('、')
+
+  try {
+    await ElMessageBox.confirm(
+      `确定将当前账号（@${props.cellData.nickname || props.cellData.account}）的微调内容一键克隆给同平台其他 ${targets.length} 个账号吗？\n\n目标账号：${targetNames}\n\n（将同步标题、描述、话题标签及所有平台配置）`,
+      `克隆微调配置 · ${platName}`,
+      {
+        confirmButtonText: '确定克隆覆盖',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    // 确保当前内容同步为定制状态
+    if (props.cellData.cell.override?.title?.trim()) {
+      props.cellData.cell.customTitle = props.cellData.cell.override.title.trim()
+    }
+    props.cellData.cell.isCustomized = true
+
+    emit('clone-to-accounts', {
+      mediaId: props.cellData.mediaId,
+      sourceCell: JSON.parse(JSON.stringify(props.cellData.cell)),
+      targetAccounts: targets
+    })
+  } catch (e) {
+    // 取消
+  }
 }
 
 const getPlatformName = (platId?: string): string => {
@@ -375,42 +491,45 @@ const getPlatformColor = (platId?: string): string => {
 </script>
 
 <style scoped>
-/* 全局挂载 Dialog 顶层样式 */
-:deep(.el-dialog.cell-config-global-dialog) {
-  border-radius: 16px;
-  overflow: hidden;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.36);
-  transition: all 0.25s ease-in-out;
+/* 原生独立抽屉遮罩与面板 */
+.cell-config-drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(6px);
+  z-index: 3500;
+  display: flex;
+  justify-content: flex-end;
 }
 
-:deep(.el-dialog__header) {
-  margin: 0;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-detail);
+.cell-config-slide-panel {
+  width: 880px;
+  max-width: 90vw;
+  height: 100vh;
+  background: var(--bg-card, #1e293b);
+  border-left: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  box-shadow: -16px 0 60px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.25s ease;
 }
 
-:deep(.el-dialog__body) {
-  padding: 22px 26px;
-  max-height: 80vh;
-  overflow-y: auto;
-}
-
-:deep(.el-dialog__footer) {
-  padding: 14px 26px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--bg-detail);
+.cell-config-slide-panel.fullscreen {
+  width: 100vw;
+  max-width: 100vw;
 }
 
 /* 顶部标题栏 */
-.dialog-custom-header {
+.panel-custom-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  width: 100%;
-  padding-right: 28px;
+  padding: 16px 22px;
+  background: var(--bg-detail, rgba(0, 0, 0, 0.25));
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
 }
 
 .header-left {
@@ -432,7 +551,66 @@ const getPlatformColor = (platId?: string): string => {
 .header-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text-main);
+  color: var(--text-main, #f8fafc);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.panel-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.panel-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+/* 主体内容滚动区 */
+.panel-body,
+.dialog-body {
+  flex: 1;
+  padding: 22px;
+  overflow-y: auto;
+}
+
+/* 底部操作栏 */
+.panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  background: var(--bg-detail, rgba(0, 0, 0, 0.25));
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+/* 滑动动画 */
+.slide-panel-enter-active,
+.slide-panel-leave-active {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-panel-enter-from,
+.slide-panel-leave-to {
+  opacity: 0;
+}
+
+.slide-panel-enter-from .cell-config-slide-panel,
+.slide-panel-leave-to .cell-config-slide-panel {
+  transform: translateX(100%);
 }
 
 .header-right {
@@ -664,5 +842,21 @@ const getPlatformColor = (platId?: string): string => {
   border: none;
   font-weight: 600;
   padding: 8px 20px;
+}
+
+.plat-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-block;
+}
+
+.channel-disabled-empty {
+  padding: 40px 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 </style>

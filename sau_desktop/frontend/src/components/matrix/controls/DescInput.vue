@@ -17,11 +17,22 @@
       show-word-limit
       class="stylish-desc-input"
     />
+
+    <VariableChips
+      v-if="!hideVariables"
+      :current-value="modelValue"
+      :rule-config="ruleConfig"
+      :sample-media="sampleMedia"
+      :unit-level="unitLevel"
+      @insert="insertVar"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { BatchRuleConfig, MediaItem } from '../../../types/matrix'
+import VariableChips from '../VariableChips.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -31,12 +42,17 @@ const props = withDefaults(defineProps<{
   maxlength?: number
   required?: boolean
   hint?: string
+  ruleConfig?: BatchRuleConfig
+  sampleMedia?: Partial<MediaItem>
+  unitLevel?: number
+  hideVariables?: boolean
 }>(), {
   label: '作品简介 / 描述文案',
-  placeholder: '请输入正文、剧情简介或引流文案...',
+  placeholder: '请输入正文、剧情简介或引流文案，支持插入变量...',
   rows: 3,
   maxlength: 1000,
-  required: false
+  required: false,
+  hideVariables: false
 })
 
 const emit = defineEmits<{
@@ -47,6 +63,17 @@ const modelValue = computed({
   get: () => props.modelValue,
   set: (val) => emit('update:modelValue', val)
 })
+
+function insertVar(varStr: string) {
+  const current = props.modelValue || ''
+  if (!current) {
+    emit('update:modelValue', varStr)
+  } else if (!current.includes(varStr)) {
+    emit('update:modelValue', `${current} ${varStr}`)
+  } else {
+    emit('update:modelValue', `${current}${varStr}`)
+  }
+}
 </script>
 
 <style scoped>

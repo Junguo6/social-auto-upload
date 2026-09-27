@@ -5,7 +5,7 @@
         <span class="label-text">{{ label }}</span>
         <span v-if="required" class="required-star">*</span>
       </div>
-      <div v-if="ruleConfig" class="header-tools">
+      <div v-if="ruleConfig && !hideVariables" class="header-tools">
         <button
           type="button"
           class="rule-toggle-btn"
@@ -13,7 +13,7 @@
           @click="isEpisodePanelOpen = !isEpisodePanelOpen"
         >
           <el-icon><Setting /></el-icon>
-          <span>{{ isEpisodePanelOpen ? '收起分集规则' : '⚙️ 集数生成规则' }}</span>
+          <span>{{ isEpisodePanelOpen ? '收起分集规则' : '集数生成规则' }}</span>
         </button>
       </div>
     </div>
@@ -28,19 +28,19 @@
       class="stylish-title-input"
     />
 
-    <!-- 变量插入胶囊条 -->
-    <div class="variable-bar">
-      <span class="bar-caption">插入变量:</span>
-      <div class="chips-group">
-        <span class="chip-item" @click="insertVar('{视频名}')">+ {视频名}</span>
-        <span class="chip-item" @click="insertVar('{集数}')">+ {集数}</span>
-        <span class="chip-item" @click="insertVar('{日期}')">+ {日期}</span>
-      </div>
-    </div>
+    <!-- 变量插入与实时解析示例 -->
+    <VariableChips
+      v-if="!hideVariables"
+      :current-value="modelValue"
+      :rule-config="ruleConfig"
+      :sample-media="sampleMedia"
+      :unit-level="unitLevel"
+      @insert="insertVar"
+    />
 
     <!-- 折叠展开的集数规则面板 -->
     <el-collapse-transition>
-      <div v-show="isEpisodePanelOpen && ruleConfig" class="episode-drawer-card">
+      <div v-if="isEpisodePanelOpen && !hideVariables" class="episode-drawer-card">
         <div class="drawer-header">
           <span class="drawer-title">分集变量 `{集数}` 自动解析规则</span>
           <span class="drawer-desc">多集连发时自动识别或递增编号</span>
@@ -48,7 +48,7 @@
         <div class="drawer-body">
           <div class="param-row">
             <span class="param-name">提取方式</span>
-            <el-select v-model="ruleConfig!.episodeMode" size="small" style="width: 140px">
+            <el-select v-model="safeRuleConfig.episodeMode" size="small" style="width: 140px">
               <el-option label="智能提取文件名" value="auto" />
               <el-option label="强制顺序递增" value="sequence" />
             </el-select>
@@ -57,7 +57,7 @@
           <div class="param-row">
             <span class="param-name">起始集</span>
             <el-input-number
-              v-model="ruleConfig!.startEpisode"
+              v-model="safeRuleConfig.startEpisode"
               :min="1"
               :max="9999"
               size="small"
@@ -68,7 +68,7 @@
           <div class="param-row">
             <span class="param-name">步长</span>
             <el-input-number
-              v-model="ruleConfig!.episodeStep"
+              v-model="safeRuleConfig.episodeStep"
               :min="1"
               :max="10"
               size="small"
@@ -89,7 +89,8 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import type { BatchRuleConfig } from '../../../types/matrix'
+import type { BatchRuleConfig, MediaItem } from '../../../types/matrix'
+import VariableChips from '../VariableChips.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -98,16 +99,32 @@ const props = withDefaults(defineProps<{
   maxlength?: number
   required?: boolean
   ruleConfig?: BatchRuleConfig
+  sampleMedia?: Partial<MediaItem>
+  unitLevel?: number
+  hideVariables?: boolean
 }>(), {
   label: '作品标题',
   placeholder: '请输入视频标题，支持变量如：{视频名} - 第{集数}集',
   maxlength: 80,
-  required: true
+  required: true,
+  hideVariables: false
 })
 
 const emit = defineEmits<{
   (e: 'update:modelValue', val: string): void
 }>()
+
+const defaultRuleConfig: BatchRuleConfig = {
+  titleTemplate: '{视频名}',
+  episodeMode: 'sequence',
+  startEpisode: 1,
+  episodeStep: 1,
+  padZero: false,
+  scheduleType: 'immediate',
+  startScheduleTime: '',
+  intervalMinutes: 30
+}
+const safeRuleConfig = computed(() => props.ruleConfig || defaultRuleConfig)
 
 const isEpisodePanelOpen = ref(false)
 
@@ -122,6 +139,8 @@ function insertVar(varStr: string) {
     emit('update:modelValue', varStr)
   } else if (!current.includes(varStr)) {
     emit('update:modelValue', `${current} ${varStr}`)
+  } else {
+    emit('update:modelValue', `${current}${varStr}`)
   }
 }
 </script>

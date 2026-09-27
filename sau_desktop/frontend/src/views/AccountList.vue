@@ -221,14 +221,29 @@
                   <el-tooltip content="打开浏览器登录" placement="top">
                     <el-icon class="acc-act" @click="openBrowserForAccount(acc)"><Monitor /></el-icon>
                   </el-tooltip>
+                  <el-tooltip content="删除账号凭证" placement="top">
+                    <el-icon class="acc-act acc-act-del" @click="confirmDelete(acc.platform, acc.account)"><Delete /></el-icon>
+                  </el-tooltip>
                 </span>
               </div>
 
             </div>
           </div>
 
+          <!-- 批量操作栏（勾选账号时高亮出现） -->
+          <div class="sidebar-batch-bar" v-if="checkedAccounts.length > 0">
+            <div class="batch-bar-info">
+              <span>已选 <b>{{ checkedAccounts.length }}</b> 个</span>
+              <el-button link size="small" type="primary" @click="checkedAccounts = []">取消</el-button>
+            </div>
+            <div class="batch-bar-btns">
+              <el-button size="small" :loading="batchChecking" @click="handleBatchCheck">批量检测</el-button>
+              <el-button size="small" type="danger" plain @click="handleBatchDelete">批量删除</el-button>
+            </div>
+          </div>
+
           <!-- 底部操作提示（固定在卡片底部，不随列表滚动） -->
-          <div class="pane-tip" v-if="accountStore.groups.length > 0">
+          <div class="pane-tip" v-else-if="accountStore.groups.length > 0">
             💡 单击选中账号 · <b>拖拽到右侧分组</b>即可归类 · 一个账号可属于多个分组
           </div>
           <div class="pane-tip" v-else>
@@ -413,6 +428,11 @@
                         <Monitor />
                       </el-icon>
                     </el-tooltip>
+                    <el-tooltip content="彻底删除账号凭证" placement="top">
+                      <el-icon class="acc-act acc-act-del" @click="confirmDelete(m.platform, m.account)">
+                        <Delete />
+                      </el-icon>
+                    </el-tooltip>
                     <el-tooltip content="从该分组移出（不影响其他分组）" placement="top">
                       <el-icon class="gdm-x" @click.stop="handleRemoveFromGroup(m, openedGroup)">
                         <CircleClose />
@@ -549,6 +569,7 @@ import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import FolderIcon from '../components/common/FolderIcon.vue'
 import { PLATFORMS, getPlatformConfig } from '../config/platforms'
 import { useAccountStore, AccountItem } from '../stores/accountStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { LoginAccountWithAppWindow, StopTaskById } from '../../wailsjs/go/main/App'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import {
@@ -559,6 +580,7 @@ import {
 } from '@element-plus/icons-vue'
 
 const accountStore = useAccountStore()
+const settingsStore = useSettingsStore()
 
 // 浏览器标签页结构定义 (单面板模式：只保留一个标签页)
 interface BrowserTab {
@@ -1165,21 +1187,34 @@ const checkedAccountItems = computed(() =>
   accountStore.accounts.filter(a => checkedAccounts.value.includes(accKey(a)))
 )
 
-/** 批量检测登录状态 */
+/** 批量检测登录状态 (受控并发池模式，速度提升 3~4 倍且杜绝系统过载) */
 const batchChecking = ref(false)
 async function handleBatchCheck() {
   if (batchChecking.value) return
-  batchChecking.value = true
   const list = checkedAccountItems.value
+  if (list.length === 0) return
+
+  batchChecking.value = true
   let ok = 0, bad = 0
+  const concurrency = Math.min(4, Math.max(2, settingsStore.settings.concurrency || 3))
+
   try {
-    for (const acc of list) {
-      try {
-        await checkStatus(acc)
-        if (acc.isValid) ok++; else bad++
-      } catch { bad++ }
-    }
-    ElMessage.success(`检测完成：${ok} 个正常${bad ? `，${bad} 个需重新登录` : ''}`)
+    let currentIndex = 0
+    const workers = Array.from({ length: Math.min(concurrency, list.length) }, async () => {
+      while (currentIndex < list.length) {
+        const idx = currentIndex++
+        const acc = list[idx]
+        try {
+          await checkStatus(acc, true) // silent=true 批量静默，避免弹窗轰炸
+          if (acc.isValid) ok++; else bad++
+        } catch {
+          bad++
+        }
+      }
+    })
+
+    await Promise.all(workers)
+    ElMessage.success(`批量检测完成：${ok} 个正常${bad ? `，${bad} 个需重新登录` : ''}`)
   } finally {
     batchChecking.value = false
   }
@@ -1210,8 +1245,8 @@ async function handleBatchDelete() {
   checkedAccounts.value = []
 }
 
-// 账号凭证检测
-const checkStatus = async (acc: AccountItem) => {
+// 账号凭证检测 (支持 silent 静音单账号提示，用于批量检测场景)
+const checkStatus = async (acc: AccountItem, silent: boolean = false) => {
   if (currentActiveTab.value) {
     currentActiveTab.value.isStartingSession = false
   }
@@ -1225,13 +1260,17 @@ const checkStatus = async (acc: AccountItem) => {
       currentActiveTab.value.isStartingSession = false
     }
     const displayName = acc.nickname || acc.account || '当前账号'
-    if (acc.isValid) {
-      ElMessage.success(`[${displayName}] 登录状态正常`)
-    } else {
-      ElMessage.warning(`[${displayName}] 登录已失效：${acc.msg || '请重新扫码登录'}`)
+    if (!silent) {
+      if (acc.isValid) {
+        ElMessage.success(`[${displayName}] 登录状态正常`)
+      } else {
+        ElMessage.warning(`[${displayName}] 登录已失效：${acc.msg || '请重新扫码登录'}`)
+      }
     }
   } catch (err: any) {
-    ElMessage.error(`检测失败: ${err.message || err}`)
+    if (!silent) {
+      ElMessage.error(`检测失败: ${err.message || err}`)
+    }
   } finally {
     acc.loading = false
     acc.isSyncing = false
@@ -1823,13 +1862,13 @@ watch(() => accountStore.accounts, (newAccounts) => {
 .folder-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
-  gap: 12px;
+  gap: 18px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   align-content: start;
-  padding: 2px;              /* 给放大后的格子留点空间 */
+  padding: 20px;              /* 给放大后的格子留点空间 */
 }
 
 .fcell {
@@ -2220,10 +2259,36 @@ watch(() => accountStore.accounts, (newAccounts) => {
 
 /* ── 账号卡片 ── */
 .acc-acts { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
-.acc-act { font-size: 13px; color: var(--text-muted); cursor: pointer; opacity: .55; }
+.acc-act { font-size: 13px; color: var(--text-muted); cursor: pointer; opacity: .55; transition: opacity .15s, color .15s; }
 .acc-act:hover { opacity: 1; color: var(--primary-color); }
+.acc-act.acc-act-del:hover { opacity: 1; color: var(--el-color-danger, #f56c6c); }
 .acc-act.spinning { animation: spin 1s linear infinite; opacity: 1; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 侧边栏批量操作栏 ── */
+.sidebar-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--el-color-primary-light-9, rgba(79, 70, 229, 0.08));
+  border-top: 1px solid var(--el-color-primary-light-7, rgba(79, 70, 229, 0.2));
+  font-size: 12px;
+}
+.sidebar-batch-bar .batch-bar-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-regular, #606266);
+}
+.sidebar-batch-bar .batch-bar-info b {
+  color: var(--el-color-primary, #4f46e5);
+}
+.sidebar-batch-bar .batch-bar-btns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .contact-item.dragging {
   opacity: .4;
   transform: scale(.95);
