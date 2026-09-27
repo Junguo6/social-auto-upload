@@ -15,26 +15,34 @@
             class="wechat-textarea"
           />
           <div class="desc-action-bar">
-            <VariableChips
-              v-if="!hideVariables"
-              :current-value="override.desc"
-              :rule-config="ruleConfig"
-              :sample-media="sampleMedia"
-              :unit-level="unitLevel"
-              @insert="insertVarToDesc"
-            />
+            <!-- 快捷操作区：话题与分集规则 -->
             <div class="tag-insert-group">
-              <button type="button" class="wechat-tag-pill" @click="addHashTag">
-                #话题
+              <button type="button" class="wechat-tag-pill topic-pill" @click="addHashTag">
+                <span class="hash-symbol">#</span>
+                <span class="pill-text">话题</span>
               </button>
               <button
                 v-if="ruleConfig && !hideVariables"
                 type="button"
                 class="wechat-tag-pill ep-rule-pill"
+                :class="{ 'is-active': showEpisodeRule }"
                 @click="showEpisodeRule = !showEpisodeRule"
               >
-                {{ showEpisodeRule ? '收起分集规则' : ' 分集规则' }}
+                <el-icon class="pill-icon"><Operation /></el-icon>
+                <span class="pill-text">{{ showEpisodeRule ? '收起规则' : '分集规则' }}</span>
+                <el-icon class="arrow-indicator" :class="{ 'is-open': showEpisodeRule }"><ArrowDown /></el-icon>
               </button>
+            </div>
+
+            <!-- 专属变量区域：独立整行自适应换行，彻底杜绝横向挤压与超出屏幕 -->
+            <div v-if="!hideVariables" class="desc-variable-chips-wrap">
+              <VariableChips
+                :current-value="override.desc"
+                :rule-config="ruleConfig"
+                :sample-media="sampleMedia"
+                :unit-level="unitLevel"
+                @insert="insertVarToDesc"
+              />
             </div>
           </div>
         </div>
@@ -125,6 +133,7 @@
         />
         <VariableChips
           v-if="!hideVariables"
+          compact
           :current-value="override.collection"
           :rule-config="ruleConfig"
           :sample-media="sampleMedia"
@@ -310,6 +319,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Operation, ArrowDown } from '@element-plus/icons-vue'
 import { SelectLocalFile } from '../../../../wailsjs/go/main/App'
 import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../../types/matrix'
 import VariableChips from '../VariableChips.vue'
@@ -443,12 +453,16 @@ const choosePortraitCover = async () => {
   flex-direction: column;
   gap: 20px;
   padding: 4px 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .wechat-form-row {
   display: flex;
   align-items: flex-start;
   gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .row-label {
@@ -463,22 +477,29 @@ const choosePortraitCover = async () => {
 
 .row-content {
   flex: 1;
+  min-width: 0;
   max-width: 600px;
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
 .desc-box-wrapper {
-  border: 1px solid #e4e7ed;
-  border-radius: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
   background: #ffffff;
   overflow: hidden;
-  transition: border-color 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .desc-box-wrapper:focus-within {
-  border-color: #1890ff;
+  border-color: #07c160;
+  box-shadow: 0 0 0 2px rgba(7, 193, 96, 0.12);
 }
 
 .wechat-textarea :deep(.el-textarea__inner) {
@@ -492,71 +513,121 @@ const choosePortraitCover = async () => {
 
 .desc-action-bar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
-  background: #fafafa;
-  border-top: 1px solid #f0f0f0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-top: 1px solid #f1f5f9;
+  width: 100%;
+  box-sizing: border-box;
 }
 
-.var-insert-group {
+.tag-insert-group {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
-.action-caption {
-  font-size: 12px;
-  color: #909399;
-}
-
-.action-link {
-  font-size: 12px;
-  color: #1890ff;
-  cursor: pointer;
-  user-select: none;
-}
-
-.action-link:hover {
-  text-decoration: underline;
-}
-
-.action-rule-btn {
-  font-size: 12px;
-  color: #606266;
-  cursor: pointer;
-  margin-left: 6px;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: #f0f2f5;
-  user-select: none;
-}
-
-.action-rule-btn:hover {
-  color: #1890ff;
+.desc-variable-chips-wrap {
+  width: 100%;
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px dashed #e2e8f0;
+  box-sizing: border-box;
 }
 
 .wechat-tag-pill {
-  border: none;
-  background: #f0f2f5;
-  color: #606266;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
   font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-weight: 500;
+  border-radius: 5px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  border: 1px solid transparent;
+  box-sizing: border-box;
 }
 
-.wechat-tag-pill:hover {
-  background: #e4e7ed;
-  color: #18191c;
+/* 话题按钮：微信经典薄荷微绿，高级雅致 */
+.topic-pill {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.topic-pill:hover {
+  background: #d1fae5;
+  border-color: #6ee7b7;
+  color: #065f46;
+  transform: translateY(-0.5px);
+  box-shadow: 0 2px 4px rgba(5, 150, 105, 0.12);
+}
+
+.topic-pill:active {
+  transform: translateY(0);
+  background: #a7f3d0;
+}
+
+.topic-pill .hash-symbol {
+  font-weight: 700;
+  font-size: 13px;
+  color: #059669;
+}
+
+/* 分集规则按钮：微质感设置风格，支持高亮展开指示 */
+.ep-rule-pill {
+  color: #475569;
+  background: #ffffff;
+  border-color: #cbd5e1;
+}
+
+.ep-rule-pill:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #1e293b;
+  transform: translateY(-0.5px);
+}
+
+.ep-rule-pill.is-active {
+  color: #2563eb;
+  background: #eff6ff;
+  border-color: #93c5fd;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.12);
+}
+
+.ep-rule-pill.is-active:hover {
+  background: #dbeafe;
+  border-color: #60a5fa;
+}
+
+.ep-rule-pill .pill-icon {
+  font-size: 12px;
+}
+
+.ep-rule-pill .arrow-indicator {
+  font-size: 11px;
+  transition: transform 0.2s ease;
+  margin-left: 1px;
+}
+
+.ep-rule-pill .arrow-indicator.is-open {
+  transform: rotate(180deg);
 }
 
 .episode-mini-panel {
-  background: #fafafa;
-  border: 1px solid #ebeef5;
-  border-radius: 4px;
-  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  width: 100%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .mini-rule-row {

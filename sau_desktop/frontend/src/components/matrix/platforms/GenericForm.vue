@@ -42,6 +42,7 @@
         />
         <VariableChips
           v-if="!hideVariables"
+          compact
           :current-value="override.collection"
           :rule-config="ruleConfig"
           :sample-media="sampleMedia"
