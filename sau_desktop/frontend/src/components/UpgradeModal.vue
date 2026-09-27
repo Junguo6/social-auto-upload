@@ -14,7 +14,7 @@
       <!-- 1. 版本对比卡片 -->
       <div class="version-banner">
         <div class="version-header-icon">
-          <el-icon :size="28"><Promotion /></el-icon>
+          <img :src="appLogo" class="upgrade-logo-img" alt="小映分发助手" />
         </div>
         <div class="version-meta">
           <div class="version-title-row">
@@ -141,8 +141,9 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Promotion, Document, Download, Check } from '@element-plus/icons-vue'
+import { Document, Download, Check } from '@element-plus/icons-vue'
 import { useUpgradeStore } from '../stores/upgradeStore'
+import appLogo from '../assets/images/logo-universal.png'
 
 const upgradeStore = useUpgradeStore()
 
@@ -194,12 +195,19 @@ const handleBeforeClose = (done: () => void) => {
   width: 48px;
   height: 48px;
   border-radius: 12px;
-  background: var(--primary-gradient, linear-gradient(135deg, #6366f1 0%, #a855f7 100%));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
   flex-shrink: 0;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+}
+
+.upgrade-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .version-meta {
