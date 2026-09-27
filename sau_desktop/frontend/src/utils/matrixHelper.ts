@@ -285,7 +285,7 @@ export interface ParsedFolderNode {
 export function parseFolderHierarchy(
   sampleMedia?: { folderCrumbs?: string[]; filePath?: string; fileName?: string }
 ): { nodes: ParsedFolderNode[]; sampleFileName: string } {
-  const sampleFileName = sampleMedia?.fileName || '迟遇山野知秋_第01集.mp4'
+  const sampleFileName = sampleMedia?.fileName || '短剧_第01集.mp4'
   const nodes: ParsedFolderNode[] = []
 
   let crumbs = sampleMedia?.folderCrumbs || []
