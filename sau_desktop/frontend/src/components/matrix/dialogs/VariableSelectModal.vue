@@ -2,162 +2,83 @@
   <el-dialog
     v-model="dialogVisible"
     title="插入动态变量"
-    width="760px"
+    width="480px"
     destroy-on-close
     append-to-body
     class="variable-select-modal"
   >
-    <div class="modal-two-columns">
-      <!-- 左栏：文件树层级视图 (真正的树状缩进 + 导轨分支结构) -->
-      <div class="column-left tree-panel">
-        <div class="panel-header">
-          <span class="panel-title">
-            <el-icon><FolderOpened /></el-icon>
-            <span>文件夹层级结构</span>
-          </span>
-          <span class="panel-subtitle">点击文件夹节点选用对应层级</span>
+    <div class="modal-form">
+      <!-- 1. 先设置变量名称 -->
+      <div class="form-group">
+        <div class="form-label-row">
+          <label class="form-label">
+            <el-icon><EditPen /></el-icon>
+            <span>变量名称</span>
+          </label>
+          <span class="form-hint">将以 {变量名} 形式插入至文本中</span>
         </div>
-
-        <div class="tree-canvas custom-scrollbar">
-          <div class="tree-container">
-            <!-- 树节点列表：真正的层级缩进与树状连线 -->
-            <div
-              v-for="(node, index) in folderHierarchy.nodes"
-              :key="node.varKey"
-              class="tree-branch"
-              :style="{ paddingLeft: `${index * 26}px` }"
-            >
-              <!-- 树形引导线 -->
-              <div v-if="index > 0" class="branch-connector">
-                <span class="corner-line"></span>
-              </div>
-
-              <!-- 节点交互卡片 -->
-              <div
-                class="tree-node-card"
-                :class="{ 'is-selected': isNodeSelected(node) }"
-                @click="selectFolderNode(node)"
-                @dblclick="confirmInsert"
-              >
-                <div class="node-icon folder-icon">
-                  <el-icon><Folder /></el-icon>
-                </div>
-
-                <div class="node-content">
-                  <div class="node-main-row">
-                    <span class="folder-name" :title="node.folderName">{{ node.folderName }}</span>
-                    <!-- 紧凑单行徽章 -->
-                    <span v-if="node.isDirectParent" class="node-pill is-parent">视频所在目录</span>
-                    <span v-else-if="node.isRoot" class="node-pill is-root">外层根目录</span>
-                    <span v-else class="node-pill">第{{ node.level }}层</span>
-                  </div>
-                </div>
-
-                <div class="node-actions">
-                  <span class="var-tag">{{ node.varKey }}</span>
-                  <div class="check-dot">
-                    <el-icon v-if="isNodeSelected(node)"><Check /></el-icon>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 最后一环：挂在最内层目录下的视频文件本身 -->
-            <div
-              class="tree-branch is-leaf"
-              :style="{ paddingLeft: `${folderHierarchy.nodes.length * 26}px` }"
-            >
-              <div class="branch-connector">
-                <span class="corner-line"></span>
-              </div>
-              <div
-                class="tree-node-card is-video-leaf"
-                :class="{ 'is-selected': selectedKey === '{视频名}' }"
-                @click="selectedKey = '{视频名}'"
-                @dblclick="confirmInsert"
-              >
-                <div class="node-icon video-icon">
-                  <el-icon><VideoCamera /></el-icon>
-                </div>
-                <div class="node-content">
-                  <div class="node-main-row">
-                    <span class="folder-name" :title="folderHierarchy.sampleFileName">
-                      {{ folderHierarchy.sampleFileName }}
-                    </span>
-                    <span class="node-pill is-file">当前素材</span>
-                  </div>
-                </div>
-                <div class="node-actions">
-                  <span class="var-tag">{视频名}</span>
-                  <div class="check-dot">
-                    <el-icon v-if="selectedKey === '{视频名}'"><Check /></el-icon>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 别名切换栏 (如果该目录既是第N层又是上级目录) -->
-        <div v-if="currentFolderNode && currentFolderNode.aliasKeys.length > 0" class="alias-bar">
-          <span class="alias-title">亦可作为别名插入:</span>
-          <div class="alias-group">
-            <span
-              v-for="alias in currentFolderNode.aliasKeys"
-              :key="alias"
-              class="alias-btn"
-              :class="{ active: selectedKey === alias }"
-              @click="selectedKey = alias"
-            >
-              {{ alias }}
-            </span>
-          </div>
-        </div>
+        <el-input
+          ref="varNameInputRef"
+          v-model="customVarName"
+          placeholder="输入变量名称，如：剧集目录 或 第1层目录"
+          size="large"
+          clearable
+          class="variable-input"
+          @input="onVarNameManualInput"
+          @keyup.enter="confirmInsert"
+        >
+          <template #prefix>
+            <span class="brace-affix">{</span>
+          </template>
+          <template #suffix>
+            <span class="brace-affix">}</span>
+          </template>
+        </el-input>
       </div>
 
-      <!-- 右栏：通用变量卡片 & 实时替换预览 (一屏全览，无需翻页) -->
-      <div class="column-right basic-panel">
-        <div class="panel-header">
-          <span class="panel-title">
-            <el-icon><Tickets /></el-icon>
-            <span>常用基础变量</span>
-          </span>
-          <span class="panel-subtitle">自动根据视频信息计算</span>
-        </div>
-
-        <!-- 常用变量平整列表 (防御性单行卡片) -->
-        <div class="basic-vars-list custom-scrollbar">
-          <div
-            v-for="item in basicVars"
-            :key="item.key"
-            class="basic-item-card"
-            :class="{ 'is-selected': selectedKey === item.key }"
-            @click="selectedKey = item.key"
-            @dblclick="confirmInsert"
+      <!-- 2. 再选择变量类型 (文件夹层级结构) -->
+      <div class="form-group">
+        <label class="form-label">
+          <el-icon><FolderOpened /></el-icon>
+          <span>选择变量类型（文件夹层级结构）</span>
+        </label>
+        <el-select
+          v-model="selectedVarKey"
+          placeholder="请选择对应绑定的层级类型"
+          class="variable-select"
+          size="large"
+          @change="handleSelectChange"
+        >
+          <el-option
+            v-for="opt in folderOptions"
+            :key="opt.value"
+            :label="opt.label"
+            :value="opt.value"
           >
-            <div class="item-left">
-              <span class="item-key">{{ item.key }}</span>
-              <span class="item-label">{{ item.label }}</span>
-            </div>
-            <div class="item-right">
-              <span class="item-sample" :title="item.sampleVal">{{ item.sampleVal || '（无）' }}</span>
-              <div class="check-dot">
-                <el-icon v-if="selectedKey === item.key"><Check /></el-icon>
+            <div class="opt-row">
+              <div class="opt-left">
+                <el-icon class="opt-icon"><Folder /></el-icon>
+                <span class="opt-title">{{ opt.title }}</span>
+                <span v-if="opt.badge" class="opt-badge" :class="opt.badgeClass">{{ opt.badge }}</span>
               </div>
+              <span class="opt-sample" :title="opt.sample">{{ opt.sample }}</span>
             </div>
-          </div>
-        </div>
+          </el-option>
+        </el-select>
+      </div>
 
-        <!-- 底部已选效果卡片 -->
-        <div class="selection-card">
-          <div class="selection-row">
-            <span class="sel-label">待插入:</span>
-            <span class="sel-token">{{ selectedKey || '请选择' }}</span>
-          </div>
-          <div class="selection-row preview-row">
-            <span class="sel-label">当前计算值:</span>
-            <span class="sel-preview" :title="currentPreviewValue">{{ currentPreviewValue || '（空）' }}</span>
-          </div>
+      <!-- 3. 极简实时计算预览卡片 -->
+      <div class="preview-card">
+        <div class="preview-item">
+          <span class="preview-label">待插入标签</span>
+          <span class="token-code">{{ formattedToken || '—' }}</span>
+        </div>
+        <div class="preview-divider"></div>
+        <div class="preview-item">
+          <span class="preview-label">当前计算值</span>
+          <span class="preview-value" :title="currentPreviewValue">
+            {{ currentPreviewValue || '（空）' }}
+          </span>
         </div>
       </div>
     </div>
@@ -165,8 +86,8 @@
     <template #footer>
       <div class="dialog-footer">
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!selectedKey" @click="confirmInsert">
-          确认插入此变量
+        <el-button type="primary" :disabled="!formattedToken" @click="confirmInsert">
+          确定插入
         </el-button>
       </div>
     </template>
@@ -174,19 +95,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import {
   Folder,
   FolderOpened,
-  VideoCamera,
-  Tickets,
-  Check
+  EditPen
 } from '@element-plus/icons-vue'
 import {
   parseFolderHierarchy,
-  buildDynamicVariables,
   resolveTemplateString,
-  type ParsedFolderNode,
+  registerCustomVariable,
   type BatchRuleConfig
 } from '../../../utils/matrixHelper'
 
@@ -219,432 +137,336 @@ const dialogVisible = computed({
   set: (val) => emit('update:modelValue', val)
 })
 
-const selectedKey = ref<string>('{第1层目录}')
+const varNameInputRef = ref<any>(null)
 
 // 解析示例媒体的各级目录树
 const folderHierarchy = computed(() => {
   return parseFolderHierarchy(props.sampleMedia)
 })
 
-// 通用基础变量清单
-const basicVars = computed(() => {
-  const all = buildDynamicVariables(props.sampleMedia, props.unitLevel, props.ruleConfig)
-  return all.filter(v => !v.isLevel)
+// 下拉框选项：文件夹层级结构 + 视频素材
+const folderOptions = computed(() => {
+  const list: Array<{
+    value: string
+    label: string
+    title: string
+    badge?: string
+    badgeClass?: string
+    sample: string
+    defaultName: string
+  }> = []
+
+  folderHierarchy.value.nodes.forEach(node => {
+    let badge = `第${node.level}层`
+    let badgeClass = ''
+    if (node.isRoot) {
+      badge = '根目录'
+      badgeClass = 'is-root'
+    } else if (node.isDirectParent) {
+      badge = '直属目录'
+      badgeClass = 'is-parent'
+    }
+
+    list.push({
+      value: node.varKey,
+      label: `${node.varKey} (${node.folderName})`,
+      title: `第 ${node.level} 层目录`,
+      badge,
+      badgeClass,
+      sample: node.folderName,
+      defaultName: `第${node.level}层目录`
+    })
+  })
+
+  // 加上当前素材视频名
+  list.push({
+    value: '{视频名}',
+    label: `{视频名} (${folderHierarchy.value.sampleFileName})`,
+    title: '视频文件名',
+    badge: '当前素材',
+    badgeClass: 'is-file',
+    sample: folderHierarchy.value.sampleFileName,
+    defaultName: '视频名'
+  })
+
+  return list
 })
 
-// 当前选中的文件夹节点（如果有）
-const currentFolderNode = computed<ParsedFolderNode | undefined>(() => {
-  return folderHierarchy.value.nodes.find(
-    n => n.varKey === selectedKey.value || n.aliasKeys.includes(selectedKey.value)
-  )
-})
+// 1. 变量名称
+const customVarName = ref<string>('第1层目录')
+// 用户是否主动自定义编辑过变量名
+const isUserManuallyEdited = ref<boolean>(false)
 
-function isNodeSelected(node: ParsedFolderNode): boolean {
-  return selectedKey.value === node.varKey || node.aliasKeys.includes(selectedKey.value)
+function onVarNameManualInput() {
+  isUserManuallyEdited.value = true
 }
 
-// 实时示例计算
+// 2. 选择变量类型
+const selectedVarKey = ref<string>('{第1层目录}')
+
+// 当用户切换变量类型时
+function handleSelectChange(val: string) {
+  const opt = folderOptions.value.find(o => o.value === val)
+  // 如果用户未手动输入过名称，或者当前名称恰好是之前的默认值，自动同步为所选类型的默认名称
+  if (!isUserManuallyEdited.value || !customVarName.value.trim()) {
+    if (opt) {
+      customVarName.value = opt.defaultName
+    } else {
+      customVarName.value = val.replace(/^\{+/, '').replace(/\}+$/, '')
+    }
+  }
+}
+
+// 清理后的变量名
+const cleanVarName = computed(() => {
+  return customVarName.value.replace(/^\{+/, '').replace(/\}+$/, '').trim()
+})
+
+// 最终将要生成的 Token 标签
+const formattedToken = computed(() => {
+  if (!cleanVarName.value) return ''
+  return `{${cleanVarName.value}}`
+})
+
+// 实时示例计算值
 const currentPreviewValue = computed(() => {
-  if (!selectedKey.value) return ''
-  return resolveTemplateString(
-    selectedKey.value,
+  if (!formattedToken.value) return ''
+
+  // 1. 若下拉框有选中的类型节点，优先根据选中的类型节点展示计算值
+  const matchedOpt = folderOptions.value.find(o => o.value === selectedVarKey.value)
+  if (matchedOpt) {
+    return matchedOpt.sample
+  }
+
+  // 2. 尝试直接求值
+  const directVal = resolveTemplateString(
+    formattedToken.value,
     props.sampleMedia || { fileName: folderHierarchy.value.sampleFileName },
     0,
     props.ruleConfig,
     props.unitLevel
   )
-})
+  if (directVal && directVal !== formattedToken.value) {
+    return directVal
+  }
 
-// 选择文件夹节点
-function selectFolderNode(node: ParsedFolderNode) {
-  selectedKey.value = node.varKey
-}
+  return '（空）'
+})
 
 // 确认插入
 function confirmInsert() {
-  if (!selectedKey.value) return
-  emit('select', selectedKey.value)
+  if (!formattedToken.value) return
+
+  // 注册自定义别名映射 (如果用户起了个性化名称，将其绑定到选中的文件夹层级类型)
+  if (selectedVarKey.value) {
+    registerCustomVariable(cleanVarName.value, selectedVarKey.value)
+  }
+
+  emit('select', formattedToken.value)
   dialogVisible.value = false
 }
 
-// 监听弹窗打开，初始化默认高亮
+// 监听弹窗打开，初始化默认值
 watch(() => props.modelValue, (isOpen) => {
   if (isOpen) {
+    isUserManuallyEdited.value = false
     if (props.initialKey) {
-      selectedKey.value = props.initialKey
+      selectedVarKey.value = props.initialKey
+      const opt = folderOptions.value.find(o => o.value === props.initialKey)
+      if (opt) {
+        customVarName.value = opt.defaultName
+      } else {
+        customVarName.value = props.initialKey.replace(/^\{+/, '').replace(/\}+$/, '')
+        isUserManuallyEdited.value = true
+      }
     } else {
-      // 默认选中直属目录或第一层
-      const direct = folderHierarchy.value.nodes.find(n => n.isDirectParent)
-      selectedKey.value = direct ? direct.varKey : '{第1层目录}'
+      // 默认选中第一个文件夹层级
+      const first = folderOptions.value[0]
+      if (first) {
+        selectedVarKey.value = first.value
+        customVarName.value = first.defaultName
+      }
     }
+
+    nextTick(() => {
+      varNameInputRef.value?.focus()
+    })
   }
 })
 </script>
 
 <style scoped>
-.modal-two-columns {
-  display: grid;
-  grid-template-columns: 1.25fr 1fr;
-  gap: 16px;
-  min-height: 380px;
-}
-
-/* 列通用标题 */
-.panel-header {
+.modal-form {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px 0 8px 0;
 }
 
-.panel-title {
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-label {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--el-text-color-primary);
+  color: #334155;
 }
 
-.panel-subtitle {
-  font-size: 11px;
-  color: var(--el-text-color-placeholder);
-}
-
-/* ── 左栏：真正的树状结构 ── */
-.tree-panel {
-  display: flex;
-  flex-direction: column;
-}
-
-.tree-canvas {
-  flex: 1;
-  max-height: 340px;
-  overflow-y: auto;
-  padding: 8px 10px 8px 4px;
-  background: var(--el-fill-color-lighter);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-}
-
-.tree-container {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.tree-branch {
-  position: relative;
-  transition: all 0.2s;
-}
-
-/* 树分支连接导线 */
-.branch-connector {
-  position: absolute;
-  top: -12px;
-  left: 0;
-  width: 18px;
-  height: 24px;
-  pointer-events: none;
-}
-
-.corner-line {
-  position: absolute;
-  bottom: 0;
-  left: -8px;
-  width: 14px;
-  height: 18px;
-  border-left: 1.5px dashed var(--el-border-color);
-  border-bottom: 1.5px dashed var(--el-border-color);
-  border-bottom-left-radius: 6px;
-}
-
-/* 树节点交互卡片 */
-.tree-node-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  background: #ffffff;
-  border: 1.5px solid var(--el-border-color-lighter);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  min-width: 0;
-}
-
-.tree-node-card:hover {
-  border-color: var(--el-color-primary-light-5);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
-}
-
-.tree-node-card.is-selected {
-  border-color: var(--el-color-primary);
-  background: #ecf5ff;
-}
-
-.node-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.form-label .el-icon {
   font-size: 15px;
-  flex-shrink: 0;
+  color: #4f46e5;
 }
 
-.folder-icon {
-  background: #fff7e6;
-  color: #fa8c16;
-}
-
-.video-icon {
-  background: #e6f7ff;
-  color: #1890ff;
-}
-
-.node-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.node-main-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.folder-name {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-pill {
-  font-size: 10px;
-  line-height: 16px;
-  padding: 0 5px;
-  border-radius: 4px;
-  background: var(--el-fill-color);
-  color: var(--el-text-color-secondary);
-  flex-shrink: 0;
-}
-
-.node-pill.is-parent {
-  background: #e6f7ff;
-  color: #1890ff;
-  font-weight: 500;
-}
-
-.node-pill.is-root {
-  background: #f6ffed;
-  color: #52c41a;
-}
-
-.node-pill.is-file {
-  background: #f9f0ff;
-  color: #722ed1;
-}
-
-.node-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.var-tag {
-  font-family: monospace;
-  font-size: 11px;
-  font-weight: 600;
-  background: rgba(64, 158, 255, 0.1);
-  color: var(--el-color-primary);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.check-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1.5px solid var(--el-border-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  color: #ffffff;
-  transition: all 0.15s;
-}
-
-.tree-node-card.is-selected .check-dot,
-.basic-item-card.is-selected .check-dot {
-  background: var(--el-color-primary);
-  border-color: var(--el-color-primary);
-}
-
-/* 别名条 */
-.alias-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 6px 10px;
-  background: var(--el-fill-color-light);
-  border-radius: 6px;
-  font-size: 11.5px;
-}
-
-.alias-title {
-  color: var(--el-text-color-secondary);
-  flex-shrink: 0;
-}
-
-.alias-group {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-}
-
-.alias-btn {
-  padding: 1px 8px;
-  background: #ffffff;
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 11px;
-  cursor: pointer;
-  color: var(--el-text-color-primary);
-  transition: all 0.15s;
-}
-
-.alias-btn:hover {
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
-}
-
-.alias-btn.active {
-  background: var(--el-color-primary);
-  color: #ffffff;
-  border-color: var(--el-color-primary);
-}
-
-/* ── 右栏：基础变量与实时预览 ── */
-.basic-panel {
-  display: flex;
-  flex-direction: column;
-}
-
-.basic-vars-list {
-  flex: 1;
-  max-height: 250px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.basic-item-card {
+.form-label-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 10px;
-  background: #ffffff;
-  border: 1.5px solid var(--el-border-color-lighter);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
 }
 
-.basic-item-card:hover {
-  border-color: var(--el-color-primary-light-5);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+.form-hint {
+  font-size: 11px;
+  color: #94a3b8;
 }
 
-.basic-item-card.is-selected {
-  border-color: var(--el-color-primary);
-  background: #ecf5ff;
+.variable-select,
+.variable-input {
+  width: 100%;
 }
 
-.item-left {
+.brace-affix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: #4f46e5;
+  padding: 0 2px;
+}
+
+/* 下拉选项行 */
+.opt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+}
+
+.opt-left {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
-.item-key {
-  font-family: monospace;
-  font-size: 12px;
+.opt-icon {
+  font-size: 14px;
+  color: #6366f1;
+}
+
+.opt-title {
+  font-size: 13px;
   font-weight: 600;
-  color: var(--el-color-primary);
-  background: rgba(64, 158, 255, 0.08);
-  padding: 1px 5px;
+  color: #1e293b;
+}
+
+.opt-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
   border-radius: 4px;
+  background: #f1f5f9;
+  color: #64748b;
 }
 
-.item-label {
+.opt-badge.is-root {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.opt-badge.is-parent {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.opt-badge.is-file {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.opt-sample {
   font-size: 12px;
-  color: var(--el-text-color-regular);
+  color: #64748b;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.item-right {
+/* 实时预览卡片 (防御性单行双向布局) */
+.preview-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-top: 4px;
+}
+
+.preview-item {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
-.item-sample {
-  font-size: 11.5px;
-  color: var(--el-color-success);
-  max-width: 90px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 底部已选效果卡片 */
-.selection-card {
-  padding: 8px 12px;
-  background: var(--el-fill-color-light);
-  border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  border: 1px dashed var(--el-border-color);
-}
-
-.selection-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-
-.sel-label {
-  color: var(--el-text-color-secondary);
+.preview-label {
   font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.sel-token {
-  font-family: monospace;
+.token-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--el-color-primary);
+  color: #4f46e5;
+  background: #eef2ff;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid #e0e7ff;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.preview-row .sel-preview {
+.preview-divider {
+  width: 1px;
+  height: 20px;
+  background: #e2e8f0;
+  margin: 0 12px;
+  flex-shrink: 0;
+}
+
+.preview-value {
+  font-size: 12px;
   font-weight: 600;
-  color: var(--el-text-color-primary);
+  color: #059669;
+  max-width: 170px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 180px;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 </style>

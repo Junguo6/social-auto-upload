@@ -165,14 +165,6 @@
                 {{ override.linkTitle ? '修改' : '设置' }}
               </el-button>
             </div>
-            <VariableChips
-              v-if="!hideVariables && override.linkTitle"
-              :current-value="override.linkTitle"
-              :rule-config="ruleConfig"
-              :sample-media="sampleMedia"
-              :unit-level="unitLevel"
-              @insert="insertVarToLinkTitleDirect"
-            />
           </div>
         </div>
       </div>
@@ -262,26 +254,21 @@
     <el-dialog
       v-model="showLinkDialog"
       :title="currentLinkType === 'series' ? '设置需要关联的视频号剧集' : '设置需要关联的小程序短剧'"
-      width="520px"
+      width="540px"
       append-to-body
       destroy-on-close
       class="wechat-dialog"
     >
-      <div class="dialog-tip">内容需与视频内容相关，支持直接输入名称或插入变量（如 {文件夹名}）</div>
+      <div class="dialog-tip">内容需与视频内容相关，支持直接输入名称或插入变量、TXT文案</div>
       <div class="dialog-body">
-        <el-input
+        <TokenTemplateInput
           v-model="tempDialogKeyword"
-          :placeholder="currentLinkType === 'series' ? '输入剧集名称（支持变量，如：{文件夹名}）' : '输入短剧名称（支持变量）'"
-          clearable
-          @keyup.enter="confirmLinkSelect"
-        />
-        <VariableChips
-          v-if="!hideVariables"
-          :current-value="tempDialogKeyword"
-          :rule-config="ruleConfig"
+          type="input"
+          :placeholder="currentLinkType === 'series' ? '输入剧集名称，支持插入变量或TXT文案...' : '输入短剧名称，支持插入变量或TXT文案...'"
           :sample-media="sampleMedia"
           :unit-level="unitLevel"
-          @insert="insertVarToLinkKeyword"
+          :rule-config="ruleConfig"
+          :hide-tools="hideVariables"
         />
       </div>
       <template #footer>
@@ -301,7 +288,6 @@ import { Operation, ArrowDown } from '@element-plus/icons-vue'
 import { SelectLocalFile } from '../../../../wailsjs/go/main/App'
 import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../../types/matrix'
 import TokenTemplateInput from '../controls/TokenTemplateInput.vue'
-import VariableChips from '../VariableChips.vue'
 
 const props = defineProps<{
   override: PlatformOverrideSetting
@@ -375,37 +361,6 @@ function handleActivityModeChange(val: string) {
   if (val === 'none') {
     props.override.activityName = ''
   }
-}
-
-// 变量插入辅助函数
-function insertVarToDesc(v: string) {
-  const current = props.override.desc || ''
-  props.override.desc = current ? `${current} ${v}` : v
-}
-
-function insertVarToShortTitle(v: string) {
-  const current = props.override.shortTitle || ''
-  props.override.shortTitle = current ? `${current}${v}` : v
-}
-
-function insertVarToCollection(v: string) {
-  const current = props.override.collection || ''
-  props.override.collection = current ? `${current}${v}` : v
-}
-
-function insertVarToActivity(v: string) {
-  const current = props.override.activityName || ''
-  props.override.activityName = current ? `${current}${v}` : v
-}
-
-function insertVarToLinkKeyword(v: string) {
-  const current = tempDialogKeyword.value || ''
-  tempDialogKeyword.value = current ? `${current}${v}` : v
-}
-
-function insertVarToLinkTitleDirect(v: string) {
-  const current = props.override.linkTitle || ''
-  props.override.linkTitle = current ? `${current}${v}` : v
 }
 
 function addHashTag() {
