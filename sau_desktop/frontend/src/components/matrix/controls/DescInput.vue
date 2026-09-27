@@ -8,23 +8,17 @@
       <span v-if="hint" class="header-hint">{{ hint }}</span>
     </div>
 
-    <el-input
+    <!-- 正文描述富标签输入框 (内嵌变量标签/TXT标签 + 底部极简双入口) -->
+    <TokenTemplateInput
       v-model="modelValue"
       type="textarea"
       :rows="rows"
       :placeholder="placeholder"
       :maxlength="maxlength"
-      show-word-limit
-      class="stylish-desc-input"
-    />
-
-    <VariableChips
-      v-if="!hideVariables"
-      :current-value="modelValue"
-      :rule-config="ruleConfig"
       :sample-media="sampleMedia"
       :unit-level="unitLevel"
-      @insert="insertVar"
+      :rule-config="ruleConfig"
+      :hide-tools="hideVariables"
     />
   </div>
 </template>
@@ -32,7 +26,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { BatchRuleConfig, MediaItem } from '../../../types/matrix'
-import VariableChips from '../VariableChips.vue'
+import TokenTemplateInput from './TokenTemplateInput.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: string

@@ -291,7 +291,7 @@ export function useMatrixPublish() {
         } else {
           finalDesc = masterForm?.desc || ''
         }
-        finalDesc = resolveMediaTitle(finalDesc, media, mIdx, ruleConfig, params.unitLevel)
+        finalDesc = resolveTemplateString(finalDesc, media, mIdx, ruleConfig, params.unitLevel)
 
         let finalTags = ''
         if (cell?.override?.tags !== undefined && cell.override.tags !== '') {

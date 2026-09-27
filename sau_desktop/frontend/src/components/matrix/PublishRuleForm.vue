@@ -20,24 +20,17 @@
             <el-icon><EditPen /></el-icon>
             <span>通用标题 / 批量规则</span>
           </label>
-          <div class="var-chips-box">
-            <span class="hint-text">💡 插入批量变量:</span>
-            <button type="button" class="var-chip" @click="insertVar('{集数}')">{集数}</button>
-            <button type="button" class="var-chip" @click="insertVar('{视频名}')">{视频名}</button>
-            <button type="button" class="var-chip" @click="insertVar('{日期}')">{日期}</button>
-          </div>
         </div>
-        <el-input
-          ref="titleInputRef"
+        <TokenTemplateInput
           v-model="masterForm.title"
-          placeholder="输入主标题，可使用变量如：{视频名} 或 第{集数}集"
-          maxlength="80"
-          show-word-limit
-          clearable
-          class="stylish-input"
+          type="input"
+          placeholder="输入主标题，支持插入变量或导入TXT按视频轮询文案..."
+          :maxlength="80"
+          :sample-media="mediaList[0]"
+          :rule-config="ruleConfig"
         />
 
-        <!-- 集数变量规则配置条 (当标题包含 {集数} 时智能展开) -->
+        <!-- 集数变量规则配置条 (暂时取消设置，按默认智能提取即可)
         <transition name="el-zoom-in-top">
           <div v-if="masterForm.title && masterForm.title.includes('{集数}')" class="episode-rule-banner">
             <div class="banner-label-row">
@@ -89,6 +82,7 @@
             </div>
           </div>
         </transition>
+        -->
 
         <!-- 标题批量生成实时预览 -->
         <div v-if="previewTitles.length > 0 && hasDynamicVars" class="batch-title-preview">
@@ -119,14 +113,14 @@
             </template>
           </el-dropdown>
         </div>
-        <el-input
+        <TokenTemplateInput
           v-model="masterForm.desc"
           type="textarea"
           :rows="3"
-          placeholder="填写通用视频简介、创作理念或追更指引..."
-          maxlength="1000"
-          show-word-limit
-          class="stylish-textarea"
+          placeholder="填写通用视频简介，支持插入变量或导入TXT按视频轮询文案..."
+          :maxlength="1000"
+          :sample-media="mediaList[0]"
+          :rule-config="ruleConfig"
         />
       </div>
 
@@ -219,6 +213,7 @@
 import { ref, computed } from 'vue'
 import type { MasterForm, BatchRuleConfig, MediaItem } from '../../types/matrix'
 import { resolveMediaTitle } from '../../utils/matrixHelper'
+import TokenTemplateInput from './controls/TokenTemplateInput.vue'
 
 const props = defineProps<{
   masterForm: MasterForm
@@ -233,10 +228,10 @@ const emit = defineEmits<{
 
 const titleInputRef = ref<any>(null)
 
-// 是否包含动态变量
+// 是否包含动态变量或 TXT 占位符
 const hasDynamicVars = computed(() => {
-  const t = props.masterForm.title
-  return t.includes('{集数}') || t.includes('{视频名}') || t.includes('{日期}')
+  const t = props.masterForm.title || ''
+  return t.includes('{') && t.includes('}')
 })
 
 // 标题预演预览
