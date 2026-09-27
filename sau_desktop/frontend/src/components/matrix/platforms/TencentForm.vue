@@ -6,6 +6,7 @@
       <div class="row-content">
         <div class="desc-box-wrapper">
           <TokenTemplateInput
+            ref="descInputRef"
             v-model="override.desc"
             type="textarea"
             :rows="4"
@@ -19,7 +20,12 @@
           <div class="desc-action-bar">
             <!-- 快捷操作区：话题 (分集规则暂时隐藏，采用默认智能提取规则) -->
             <div class="tag-insert-group">
-              <button type="button" class="wechat-tag-pill topic-pill" @click="addHashTag">
+              <button
+                type="button"
+                class="wechat-tag-pill topic-pill"
+                @mousedown.prevent
+                @click="addHashTag"
+              >
                 <span class="hash-symbol">#</span>
                 <span class="pill-text">添加话题</span>
               </button>
@@ -363,9 +369,17 @@ function handleActivityModeChange(val: string) {
   }
 }
 
+const descInputRef = ref<any>(null)
+
 function addHashTag() {
-  const current = props.override.desc || ''
-  props.override.desc = current ? `${current} #` : '#'
+  if (descInputRef.value?.insertText) {
+    const current = props.override.desc || ''
+    const needLeadingSpace = current.length > 0 && !current.endsWith(' ') && !current.endsWith('\n')
+    descInputRef.value.insertText(needLeadingSpace ? ' #' : '#')
+  } else {
+    const current = props.override.desc || ''
+    props.override.desc = current ? `${current} #` : '#'
+  }
 }
 
 const choosePortraitCover = async () => {

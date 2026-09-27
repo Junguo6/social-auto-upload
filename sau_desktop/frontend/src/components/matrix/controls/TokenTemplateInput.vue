@@ -22,13 +22,13 @@
     <div v-if="!hideTools" class="editor-bottom-bar">
       <div class="bottom-tools-left">
         <!-- 1. 插入变量入口 (直观树状层级弹窗) -->
-        <button type="button" class="mini-tool-btn var-btn" @click="openVarModal">
+        <button type="button" class="mini-tool-btn var-btn" @mousedown.prevent @click="openVarModal">
           <span class="btn-symbol">+</span>
           <span>插入变量</span>
         </button>
 
         <!-- 2. 插入 TXT 文案入口 (模式配置与多行预览弹窗) -->
-        <button type="button" class="mini-tool-btn txt-btn" @click="openTxtModal">
+        <button type="button" class="mini-tool-btn txt-btn" @mousedown.prevent @click="openTxtModal">
           <el-icon class="btn-icon"><Document /></el-icon>
           <span>插入 TXT 文案</span>
         </button>
@@ -234,7 +234,7 @@ function renderModelValueToDOM(val: string) {
 
   // 防止正在输入时重绘破坏光标
   const serialized = serializeDOMToValue()
-  if (serialized === val && editorRef.value.childNodes.length > 0) {
+  if (serialized === val && (editorRef.value.childNodes.length > 0 || !val)) {
     return
   }
 
@@ -254,6 +254,8 @@ function renderModelValueToDOM(val: string) {
     const tokenStr = match[1]
     const chipNode = createChipDOM(tokenStr)
     editorRef.value.appendChild(chipNode)
+    // 关键：在每个 chip 后追加一个零宽占位符，为光标移动与退格删除提供物理着陆点
+    editorRef.value.appendChild(document.createTextNode('\u200B'))
     lastIndex = regex.lastIndex
   }
 
@@ -332,6 +334,11 @@ function serializeDOMToValue(): string {
         result += el.getAttribute('data-token') || ''
       } else if (el.tagName === 'BR') {
         result += '\n'
+      } else if (el.tagName === 'DIV' || el.tagName === 'P') {
+        if (result.length > 0 && !result.endsWith('\n')) {
+          result += '\n'
+        }
+        el.childNodes.forEach(traverse)
       } else {
         el.childNodes.forEach(traverse)
       }
@@ -339,7 +346,8 @@ function serializeDOMToValue(): string {
   }
 
   editorRef.value.childNodes.forEach(traverse)
-  return result
+  // 剥离不可见零宽占位符 \u200B
+  return result.replace(/\u200B/g, '')
 }
 
 /* ────────── 编辑器交互与光标事件 ────────── */
@@ -354,10 +362,24 @@ function saveSelection() {
   }
 }
 
+let isInternalUpdate = false
+let internalUpdateTimer: any = null
+
 function restoreSelection() {
   if (lastSavedRange && editorRef.value) {
     const sel = window.getSelection()
     if (sel) {
+      if (sel.setBaseAndExtent && lastSavedRange.startContainer === lastSavedRange.endContainer) {
+        try {
+          sel.setBaseAndExtent(
+            lastSavedRange.startContainer,
+            lastSavedRange.startOffset,
+            lastSavedRange.endContainer,
+            lastSavedRange.endOffset
+          )
+          return
+        } catch {}
+      }
       sel.removeAllRanges()
       sel.addRange(lastSavedRange)
     }
@@ -367,6 +389,13 @@ function restoreSelection() {
 function onInput() {
   saveSelection()
   const val = serializeDOMToValue()
+  isInternalUpdate = true
+  if (internalUpdateTimer) {
+    clearTimeout(internalUpdateTimer)
+  }
+  internalUpdateTimer = setTimeout(() => {
+    isInternalUpdate = false
+  }, 150)
   emit('update:modelValue', val)
 }
 
@@ -380,10 +409,205 @@ function onBlur() {
   saveSelection()
 }
 
+function isChipNode(node: Node | null | undefined): boolean {
+  if (!node || node.nodeType !== Node.ELEMENT_NODE) return false
+  return (node as HTMLElement).classList?.contains('rich-token-chip') || false
+}
+
+/** 识别非折叠选区是否选中了单个标签 */
+function getSelectedChip(range: Range): HTMLElement | null {
+  if (range.collapsed) return null
+  if (range.startContainer === range.endContainer) {
+    const container = range.startContainer
+    if (container.nodeType === Node.ELEMENT_NODE) {
+      if (range.endOffset === range.startOffset + 1) {
+        const node = container.childNodes[range.startOffset]
+        if (isChipNode(node)) return node as HTMLElement
+      }
+    }
+  }
+  if (range.commonAncestorContainer) {
+    const common = range.commonAncestorContainer
+    if (isChipNode(common)) return common as HTMLElement
+  }
+  return null
+}
+
+function removeChipAndPlaceCaret(chipNode: Node) {
+  if (!editorRef.value) return
+
+  const parent = chipNode.parentNode
+  if (!parent) return
+
+  const prev = chipNode.previousSibling
+  const next = chipNode.nextSibling
+
+  // 1. 优先确定目标定位节点与偏移量，并在物理移除 chipNode 前就将光标安全迁移
+  // 彻底避免在 removeChild 时浏览器因选区节点被孤立而默认将光标回退到最顶部 (editorRef, 0)
+  let targetNode: Node
+  let targetOffset: number
+
+  if (prev && prev.nodeType === Node.TEXT_NODE) {
+    targetNode = prev
+    targetOffset = prev.textContent?.length || 0
+  } else if (next && next.nodeType === Node.TEXT_NODE) {
+    targetNode = next
+    targetOffset = 0
+  } else {
+    // 若前后均无文本节点，在 chipNode 前插入一个零宽文本节点作为安全着陆点
+    const zws = document.createTextNode('\u200B')
+    parent.insertBefore(zws, chipNode)
+    targetNode = zws
+    targetOffset = 0
+  }
+
+  // 先把光标原子定位到 targetNode（此时 chipNode 还在 DOM 中，选区迁移绝不会异常）
+  const sel = window.getSelection()
+  if (sel) {
+    if (sel.setBaseAndExtent) {
+      try {
+        sel.setBaseAndExtent(targetNode, targetOffset, targetNode, targetOffset)
+      } catch {}
+    } else {
+      try {
+        const range = document.createRange()
+        range.setStart(targetNode, targetOffset)
+        range.collapse(true)
+        sel.removeAllRanges()
+        sel.addRange(range)
+      } catch {}
+    }
+  }
+
+  // 2. 光标已经安全脱离 chipNode，此时移除 chipNode 不会造成选区孤立或归零
+  parent.removeChild(chipNode)
+
+  // 3. 再次确认光标位置（防止某些浏览器在 removeChild 时强制重置）
+  if (sel && targetNode.parentNode) {
+    if (sel.setBaseAndExtent) {
+      try {
+        sel.setBaseAndExtent(targetNode, targetOffset, targetNode, targetOffset)
+      } catch {}
+    }
+  }
+
+  saveSelection()
+  onInput()
+}
+
+function handleBackspace(e: KeyboardEvent): boolean {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0 || !editorRef.value) return false
+
+  const range = sel.getRangeAt(0)
+  if (!range.collapsed) {
+    const selectedChip = getSelectedChip(range)
+    if (selectedChip) {
+      e.preventDefault()
+      removeChipAndPlaceCaret(selectedChip)
+      return true
+    }
+    return false
+  }
+
+  const container = range.startContainer
+  const offset = range.startOffset
+
+  // 1. 光标在元素节点（editorRef 或内部多行 div/p）的直接子节点之间
+  if (container.nodeType === Node.ELEMENT_NODE && editorRef.value.contains(container)) {
+    if (offset > 0) {
+      const prev = container.childNodes[offset - 1]
+      if (isChipNode(prev)) {
+        e.preventDefault()
+        removeChipAndPlaceCaret(prev)
+        return true
+      }
+    }
+  }
+
+  // 2. 光标在文本节点内部且在开头（光标前无任何可见字符）
+  if (container.nodeType === Node.TEXT_NODE && editorRef.value.contains(container)) {
+    const textBeforeCaret = (container.textContent || '').slice(0, offset)
+    const isAtStart = offset === 0 || textBeforeCaret.replace(/\u200B/g, '').length === 0
+    if (isAtStart) {
+      let prev = container.previousSibling
+      while (prev && prev.nodeType === Node.TEXT_NODE && (prev.textContent || '').replace(/\u200B/g, '') === '') {
+        prev = prev.previousSibling
+      }
+      if (isChipNode(prev)) {
+        e.preventDefault()
+        removeChipAndPlaceCaret(prev!)
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+function handleDelete(e: KeyboardEvent): boolean {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0 || !editorRef.value) return false
+
+  const range = sel.getRangeAt(0)
+  if (!range.collapsed) {
+    const selectedChip = getSelectedChip(range)
+    if (selectedChip) {
+      e.preventDefault()
+      removeChipAndPlaceCaret(selectedChip)
+      return true
+    }
+    return false
+  }
+
+  const container = range.startContainer
+  const offset = range.startOffset
+
+  // 1. 光标在元素节点（editorRef 或内部多行 div/p）的直接子节点之间
+  if (container.nodeType === Node.ELEMENT_NODE && editorRef.value.contains(container)) {
+    if (offset < container.childNodes.length) {
+      const next = container.childNodes[offset]
+      if (isChipNode(next)) {
+        e.preventDefault()
+        removeChipAndPlaceCaret(next)
+        return true
+      }
+    }
+  }
+
+  // 2. 光标在文本节点内部且在末尾（光标后无任何可见字符）
+  if (container.nodeType === Node.TEXT_NODE && editorRef.value.contains(container)) {
+    const textAfterCaret = (container.textContent || '').slice(offset)
+    const isAtEnd = offset === (container.textContent || '').length || textAfterCaret.replace(/\u200B/g, '').length === 0
+    if (isAtEnd) {
+      let next = container.nextSibling
+      while (next && next.nodeType === Node.TEXT_NODE && (next.textContent || '').replace(/\u200B/g, '') === '') {
+        next = next.nextSibling
+      }
+      if (isChipNode(next)) {
+        e.preventDefault()
+        removeChipAndPlaceCaret(next!)
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
 function onKeyDown(e: KeyboardEvent) {
   // 单行模式下回车禁止换行
   if (props.type === 'input' && e.key === 'Enter') {
     e.preventDefault()
+    return
+  }
+
+  if (e.key === 'Backspace') {
+    if (handleBackspace(e)) return
+  }
+
+  if (e.key === 'Delete') {
+    if (handleDelete(e)) return
   }
 }
 
@@ -519,9 +743,11 @@ function reconfigureActiveChip() {
 
 function removeActiveChip() {
   if (activeChipElement.value) {
-    activeChipElement.value.remove()
+    const el = activeChipElement.value
     chipPopoverVisible.value = false
-    onInput()
+    editorRef.value?.focus()
+    removeChipAndPlaceCaret(el)
+    activeChipElement.value = null
   }
 }
 
@@ -539,14 +765,75 @@ function triggerUploadReplace() {
   fileInputRef.value?.click()
 }
 
+/** 在光标处安全插入文本（如添加话题 #），并保持光标跟随在插入字符之后 */
+function insertText(text: string) {
+  if (!editorRef.value) return
+  editorRef.value.focus()
+  restoreSelection()
+
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0 || !editorRef.value.contains(sel.anchorNode)) {
+    setCursorToEnd()
+  }
+
+  document.execCommand('insertText', false, text)
+  onInput()
+  saveSelection()
+}
+
+/** 将光标定位至文本末尾 */
+function setCursorToEnd() {
+  if (!editorRef.value) return
+  editorRef.value.focus()
+  const sel = window.getSelection()
+  if (!sel) return
+
+  if (sel.setBaseAndExtent && editorRef.value.lastChild) {
+    const last = editorRef.value.lastChild
+    const len = last.nodeType === Node.TEXT_NODE ? (last.textContent?.length || 0) : 1
+    try {
+      sel.setBaseAndExtent(last, len, last, len)
+      saveSelection()
+      return
+    } catch {}
+  }
+
+  const range = document.createRange()
+  range.selectNodeContents(editorRef.value)
+  range.collapse(false)
+  sel.removeAllRanges()
+  sel.addRange(range)
+  saveSelection()
+}
+
 /* ────────── 监听与挂载 ────────── */
 
 watch(() => props.modelValue, (newVal) => {
+  // 1. 若是输入框内部触发的变更，跳过 DOM 重绘，保护光标绝不跳动
+  if (isInternalUpdate) {
+    return
+  }
+  // 2. 关键防御：若当前 DOM 序列化后的内容与新值一致，绝不进行全量 DOM 重绘！
+  if (editorRef.value) {
+    const currentVal = serializeDOMToValue()
+    if (currentVal === (newVal || '')) {
+      return
+    }
+  }
   renderModelValueToDOM(newVal || '')
 })
 
 onMounted(() => {
   renderModelValueToDOM(props.modelValue || '')
+})
+
+defineExpose({
+  insertText,
+  focus: () => {
+    editorRef.value?.focus()
+    setCursorToEnd()
+  },
+  setCursorToEnd
 })
 </script>
 
@@ -600,12 +887,12 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
-  margin: 1px 4px;
+  margin: 1px 3px;
   padding: 1px 7px;
   border-radius: 5px;
   font-size: 12px;
   font-weight: 500;
-  user-select: none;
+  user-select: all;
   cursor: pointer;
   transition: all 0.15s ease;
   line-height: 20px;
