@@ -9,7 +9,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from patchright.async_api import Page, Playwright, async_playwright
+try:
+    from patchright.async_api import Page, Playwright, async_playwright
+except ImportError:
+    from playwright.async_api import Page, Playwright, async_playwright
 
 from conf import BASE_DIR, DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
