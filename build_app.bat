@@ -9,7 +9,8 @@ cd /d "%PROJECT_ROOT%"
 
 :: 1. Wails CLI：通过 go run 调用项目锁定版本，不依赖也不影响全局安装的 wails
 ::    ⚠️ 全局 wails（当前 v2.8.2）被小映批量助手等其他项目使用，绝不能升级
-set "WAILS_CLI_VERSION=v2.10.2"
+set "GOTOOLCHAIN=go1.23.6"
+set "WAILS_CLI_VERSION=v2.11.0"
 echo Wails CLI 使用项目锁定版本: %WAILS_CLI_VERSION%（go run 调用，不影响全局 CLI）
 
 :: 2. 检查 Python 环境

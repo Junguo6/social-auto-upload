@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
