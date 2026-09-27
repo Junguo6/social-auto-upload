@@ -70,7 +70,8 @@
     <div class="matrix-block glass-card">
       <div class="block-head">
         <div class="block-title"><span class="idx">2</span>内容与账号对应表</div>
-        <div class="block-tools">
+        <!-- 暂时隐藏全景矩阵透视与微调按钮，保持页面简约直观 -->
+        <!-- <div class="block-tools">
           <el-button
             size="small"
             class="matrix-view-btn"
@@ -79,7 +80,7 @@
             <el-icon><Grid /></el-icon>
             <span>全景矩阵透视与微调</span>
           </el-button>
-        </div>
+        </div> -->
       </div>
 
       <!-- 下半区：内容与账号对应表（层级表格） -->
@@ -145,7 +146,8 @@
       @confirm-sync="handleExecuteSyncConfig"
     />
 
-    <!-- 5. 全景矩阵透视与微调大弹窗 -->
+    <!-- 5. 全景矩阵透视与微调大弹窗（暂时停用隐藏） -->
+    <!--
     <el-dialog
       v-model="crossMatrixModalVisible"
       title="全景矩阵透视与差异化微调"
@@ -178,6 +180,7 @@
         </div>
       </template>
     </el-dialog>
+    -->
 
     <!-- 创建发布计划确认框 -->
     <el-dialog

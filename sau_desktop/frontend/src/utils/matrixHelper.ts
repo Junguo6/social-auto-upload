@@ -22,7 +22,7 @@ export function parseEpisodeFromFileName(name: string): number | undefined {
 
   // 3. 策略A: 显式集数标记 (如: 第01集 / 第1集 / ep01 / EP01 / E01 / 01集)
   const mKeyword = clean.match(/(?:^|[\s_#\-\[\(【（])(?:第|ep|EP|[Ee])\s*(\d{1,4})(?:[集话期篇]|[\s_#\-\]\)】）]|$)/) ||
-                   clean.match(/第\s*(\d{1,4})\s*[集话期篇]?/)
+    clean.match(/第\s*(\d{1,4})\s*[集话期篇]?/)
   if (mKeyword && mKeyword[1]) {
     return parseInt(mKeyword[1], 10)
   }
@@ -267,25 +267,192 @@ export function extractFolderNames(media: { folderCrumbs?: string[]; filePath?: 
   return { folderName: '默认目录', rootFolder: '素材库' }
 }
 
+export type TxtDistributionMode = 'seq' | 'random'
+
+export interface ParsedFolderNode {
+  level: number           // 1-based, 第几层
+  folderName: string      // 文件夹实际名称
+  varKey: string          // 推荐变量名, 如 {第1层目录}
+  aliasKeys: string[]     // 别名变量, 如 ['{根目录}'] 或 ['{上级目录}']
+  isDirectParent: boolean // 是否为视频直接上级目录
+  isRoot: boolean         // 是否为最外层根目录
+  desc: string            // 详细说明
+}
+
 /**
- * 统一模板字符串变量解析器 (支持标题、描述、短标题、合集、剧集、活动等)
+ * 结构化解析示例视频的各级文件夹层级树，供可视化弹窗直观展示
+ */
+export function parseFolderHierarchy(
+  sampleMedia?: { folderCrumbs?: string[]; filePath?: string; fileName?: string }
+): { nodes: ParsedFolderNode[]; sampleFileName: string } {
+  const sampleFileName = sampleMedia?.fileName || '迟遇山野知秋_第01集.mp4'
+  const nodes: ParsedFolderNode[] = []
+
+  let crumbs = sampleMedia?.folderCrumbs || []
+  if (crumbs.length === 0 && sampleMedia?.filePath) {
+    const norm = sampleMedia.filePath.replace(/\\/g, '/')
+    const dir = norm.substring(0, norm.lastIndexOf('/'))
+    if (dir) {
+      const parts = dir.split('/').filter(Boolean)
+      const filtered = parts.filter(p => !p.endsWith(':') && p !== 'Users' && p !== 'home' && p !== 'var')
+      if (filtered.length > 0) {
+        crumbs = filtered.slice(-3)
+      }
+    }
+  }
+
+  // 若仍为空，提供典型的模拟短剧目录结构作为教学指引
+  if (crumbs.length === 0) {
+    crumbs = ['素材总库', '场景', '视频']
+  }
+
+  crumbs.forEach((name, idx) => {
+    const level = idx + 1
+    const isRoot = idx === 0
+    const isDirectParent = idx === crumbs.length - 1
+    const aliasKeys: string[] = []
+
+    if (isDirectParent) aliasKeys.push('{上级目录}')
+    if (isRoot && crumbs.length > 1) aliasKeys.push('{根目录}')
+
+    let desc = `第 ${level} 层目录`
+    if (isDirectParent) desc += '（视频直接所在文件夹）'
+    else if (isRoot) desc += '（素材最外层根目录）'
+
+    nodes.push({
+      level,
+      folderName: name,
+      varKey: `{第${level}层目录}`,
+      aliasKeys,
+      isDirectParent,
+      isRoot,
+      desc
+    })
+  })
+
+  return { nodes, sampleFileName }
+}
+
+// ── TXT 文本文档源管理池 (支持多视频轮询/随机取文案) ──
+const txtSourceRegistry = new Map<string, string[]>()
+
+/** 注册/缓存一个 TXT 文档的行数组 */
+export function registerTxtSource(fileName: string, rawContentOrLines: string | string[]): string[] {
+  let lines: string[] = []
+  if (Array.isArray(rawContentOrLines)) {
+    lines = rawContentOrLines.map(l => l.trim()).filter(Boolean)
+  } else if (typeof rawContentOrLines === 'string') {
+    lines = rawContentOrLines
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean)
+  }
+
+  const cleanName = fileName.trim()
+  txtSourceRegistry.set(cleanName, lines)
+
+  // 幂等同步到 localStorage
+  try {
+    const raw = localStorage.getItem('sau_matrix_txt_sources')
+    const map = raw ? JSON.parse(raw) : {}
+    map[cleanName] = lines
+    localStorage.setItem('sau_matrix_txt_sources', JSON.stringify(map))
+  } catch (e) { }
+
+  return lines
+}
+
+/** 获取已注册的 TXT 行数组 */
+export function getTxtSource(fileName: string): string[] | undefined {
+  const cleanName = fileName.trim()
+  if (txtSourceRegistry.has(cleanName)) {
+    return txtSourceRegistry.get(cleanName)
+  }
+  // 容错: 若没带 .txt 尝试补齐，若带了尝试去掉
+  const withExt = cleanName.endsWith('.txt') ? cleanName : `${cleanName}.txt`
+  if (txtSourceRegistry.has(withExt)) {
+    return txtSourceRegistry.get(withExt)
+  }
+
+  try {
+    const raw = localStorage.getItem('sau_matrix_txt_sources')
+    if (raw) {
+      const map = JSON.parse(raw)
+      const found = map[cleanName] || map[withExt]
+      if (found && Array.isArray(found)) {
+        txtSourceRegistry.set(cleanName, found)
+        return found
+      }
+    }
+  } catch (e) { }
+
+  return undefined
+}
+
+/** 获取所有已缓存的 TXT 源清单 */
+export function getAllTxtSources(): { fileName: string; lines: string[] }[] {
+  const results: { fileName: string; lines: string[] }[] = []
+  const seen = new Set<string>()
+
+  txtSourceRegistry.forEach((lines, fileName) => {
+    results.push({ fileName, lines })
+    seen.add(fileName)
+  })
+
+  try {
+    const raw = localStorage.getItem('sau_matrix_txt_sources')
+    if (raw) {
+      const map = JSON.parse(raw)
+      Object.entries(map).forEach(([fileName, lines]) => {
+        if (!seen.has(fileName) && Array.isArray(lines)) {
+          results.push({ fileName, lines: lines as string[] })
+          txtSourceRegistry.set(fileName, lines as string[])
+        }
+      })
+    }
+  } catch (e) { }
+
+  return results
+}
+
+/** 删除指定的 TXT 文案源 */
+export function deleteTxtSource(fileName: string): void {
+  const cleanName = fileName.trim()
+  txtSourceRegistry.delete(cleanName)
+  const withExt = cleanName.endsWith('.txt') ? cleanName : `${cleanName}.txt`
+  txtSourceRegistry.delete(withExt)
+
+  try {
+    const raw = localStorage.getItem('sau_matrix_txt_sources')
+    if (raw) {
+      const map = JSON.parse(raw)
+      delete map[cleanName]
+      delete map[withExt]
+      localStorage.setItem('sau_matrix_txt_sources', JSON.stringify(map))
+    }
+  } catch (e) { }
+}
+
+/**
+ * 统一模板字符串变量解析器 (支持标题、描述、短标题、合集、剧集、活动以及 TXT 多行轮询等)
  */
 export function resolveTemplateString(
   template: string,
   media: { parsedEpisode?: number; fileName?: string; filePath?: string; folderCrumbs?: string[] },
   mediaIndex: number = 0,
   ruleConfig?: Partial<BatchRuleConfig>,
-  unitLevel?: number
+  unitLevel?: number,
+  previewRandomSeed?: number
 ): string {
   if (!template) return ''
 
   const fileName = media.fileName || (media.filePath ? media.filePath.split(/[/\\]/).pop() || '' : '视频')
   const epStr = resolveEpisodeNumber({ parsedEpisode: media.parsedEpisode, fileName }, mediaIndex, ruleConfig)
   const baseName = fileName.replace(/\.[^/.]+$/, '')
-  
+
   const crumbs = media.folderCrumbs || []
   const { folderName, rootFolder } = extractFolderNames(media)
-  
+
   const now = new Date()
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
@@ -323,6 +490,47 @@ export function resolveTemplateString(
     const re4 = new RegExp(`\\{第${level}级文件夹\\}`, 'g')
     result = result.replace(re1, val).replace(re2, val).replace(re3, val).replace(re4, val)
   }
+
+  // 支持 {TXT:文件名.txt} 或 {TXT:文件名:seq} 或 {TXT:文件名:random}
+  result = result.replace(/\{TXT:([^}]+)\}/g, (match, rawInner) => {
+    const parts = rawInner.trim().split(':')
+    const txtName = parts[0].trim()
+    const mode = (parts[1]?.trim() || 'seq') as 'seq' | 'random'
+
+    const lines = getTxtSource(txtName)
+    if (!lines || lines.length === 0) {
+      return `[未找到TXT:${txtName}]`
+    }
+
+    if (mode === 'random') {
+      if (lines.length === 1) return lines[0]
+
+      // 若用户点击了随机换一换预览，优先使用传入的动态预览种子
+      if (typeof previewRandomSeed === 'number' && previewRandomSeed > 0) {
+        const randIdx = previewRandomSeed % lines.length
+        return lines[randIdx] || ''
+      }
+
+      // 确定性随机：基于 mediaIndex + txtName 字符哈希，确保不同视频分布均匀
+      let seed = (Math.abs(mediaIndex) + 3) * 9301 + 49297
+      for (let c = 0; c < txtName.length; c++) {
+        seed = (seed + txtName.charCodeAt(c) * 137) % 233280
+      }
+      let randIdx = Math.floor((seed / 233280) * lines.length)
+
+      // 关键优化：对于第 1 个视频 (mediaIndex=0)，如果碰巧计算出 index=0，主动偏移到其它行
+      // 使得用户从顺序模式切到随机模式时，示例第一眼就能直观看出明显的文案变化！
+      if (mediaIndex === 0 && randIdx === 0 && lines.length > 1) {
+        randIdx = (seed % (lines.length - 1)) + 1
+      }
+
+      return lines[randIdx] || ''
+    }
+
+    // 默认 seq: 顺序循环取行
+    const idx = Math.abs(mediaIndex) % lines.length
+    return lines[idx] || ''
+  })
 
   return result
 }

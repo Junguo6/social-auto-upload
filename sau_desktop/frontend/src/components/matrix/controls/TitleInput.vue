@@ -5,6 +5,7 @@
         <span class="label-text">{{ label }}</span>
         <span v-if="required" class="required-star">*</span>
       </div>
+      <!-- 暂时取消分集规则设置按钮，按默认智能规则处理即可
       <div v-if="ruleConfig && !hideVariables" class="header-tools">
         <button
           type="button"
@@ -16,29 +17,22 @@
           <span>{{ isEpisodePanelOpen ? '收起分集规则' : '集数生成规则' }}</span>
         </button>
       </div>
+      -->
     </div>
 
-    <!-- 标题输入框 -->
-    <el-input
+    <!-- 标题富标签输入框 (内嵌变量标签/TXT标签 + 底部极简双入口) -->
+    <TokenTemplateInput
       v-model="modelValue"
+      type="input"
       :placeholder="placeholder"
       :maxlength="maxlength"
-      show-word-limit
-      clearable
-      class="stylish-title-input"
-    />
-
-    <!-- 变量插入与实时解析示例 -->
-    <VariableChips
-      v-if="!hideVariables"
-      :current-value="modelValue"
-      :rule-config="ruleConfig"
       :sample-media="sampleMedia"
       :unit-level="unitLevel"
-      @insert="insertVar"
+      :rule-config="ruleConfig"
+      :hide-tools="hideVariables"
     />
 
-    <!-- 折叠展开的集数规则面板 -->
+    <!-- 折叠展开的集数规则面板 (暂时隐藏)
     <el-collapse-transition>
       <div v-if="isEpisodePanelOpen && !hideVariables" class="episode-drawer-card">
         <div class="drawer-header">
@@ -84,13 +78,14 @@
         </div>
       </div>
     </el-collapse-transition>
+    -->
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { BatchRuleConfig, MediaItem } from '../../../types/matrix'
-import VariableChips from '../VariableChips.vue'
+import TokenTemplateInput from './TokenTemplateInput.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: string

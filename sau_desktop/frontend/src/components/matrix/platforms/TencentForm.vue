@@ -5,22 +5,25 @@
       <div class="row-label">视频描述</div>
       <div class="row-content">
         <div class="desc-box-wrapper">
-          <el-input
+          <TokenTemplateInput
             v-model="override.desc"
             type="textarea"
             :rows="4"
-            placeholder="添加描述，支持插入 {文件夹名}、{视频名}、{集数} 等变量"
-            maxlength="1000"
-            show-word-limit
-            class="wechat-textarea"
+            placeholder="添加描述，支持插入变量或导入TXT按视频轮询文案..."
+            :maxlength="1000"
+            :sample-media="sampleMedia"
+            :unit-level="unitLevel"
+            :rule-config="ruleConfig"
+            :hide-tools="hideVariables"
           />
           <div class="desc-action-bar">
-            <!-- 快捷操作区：话题与分集规则 -->
+            <!-- 快捷操作区：话题 (分集规则暂时隐藏，采用默认智能提取规则) -->
             <div class="tag-insert-group">
               <button type="button" class="wechat-tag-pill topic-pill" @click="addHashTag">
                 <span class="hash-symbol">#</span>
-                <span class="pill-text">话题</span>
+                <span class="pill-text">添加话题</span>
               </button>
+              <!-- 暂时取消分集规则设置
               <button
                 v-if="ruleConfig && !hideVariables"
                 type="button"
@@ -32,22 +35,12 @@
                 <span class="pill-text">{{ showEpisodeRule ? '收起规则' : '分集规则' }}</span>
                 <el-icon class="arrow-indicator" :class="{ 'is-open': showEpisodeRule }"><ArrowDown /></el-icon>
               </button>
-            </div>
-
-            <!-- 专属变量区域：独立整行自适应换行，彻底杜绝横向挤压与超出屏幕 -->
-            <div v-if="!hideVariables" class="desc-variable-chips-wrap">
-              <VariableChips
-                :current-value="override.desc"
-                :rule-config="ruleConfig"
-                :sample-media="sampleMedia"
-                :unit-level="unitLevel"
-                @insert="insertVarToDesc"
-              />
+              -->
             </div>
           </div>
         </div>
 
-        <!-- 轻量分集规则面板 -->
+        <!-- 轻量分集规则面板 (暂时隐藏)
         <el-collapse-transition>
           <div v-if="showEpisodeRule" class="episode-mini-panel">
             <div class="mini-rule-row">
@@ -81,6 +74,7 @@
             </div>
           </div>
         </el-collapse-transition>
+        -->
       </div>
     </div>
 
@@ -88,20 +82,15 @@
     <div class="wechat-form-row">
       <div class="row-label">短标题</div>
       <div class="row-content">
-        <el-input
+        <TokenTemplateInput
           v-model="override.shortTitle"
-          placeholder="填写短标题（支持变量，如：{文件夹名} 第{集数}集）"
-          maxlength="30"
-          clearable
-          class="wechat-input"
-        />
-        <VariableChips
-          v-if="!hideVariables"
-          :current-value="override.shortTitle"
-          :rule-config="ruleConfig"
+          type="input"
+          placeholder="填写短标题，支持插入变量或导入TXT按视频轮询文案..."
+          :maxlength="30"
           :sample-media="sampleMedia"
           :unit-level="unitLevel"
-          @insert="insertVarToShortTitle"
+          :rule-config="ruleConfig"
+          :hide-tools="hideVariables"
         />
       </div>
     </div>
@@ -125,20 +114,14 @@
     <div class="wechat-form-row">
       <div class="row-label">添加到合集</div>
       <div class="row-content">
-        <el-input
+        <TokenTemplateInput
           v-model="override.collection"
-          placeholder="选择或输入合集名称（支持变量，如：{文件夹名}）"
-          clearable
-          class="wechat-input"
-        />
-        <VariableChips
-          v-if="!hideVariables"
-          compact
-          :current-value="override.collection"
-          :rule-config="ruleConfig"
+          type="input"
+          placeholder="选择或输入合集名称，支持插入变量..."
           :sample-media="sampleMedia"
           :unit-level="unitLevel"
-          @insert="insertVarToCollection"
+          :rule-config="ruleConfig"
+          :hide-tools="hideVariables"
         />
       </div>
     </div>
@@ -212,19 +195,14 @@
 
           <!-- 搜索活动输入框 -->
           <div v-if="currentActivityMode === 'search'" class="activity-sub-input">
-            <el-input
+            <TokenTemplateInput
               v-model="override.activityName"
+              type="input"
               placeholder="输入活动名搜索（支持变量，如：{文件夹名}激励计划）"
-              clearable
-              class="wechat-input"
-            />
-            <VariableChips
-              v-if="!hideVariables"
-              :current-value="override.activityName"
-              :rule-config="ruleConfig"
               :sample-media="sampleMedia"
               :unit-level="unitLevel"
-              @insert="insertVarToActivity"
+              :rule-config="ruleConfig"
+              :hide-tools="hideVariables"
             />
           </div>
         </div>
@@ -322,6 +300,7 @@ import { ElMessage } from 'element-plus'
 import { Operation, ArrowDown } from '@element-plus/icons-vue'
 import { SelectLocalFile } from '../../../../wailsjs/go/main/App'
 import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../../types/matrix'
+import TokenTemplateInput from '../controls/TokenTemplateInput.vue'
 import VariableChips from '../VariableChips.vue'
 
 const props = defineProps<{
@@ -490,7 +469,7 @@ const choosePortraitCover = async () => {
   width: 100%;
   box-sizing: border-box;
   min-width: 0;
-  border: 1px solid #e2e8f0;
+  /* border: 1px solid #e2e8f0; */
   border-radius: 8px;
   background: #ffffff;
   overflow: hidden;
