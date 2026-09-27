@@ -41,6 +41,8 @@ export function GetOrderPackages():Promise<Array<auth.OrderPackage>>;
 
 export function GetRiskOverview():Promise<Array<engine.RiskState>>;
 
+export function LoadAppData(arg1:string):Promise<string>;
+
 export function LoginAccount(arg1:string,arg2:string,arg3:boolean):Promise<engine.LoginResult>;
 
 export function LoginAccountWithAppWindow(arg1:string,arg2:string):Promise<engine.LoginResult>;
@@ -61,6 +63,8 @@ export function QuitApp():Promise<void>;
 
 export function ResumeAccount(arg1:string,arg2:string):Promise<boolean>;
 
+export function SaveAppData(arg1:string,arg2:string):Promise<void>;
+
 export function ScanMediaFolder(arg1:string):Promise<main.FolderScanResult>;
 
 export function SelectLocalFile(arg1:string,arg2:Array<string>):Promise<string>;
@@ -78,3 +82,5 @@ export function StopActivePublish():Promise<boolean>;
 export function StopSingleTask(arg1:string,arg2:string):Promise<boolean>;
 
 export function StopTaskById(arg1:string):Promise<boolean>;
+
+export function SyncAccountsWithCookies(arg1:string):Promise<string>;

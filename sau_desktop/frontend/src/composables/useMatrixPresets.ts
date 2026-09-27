@@ -1,29 +1,35 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { MasterForm, PlatformOverrideSetting, MatrixPreset } from '../types/matrix'
+import { createDualStorage } from '../utils/storageAdapter'
 
 const STORAGE_KEY = 'sau_matrix_presets'
+
+const presetStorage = createDualStorage<MatrixPreset[]>({
+  diskKey: 'matrix_presets',
+  localKey: STORAGE_KEY,
+  getDefault: () => [],
+  debounceMs: 300,
+  transformLoad: (raw) => (Array.isArray(raw) ? raw : [])
+})
 
 export function useMatrixPresets(
   masterForm: MasterForm,
   platformOverrides: Record<string, PlatformOverrideSetting>,
   accountOverrides: Record<string, PlatformOverrideSetting>
 ) {
-  const savedTemplates = ref<MatrixPreset[]>([])
+  const savedTemplates = ref<MatrixPreset[]>(presetStorage.get())
 
-  // 从 LocalStorage 加载所有预设
-  const loadTemplatesFromStorage = () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        savedTemplates.value = JSON.parse(raw)
-      }
-    } catch {}
+  // 从本地缓存/物理磁盘加载所有预设
+  const loadTemplatesFromStorage = async () => {
+    await presetStorage.load((synced) => {
+      savedTemplates.value = synced
+    })
   }
 
-  // 持久化保存
+  // 持久化保存 (热缓存即时更新 + 磁盘原子防抖落盘)
   const saveTemplatesToStorage = () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(savedTemplates.value))
+    presetStorage.save(savedTemplates.value)
   }
 
   // 处理下拉菜单指令

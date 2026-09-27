@@ -427,6 +427,9 @@ const getPlatformColor = (pid: string) => {
 }
 
 .badge-count {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12px;
   background: rgba(99, 102, 241, 0.12);
   border: 1px solid rgba(99, 102, 241, 0.25);

@@ -74,6 +74,10 @@ export function GetRiskOverview() {
   return window['go']['main']['App']['GetRiskOverview']();
 }
 
+export function LoadAppData(arg1) {
+  return window['go']['main']['App']['LoadAppData'](arg1);
+}
+
 export function LoginAccount(arg1, arg2, arg3) {
   return window['go']['main']['App']['LoginAccount'](arg1, arg2, arg3);
 }
@@ -114,6 +118,10 @@ export function ResumeAccount(arg1, arg2) {
   return window['go']['main']['App']['ResumeAccount'](arg1, arg2);
 }
 
+export function SaveAppData(arg1, arg2) {
+  return window['go']['main']['App']['SaveAppData'](arg1, arg2);
+}
+
 export function ScanMediaFolder(arg1) {
   return window['go']['main']['App']['ScanMediaFolder'](arg1);
 }
@@ -148,4 +156,8 @@ export function StopSingleTask(arg1, arg2) {
 
 export function StopTaskById(arg1) {
   return window['go']['main']['App']['StopTaskById'](arg1);
+}
+
+export function SyncAccountsWithCookies(arg1) {
+  return window['go']['main']['App']['SyncAccountsWithCookies'](arg1);
 }

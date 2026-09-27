@@ -35,6 +35,14 @@ func NewExecutor() (*Executor, error) {
 	}, nil
 }
 
+// WorkDir 返回自动化发布引擎根工作目录
+func (e *Executor) WorkDir() string {
+	if e != nil && e.runtime != nil {
+		return e.runtime.WorkDir
+	}
+	return ""
+}
+
 // GetAccountRiskStatus 获取指定账号的风控与健康度状态
 func (e *Executor) GetAccountRiskStatus(platform, account string) RiskState {
 	return e.risk.GetAccountRiskStatus(platform, account)

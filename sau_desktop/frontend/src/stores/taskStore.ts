@@ -7,8 +7,34 @@ import { engine } from '../../wailsjs/go/models'
 import { useSettingsStore } from './settingsStore'
 import { useAuthStore } from './authStore'
 import type { PublishTask, TaskBatch, TaskStatus, TaskLogItem, TaskLane, RiskState } from '../types/task'
+import { createDualStorage } from '../utils/storageAdapter'
 
 const STORAGE_KEY = 'sau_task_workflow_v8'
+
+interface WorkflowData {
+  tasks: PublishTask[]
+  batches: TaskBatch[]
+  lanes: TaskLane[]
+}
+
+const taskStorage = createDualStorage<WorkflowData>({
+  diskKey: 'tasks',
+  localKey: STORAGE_KEY,
+  getDefault: () => ({ tasks: [], batches: [], lanes: [] }),
+  debounceMs: 500,
+  transformSave: (data) => ({
+    // 放宽到 500 条任务记录，日志保留最新 100 条
+    tasks: data.tasks.slice(0, 500).map(t => ({
+      ...t,
+      logs: t.logs ? t.logs.slice(-100) : []
+    })),
+    batches: data.batches.slice(0, 100),
+    lanes: data.lanes.map(l => ({
+      ...l,
+      tasks: l.tasks.slice(0, 100)
+    }))
+  })
+})
 
 export const useTaskStore = defineStore('task', () => {
   const settingsStore = useSettingsStore()
@@ -117,51 +143,56 @@ export const useTaskStore = defineStore('task', () => {
     lanes.value.forEach(l => syncLaneStatus(l))
   }
 
-  // 从 localStorage 加载历史记录 (对齐 lanes.tasks 与 tasks.value 的引用，杜绝状态脱节)
-  const loadTasksFromStorage = () => {
-    try {
-      const data = localStorage.getItem(STORAGE_KEY)
-      if (data) {
-        const parsed = JSON.parse(data)
-        const taskMap = new Map<string, PublishTask>()
+  // 辅助函数：解析恢复任务流数据并建立引用映射
+  const applyParsedWorkflowData = (parsed: any) => {
+    if (!parsed || typeof parsed !== 'object') return
+    const taskMap = new Map<string, PublishTask>()
 
-        if (Array.isArray(parsed.tasks)) {
-          tasks.value = parsed.tasks.map((t: any, idx: number) => {
-            const item: PublishTask = {
-              ...t,
-              orderIndex: t.orderIndex ?? idx + 1,
-              status: t.status === 'running' ? 'failed' : t.status,
-              errorMsg: t.status === 'running' ? '应用重启导致任务中断' : t.errorMsg
-            }
-            taskMap.set(item.id, item)
-            return item
-          })
+    if (Array.isArray(parsed.tasks)) {
+      tasks.value = parsed.tasks.map((t: any, idx: number) => {
+        const item: PublishTask = {
+          ...t,
+          orderIndex: t.orderIndex ?? idx + 1,
+          status: t.status === 'running' ? 'failed' : t.status,
+          errorMsg: t.status === 'running' ? '应用重启导致任务中断' : t.errorMsg
         }
-        if (Array.isArray(parsed.batches)) {
-          batches.value = parsed.batches
-        }
-        if (Array.isArray(parsed.lanes) && parsed.lanes.length > 0) {
-          lanes.value = parsed.lanes.slice(0, maxConcurrency.value).map((l: any) => ({
-            ...l,
-            tasks: Array.isArray(l.tasks) ? l.tasks.map((t: any) => {
-              if (taskMap.has(t.id)) {
-                return taskMap.get(t.id)!
-              }
-              const restored: PublishTask = {
-                ...t,
-                status: t.status === 'running' ? 'failed' : t.status,
-                errorMsg: t.status === 'running' ? '应用重启导致任务中断' : t.errorMsg
-              }
-              taskMap.set(restored.id, restored)
-              tasks.value.push(restored)
-              return restored
-            }) : []
-          }))
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load workflow tasks from storage', e)
+        taskMap.set(item.id, item)
+        return item
+      })
     }
+    if (Array.isArray(parsed.batches)) {
+      batches.value = parsed.batches
+    }
+    if (Array.isArray(parsed.lanes) && parsed.lanes.length > 0) {
+      lanes.value = parsed.lanes.slice(0, maxConcurrency.value).map((l: any) => ({
+        ...l,
+        tasks: Array.isArray(l.tasks) ? l.tasks.map((t: any) => {
+          if (taskMap.has(t.id)) {
+            return taskMap.get(t.id)!
+          }
+          const restored: PublishTask = {
+            ...t,
+            status: t.status === 'running' ? 'failed' : t.status,
+            errorMsg: t.status === 'running' ? '应用重启导致任务中断' : t.errorMsg
+          }
+          taskMap.set(restored.id, restored)
+          tasks.value.push(restored)
+          return restored
+        }) : []
+      }))
+    }
+  }
+
+  // 加载历史记录 (本地热缓存 + 后端磁盘双驱动同步)
+  const loadTasksFromStorage = async () => {
+    // 1. 同步加载首屏热缓存
+    applyParsedWorkflowData(taskStorage.get())
+
+    // 2. 异步与物理磁盘对齐并平滑冷迁移
+    await taskStorage.load((synced) => {
+      applyParsedWorkflowData(synced)
+      refreshAllLanesStatus()
+    })
 
     // 默认初始化 lanes 数量 (不超过系统设置并发上限)
     if (lanes.value.length === 0) {
@@ -182,24 +213,13 @@ export const useTaskStore = defineStore('task', () => {
     refreshAllLanesStatus()
   }
 
-  // 保存任务记录到 localStorage
+  // 保存任务记录 (内存即时生效，物理磁盘 500ms 防抖落盘)
   const saveTasksToStorage = () => {
-    try {
-      const payload = {
-        tasks: tasks.value.slice(0, 100).map(t => ({
-          ...t,
-          logs: t.logs.slice(-50)
-        })),
-        batches: batches.value.slice(0, 30),
-        lanes: lanes.value.map(l => ({
-          ...l,
-          tasks: l.tasks.slice(0, 30)
-        }))
-      }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
-    } catch (e) {
-      console.error('Failed to save tasks to storage', e)
-    }
+    taskStorage.save({
+      tasks: tasks.value,
+      batches: batches.value,
+      lanes: lanes.value
+    })
   }
 
   // 计算属性

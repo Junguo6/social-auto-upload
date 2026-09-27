@@ -7,6 +7,7 @@ import (
 	godebug "runtime/debug"
 	"sau_desktop/internal/auth"
 	"sau_desktop/internal/engine"
+	"sau_desktop/internal/storage"
 	"sau_desktop/internal/upgrade"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -18,6 +19,7 @@ type App struct {
 	executor   *engine.Executor
 	authMgr    *auth.AuthManager
 	upgradeMgr *upgrade.UpgradeManager
+	storageMgr *storage.StorageManager
 }
 
 // PanicRecover 捕获 Wails 暴露方法内的 panic，避免整个应用崩溃。
@@ -57,10 +59,17 @@ func NewApp() *App {
 		return ""
 	}, auth.ServerHost)
 
+	workDir := ""
+	if exec != nil {
+		workDir = exec.WorkDir()
+	}
+	storageManager := storage.NewStorageManager(workDir)
+
 	return &App{
 		executor:   exec,
 		authMgr:    authManager,
 		upgradeMgr: upgradeManager,
+		storageMgr: storageManager,
 	}
 }
 
@@ -559,6 +568,33 @@ func (a *App) GetDownloadProgress() upgrade.DownloadProgress {
 		return upgrade.DownloadProgress{Status: "idle"}
 	}
 	return a.upgradeMgr.GetDownloadProgress()
+}
+
+// LoadAppData 从本地磁盘读取指定业务 key 的持久化 JSON 字符串
+func (a *App) LoadAppData(key string) (string, error) {
+	defer a.PanicRecover("LoadAppData", map[string]interface{}{"key": key})
+	if a.storageMgr == nil {
+		return "", fmt.Errorf("存储引擎未初始化")
+	}
+	return a.storageMgr.LoadData(key)
+}
+
+// SaveAppData 原子性将指定业务 key 的 JSON 字符串持久化到磁盘文件
+func (a *App) SaveAppData(key string, payload string) error {
+	defer a.PanicRecover("SaveAppData", map[string]interface{}{"key": key})
+	if a.storageMgr == nil {
+		return fmt.Errorf("存储引擎未初始化")
+	}
+	return a.storageMgr.SaveData(key, payload)
+}
+
+// SyncAccountsWithCookies 扫描本地 cookies/*.json，与前端账号列表做双向对齐与反向发现
+func (a *App) SyncAccountsWithCookies(clientAccountsJSON string) (string, error) {
+	defer a.PanicRecover("SyncAccountsWithCookies", nil)
+	if a.storageMgr == nil {
+		return clientAccountsJSON, fmt.Errorf("存储引擎未初始化")
+	}
+	return a.storageMgr.SyncAccountsWithCookies(clientAccountsJSON)
 }
 
 
