@@ -318,7 +318,9 @@
       v-model="drawerVisible"
       :cell-data="activeCellData"
       :rule-config="ruleConfig"
-      @open-sync="$emit('open-sync', activeCellData)"
+      :unit-level="unitLevel"
+      :selected-accounts="selectedAccounts"
+      @clone-to-accounts="handleCloneToAccounts"
     />
   </div>
 </template>
@@ -342,6 +344,7 @@ const props = withDefaults(defineProps<{
   masterForm?: Partial<MasterForm>
   ruleConfig?: Partial<BatchRuleConfig>
   platformOverrides?: Record<string, any>
+  unitLevel?: number
 }>(), {
   masterForm: () => ({
     action: 'upload-video',
@@ -355,7 +358,7 @@ const props = withDefaults(defineProps<{
   }),
   ruleConfig: () => ({
     titleTemplate: '{视频名}',
-    episodeMode: 'auto',
+    episodeMode: 'sequence',
     startEpisode: 1,
     episodeStep: 1,
     padZero: false,
@@ -582,19 +585,69 @@ const handleOpenDrawer = (media: MediaItem, acc: { platform: string; account: st
   }
 
   const mIdx = props.mediaList.findIndex(m => m.id === media.id)
+  const idx = mIdx >= 0 ? mIdx : 0
+  const platOv = props.platformOverrides?.[acc.platform] || {}
+
+  // 1. 基础继承标题 (优先平台定制标题，其次全局模板)
+  let baseTitle = ''
+  if (platOv.title?.trim()) {
+    baseTitle = resolveMediaTitle(platOv.title, media, idx, props.ruleConfig, props.unitLevel)
+  } else {
+    baseTitle = resolveTitleTemplate(media, idx)
+  }
+
+  // 2. 基础继承描述 (优先平台定制描述，其次全局描述)
+  const rawDesc = (platOv.desc !== undefined && platOv.desc !== '') ? platOv.desc : (props.masterForm?.desc || '')
+  const baseDesc = resolveMediaTitle(rawDesc, media, idx, props.ruleConfig, props.unitLevel)
+
+  // 3. 基础继承标签
+  const baseTags = (platOv.tags !== undefined && platOv.tags !== '') ? platOv.tags : (props.masterForm?.tags || '')
+
+  // 4. 构建针对该平台的完整基准快照 (用于“一键带入原值微调”)
+  const inheritedOverride: Record<string, any> = {
+    ...platOv,
+    title: platOv.title || props.masterForm?.title || '{视频名}',
+    desc: rawDesc,
+    tags: baseTags,
+    shortTitle: platOv.shortTitle ? resolveMediaTitle(platOv.shortTitle, media, idx, props.ruleConfig, props.unitLevel) : '',
+    collection: platOv.collection ? resolveMediaTitle(platOv.collection, media, idx, props.ruleConfig, props.unitLevel) : '',
+    activityName: platOv.activityName ? resolveMediaTitle(platOv.activityName, media, idx, props.ruleConfig, props.unitLevel) : '',
+    linkTitle: platOv.linkTitle ? resolveMediaTitle(platOv.linkTitle, media, idx, props.ruleConfig, props.unitLevel) : ''
+  }
+
   activeCellData.value = {
     mediaId: media.id,
     mediaName: media.fileName,
+    folderCrumbs: media.folderCrumbs,
+    filePath: media.filePath,
     platform: acc.platform,
     account: acc.account,
     nickname: acc.nickname,
     cell,
-    inheritedTitle: resolveTitleTemplate(media, mIdx >= 0 ? mIdx : 0),
-    inheritedDesc: props.masterForm?.desc || '',
-    inheritedTags: props.masterForm?.tags || '',
-    inheritedSchedule: getCellStatusText(media.id, acc, mIdx >= 0 ? mIdx : 0)
+    inheritedTitle: baseTitle,
+    inheritedDesc: baseDesc,
+    inheritedTags: baseTags,
+    inheritedSchedule: getCellStatusText(media.id, acc, idx),
+    inheritedOverride
   }
   drawerVisible.value = true
+}
+
+// 处理一键克隆到同平台其他账号
+const handleCloneToAccounts = ({ mediaId, sourceCell, targetAccounts }: { mediaId: string; sourceCell: MatrixCellConfig; targetAccounts: any[] }) => {
+  const nextMap = { ...props.matrixMap }
+  if (!nextMap[mediaId]) nextMap[mediaId] = {}
+  else nextMap[mediaId] = { ...nextMap[mediaId] }
+
+  for (const acc of targetAccounts) {
+    const accKey = `${acc.platform}:${acc.account}`
+    nextMap[mediaId][accKey] = JSON.parse(JSON.stringify({
+      ...sourceCell,
+      isCustomized: true
+    }))
+  }
+  emit('update:matrixMap', nextMap)
+  ElMessage.success(`克隆成功！已将微调配置同步给 ${targetAccounts.length} 个同平台账号`)
 }
 
 // 平台图标辅助

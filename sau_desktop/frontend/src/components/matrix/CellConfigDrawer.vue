@@ -109,79 +109,68 @@
           </div>
         </div>
 
-        <!-- 右栏：专属文案与平台高级专属特性 (占 64%) -->
+        <!-- 右栏：平台微调表单 (与发布信息内的表单结构 100% 一致) -->
         <div class="column-right">
-          <!-- 3. 专属标题与正文文案微调 -->
-          <div class="config-section" v-if="cellData.cell.enabled">
+          <div class="config-section platform-main-config" v-if="cellData.cell.enabled">
             <div class="section-title-row">
               <div class="section-title">
-                <el-icon><EditPen /></el-icon>
-                <span>专属标题与正文文案微调</span>
+                <span class="plat-badge" :style="{ background: getPlatformColor(cellData.platform) }">
+                  {{ getPlatformName(cellData.platform) }}
+                </span>
+                <span>平台发布微调表单</span>
+            
               </div>
               <el-button v-if="cellData.cell.isCustomized" size="small" link type="warning" @click="resetToInherit">
-                恢复继承全局
+                恢复继承基准
               </el-button>
             </div>
 
-            <div class="field-col">
-              <div class="label-with-hint">
-                <span class="field-label">专属稿件标题:</span>
-                <span class="field-hint">留空则自动继承全局统一标题</span>
-              </div>
-              <el-input
-                v-model="cellData.cell.customTitle"
-                placeholder="输入该账号独立微调标题..."
-                clearable
-                size="default"
-                @input="handleDirty"
+            <!-- 直接呈现对应的完整平台表单，不再有多余的中间层级与重复标题框 -->
+            <div class="platform-form-wrapper">
+              <TencentForm
+                v-if="cellData.platform === 'tencent' || cellData.platform === 'wechat'"
+                :override="cellData.cell.override"
+                :rule-config="ruleConfig"
+                :sample-media="currentSampleMedia"
+                :unit-level="unitLevel"
+                :hide-variables="true"
               />
-            </div>
-
-            <div class="field-col">
-              <div class="label-with-hint">
-                <span class="field-label">专属正文简介描述:</span>
-                <span class="field-hint">留空则继承全局统一文案</span>
-              </div>
-              <el-input
-                v-model="cellData.cell.override.desc"
-                type="textarea"
-                :rows="4"
-                placeholder="针对该账号个性化微调的文案、话术、引导语或专属口播词..."
-                size="default"
-                @input="handleDirty"
+              <BilibiliForm
+                v-else-if="cellData.platform === 'bilibili'"
+                :override="cellData.cell.override"
+                :rule-config="ruleConfig"
+                :sample-media="currentSampleMedia"
+                :unit-level="unitLevel"
+                :hide-variables="true"
               />
-            </div>
-
-            <div class="field-col">
-              <div class="label-with-hint">
-                <span class="field-label">专属话题标签:</span>
-                <span class="field-hint">多个标签用逗号分隔</span>
-              </div>
-              <el-input
-                v-model="cellData.cell.override.tags"
-                placeholder="如：专属话题A, 专属话题B"
-                clearable
-                size="default"
-                @input="handleDirty"
+              <DouyinForm
+                v-else-if="cellData.platform === 'douyin'"
+                :override="cellData.cell.override"
+                :rule-config="ruleConfig"
+                :sample-media="currentSampleMedia"
+                :unit-level="unitLevel"
+                :hide-variables="true"
+              />
+              <XiaohongshuForm
+                v-else-if="cellData.platform === 'xiaohongshu'"
+                :override="cellData.cell.override"
+                :rule-config="ruleConfig"
+                :sample-media="currentSampleMedia"
+                :unit-level="unitLevel"
+                :hide-variables="true"
+              />
+              <GenericForm
+                v-else
+                :override="cellData.cell.override"
+                :rule-config="ruleConfig"
+                :sample-media="currentSampleMedia"
+                :unit-level="unitLevel"
+                :hide-variables="true"
               />
             </div>
           </div>
-
-          <!-- 4. 平台专属高级特性 (组件化全局复用) -->
-          <div class="config-section" v-if="cellData.cell.enabled">
-            <div class="section-title">
-              <el-icon><Setting /></el-icon>
-              <span>{{ getPlatformName(cellData.platform) }} 平台专属高级特性</span>
-              <span class="sub-hint">(必填主分区、版权合规声明与平台专属控制)</span>
-            </div>
-
-            <div class="platform-form-wrapper">
-              <TencentForm v-if="cellData.platform === 'tencent' || cellData.platform === 'wechat'" :override="cellData.cell.override" :rule-config="ruleConfig" />
-              <BilibiliForm v-else-if="cellData.platform === 'bilibili'" :override="cellData.cell.override" :rule-config="ruleConfig" />
-              <DouyinForm v-else-if="cellData.platform === 'douyin'" :override="cellData.cell.override" :rule-config="ruleConfig" />
-              <XiaohongshuForm v-else-if="cellData.platform === 'xiaohongshu'" :override="cellData.cell.override" :rule-config="ruleConfig" />
-              <GenericForm v-else :override="cellData.cell.override" :rule-config="ruleConfig" />
-            </div>
+          <div v-else class="channel-disabled-empty">
+            <el-empty description="当前发布通道已跳过，开启左侧开关即可微调发布内容" :image-size="80" />
           </div>
         </div>
       </div>
@@ -189,7 +178,7 @@
 
           <!-- 底部操作栏 -->
           <div class="panel-footer">
-            <el-button size="small" type="primary" link @click="$emit('open-sync')">
+            <el-button size="small" type="primary" link @click="handleCloneToSamePlatform">
               <el-icon><Connection /></el-icon> 一键克隆同步到同平台其他账号
             </el-button>
             <div class="btn-group">
@@ -207,8 +196,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Close, Film, FullScreen, Connection, CopyDocument, DocumentCopy, Timer, EditPen, Setting } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Close, Film, FullScreen, Connection, CopyDocument, DocumentCopy, Timer } from '@element-plus/icons-vue'
 import { getPlatformConfig } from '../../config/platforms'
 import type { MatrixCellConfig, BatchRuleConfig } from '../../types/matrix'
 
@@ -222,6 +211,8 @@ import GenericForm from './platforms/GenericForm.vue'
 export interface CellDataWrap {
   mediaId: string
   mediaName: string
+  folderCrumbs?: string[]
+  filePath?: string
   platform: string
   account: string
   nickname?: string
@@ -230,17 +221,30 @@ export interface CellDataWrap {
   inheritedDesc?: string
   inheritedTags?: string
   inheritedSchedule?: string
+  inheritedOverride?: Record<string, any>
 }
 
 const props = defineProps<{
   modelValue: boolean
   cellData: CellDataWrap | null
   ruleConfig?: Partial<BatchRuleConfig>
+  unitLevel?: number
+  selectedAccounts?: Array<{ platform: string; account: string; nickname?: string }>
 }>()
+
+const currentSampleMedia = computed(() => {
+  if (!props.cellData) return undefined
+  return {
+    id: props.cellData.mediaId,
+    fileName: props.cellData.mediaName,
+    folderCrumbs: props.cellData.folderCrumbs || [],
+    filePath: props.cellData.filePath || ''
+  }
+})
 
 const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void
-  (e: 'open-sync'): void
+  (e: 'clone-to-accounts', payload: { mediaId: string; sourceCell: MatrixCellConfig; targetAccounts: any[] }): void
 }>()
 
 const visible = computed({
@@ -302,6 +306,7 @@ watch(
 // 判断是否有实质性的专属定制内容
 const hasActiveCustomization = (cell: MatrixCellConfig): boolean => {
   if (cell.customTitle && cell.customTitle.trim()) return true
+  if (cell.override?.title && cell.override.title.trim()) return true
   if (cell.override?.desc && cell.override.desc.trim()) return true
   if (cell.override?.tags && cell.override.tags.trim()) return true
   if (cell.scheduleMode && cell.scheduleMode !== 'inherit') return true
@@ -309,8 +314,10 @@ const hasActiveCustomization = (cell: MatrixCellConfig): boolean => {
   // 平台专属字段是否被定制
   const ov = cell.override
   if (ov) {
-    if (ov.collection || ov.productTitle || ov.productLink || ov.shortTitle || ov.category || ov.draft) return true
+    if (ov.collection || ov.productTitle || ov.productLink || ov.shortTitle || ov.category || ov.draft || ov.activityName || ov.linkTitle) return true
     if (ov.declaration && ov.declaration !== '1' && ov.declaration !== '') return true
+    if (ov.location && ov.location !== 'auto') return true
+    if (ov.tid && ov.tid !== 0 && ov.tid !== 230) return true
   }
   return false
 }
@@ -324,6 +331,10 @@ const handleDirty = () => {
 const handleSave = () => {
   if (props.cellData?.cell) {
     isSaved = true
+    // 如果平台表单设置了 override.title，同步到 customTitle 保证兼容
+    if (props.cellData.cell.override?.title?.trim()) {
+      props.cellData.cell.customTitle = props.cellData.cell.override.title.trim()
+    }
     const hasCustom = hasActiveCustomization(props.cellData.cell)
     props.cellData.cell.isCustomized = hasCustom
     if (hasCustom) {
@@ -359,30 +370,113 @@ const handleBeforeClose = (done: () => void) => {
   done()
 }
 
-// 一键复制继承原值到覆盖输入框
+// 一键复制继承原值到覆盖输入框（深度将第二步基准配置完整注入）
 const copyInheritedToOverride = () => {
-  if (!props.cellData) return
+  if (!props.cellData?.cell) return
+  const inh = props.cellData.inheritedOverride || {}
+
+  // 深度复制平台基准配置
+  const copiedOverride = JSON.parse(JSON.stringify(inh))
+
+  // 针对标题对齐：
   if (props.cellData.inheritedTitle) {
+    copiedOverride.title = props.cellData.inheritedTitle
     props.cellData.cell.customTitle = props.cellData.inheritedTitle
   }
   if (props.cellData.inheritedDesc) {
-    props.cellData.cell.override.desc = props.cellData.inheritedDesc
+    copiedOverride.desc = props.cellData.inheritedDesc
   }
   if (props.cellData.inheritedTags) {
-    props.cellData.cell.override.tags = props.cellData.inheritedTags
+    copiedOverride.tags = props.cellData.inheritedTags
   }
-  handleDirty()
-  ElMessage.success('已将全局继承原值复制到个性化微调输入框')
+
+  props.cellData.cell.override = copiedOverride
+  props.cellData.cell.isCustomized = true
+  ElMessage.success('已将该平台的基准配置完整带入微调表单，您可直接微调')
 }
 
-// 恢复继承全局
+// 恢复继承全局基准
 const resetToInherit = () => {
-  if (!props.cellData) return
+  if (!props.cellData?.cell) return
   props.cellData.cell.customTitle = ''
-  props.cellData.cell.override.desc = ''
-  props.cellData.cell.override.tags = ''
+  props.cellData.cell.override = {
+    isCustomized: false,
+    title: '',
+    desc: '',
+    tags: '',
+    thumbnail: '',
+    thumbnailLandscape: '',
+    thumbnailPortrait: '',
+    tid: props.cellData.platform === 'bilibili' ? 230 : 0,
+    shortTitle: '',
+    category: '',
+    draft: false,
+    schedule: '',
+    declaration: '',
+    collection: '',
+    productLink: '',
+    productTitle: '',
+    visibility: props.cellData.platform === 'douyin' ? '0' : 'public',
+    playlist: '',
+    bgm: '',
+    note: '',
+    notef: '',
+    location: 'auto',
+    linkType: 'none',
+    linkUrl: '',
+    linkTitle: '',
+    activityName: ''
+  }
   props.cellData.cell.isCustomized = false
-  ElMessage.info('已清除专属文案，恢复为实时继承全局')
+  ElMessage.info('已恢复为实时继承全局基准')
+}
+
+// 查找同平台其他账号
+const samePlatformAccounts = computed(() => {
+  if (!props.cellData || !props.selectedAccounts) return []
+  return props.selectedAccounts.filter(
+    acc => acc.platform === props.cellData!.platform && acc.account !== props.cellData!.account
+  )
+})
+
+// 一键克隆同步到同平台其他账号
+const handleCloneToSamePlatform = async () => {
+  if (!props.cellData?.cell) return
+  const targets = samePlatformAccounts.value
+  const platName = getPlatformName(props.cellData.platform)
+
+  if (targets.length === 0) {
+    ElMessage.info(`步骤②中未选择其他【${platName}】账号，无需克隆`)
+    return
+  }
+
+  const targetNames = targets.map(t => `@${t.nickname || t.account}`).join('、')
+
+  try {
+    await ElMessageBox.confirm(
+      `确定将当前账号（@${props.cellData.nickname || props.cellData.account}）的微调内容一键克隆给同平台其他 ${targets.length} 个账号吗？\n\n目标账号：${targetNames}\n\n（将同步标题、描述、话题标签及所有平台配置）`,
+      `克隆微调配置 · ${platName}`,
+      {
+        confirmButtonText: '确定克隆覆盖',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    // 确保当前内容同步为定制状态
+    if (props.cellData.cell.override?.title?.trim()) {
+      props.cellData.cell.customTitle = props.cellData.cell.override.title.trim()
+    }
+    props.cellData.cell.isCustomized = true
+
+    emit('clone-to-accounts', {
+      mediaId: props.cellData.mediaId,
+      sourceCell: JSON.parse(JSON.stringify(props.cellData.cell)),
+      targetAccounts: targets
+    })
+  } catch (e) {
+    // 取消
+  }
 }
 
 const getPlatformName = (platId?: string): string => {
@@ -748,5 +842,21 @@ const getPlatformColor = (platId?: string): string => {
   border: none;
   font-weight: 600;
   padding: 8px 20px;
+}
+
+.plat-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-block;
+}
+
+.channel-disabled-empty {
+  padding: 40px 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 </style>

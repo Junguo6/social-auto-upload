@@ -19,8 +19,11 @@
     />
 
     <VariableChips
+      v-if="!hideVariables"
       :current-value="modelValue"
       :rule-config="ruleConfig"
+      :sample-media="sampleMedia"
+      :unit-level="unitLevel"
       @insert="insertVar"
     />
   </div>
@@ -28,7 +31,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { BatchRuleConfig } from '../../../types/matrix'
+import type { BatchRuleConfig, MediaItem } from '../../../types/matrix'
 import VariableChips from '../VariableChips.vue'
 
 const props = withDefaults(defineProps<{
@@ -40,12 +43,16 @@ const props = withDefaults(defineProps<{
   required?: boolean
   hint?: string
   ruleConfig?: BatchRuleConfig
+  sampleMedia?: Partial<MediaItem>
+  unitLevel?: number
+  hideVariables?: boolean
 }>(), {
   label: '作品简介 / 描述文案',
   placeholder: '请输入正文、剧情简介或引流文案，支持插入变量...',
   rows: 3,
   maxlength: 1000,
-  required: false
+  required: false,
+  hideVariables: false
 })
 
 const emit = defineEmits<{

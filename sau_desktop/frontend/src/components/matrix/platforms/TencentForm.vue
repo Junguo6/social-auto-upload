@@ -16,8 +16,11 @@
           />
           <div class="desc-action-bar">
             <VariableChips
+              v-if="!hideVariables"
               :current-value="override.desc"
               :rule-config="ruleConfig"
+              :sample-media="sampleMedia"
+              :unit-level="unitLevel"
               @insert="insertVarToDesc"
             />
             <div class="tag-insert-group">
@@ -25,7 +28,7 @@
                 #话题
               </button>
               <button
-                v-if="ruleConfig"
+                v-if="ruleConfig && !hideVariables"
                 type="button"
                 class="wechat-tag-pill ep-rule-pill"
                 @click="showEpisodeRule = !showEpisodeRule"
@@ -85,8 +88,11 @@
           class="wechat-input"
         />
         <VariableChips
+          v-if="!hideVariables"
           :current-value="override.shortTitle"
           :rule-config="ruleConfig"
+          :sample-media="sampleMedia"
+          :unit-level="unitLevel"
           @insert="insertVarToShortTitle"
         />
       </div>
@@ -118,8 +124,11 @@
           class="wechat-input"
         />
         <VariableChips
+          v-if="!hideVariables"
           :current-value="override.collection"
           :rule-config="ruleConfig"
+          :sample-media="sampleMedia"
+          :unit-level="unitLevel"
           @insert="insertVarToCollection"
         />
       </div>
@@ -165,9 +174,11 @@
               </el-button>
             </div>
             <VariableChips
-              v-if="override.linkTitle"
+              v-if="!hideVariables && override.linkTitle"
               :current-value="override.linkTitle"
               :rule-config="ruleConfig"
+              :sample-media="sampleMedia"
+              :unit-level="unitLevel"
               @insert="insertVarToLinkTitleDirect"
             />
           </div>
@@ -199,8 +210,11 @@
               class="wechat-input"
             />
             <VariableChips
+              v-if="!hideVariables"
               :current-value="override.activityName"
               :rule-config="ruleConfig"
+              :sample-media="sampleMedia"
+              :unit-level="unitLevel"
               @insert="insertVarToActivity"
             />
           </div>
@@ -275,8 +289,11 @@
           @keyup.enter="confirmLinkSelect"
         />
         <VariableChips
+          v-if="!hideVariables"
           :current-value="tempDialogKeyword"
           :rule-config="ruleConfig"
+          :sample-media="sampleMedia"
+          :unit-level="unitLevel"
           @insert="insertVarToLinkKeyword"
         />
       </div>
@@ -294,17 +311,20 @@
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { SelectLocalFile } from '../../../../wailsjs/go/main/App'
-import type { PlatformOverrideSetting, BatchRuleConfig } from '../../../types/matrix'
+import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../../types/matrix'
 import VariableChips from '../VariableChips.vue'
 
 const props = defineProps<{
   override: PlatformOverrideSetting
   ruleConfig?: BatchRuleConfig
+  sampleMedia?: Partial<MediaItem>
+  unitLevel?: number
+  hideVariables?: boolean
 }>()
 
 const defaultRuleConfig: BatchRuleConfig = {
   titleTemplate: '{视频名}',
-  episodeMode: 'auto',
+  episodeMode: 'sequence',
   startEpisode: 1,
   episodeStep: 1,
   padZero: false,

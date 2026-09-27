@@ -1308,6 +1308,11 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                 "--no-sandbox",
                 "--no-first-run",
                 "--no-default-browser-check",
+                "--disable-background-networking",
+                "--disable-component-update",
+                "--disable-default-apps",
+                "--no-pings",
+                "--disable-popup-blocking=false",
             ]
             if not headless:
                 launch_args.append("--window-size=1280,820")
@@ -1382,6 +1387,137 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
             except Exception:
                 pass
 
+            # 注入全方位全局弹窗拦截与静默保护脚本（杜绝网页后台探针/SDK在无真实用户手势下通过 window.open 或 <a> 频繁弹窗跳闪）
+            popup_shield_script = """
+            (() => {
+                try {
+                    // 1. 全局真实物理手势追踪
+                    let _lastUserActionTime = 0;
+                    const _markAction = (e) => {
+                        if (e && e.isTrusted) {
+                            _lastUserActionTime = Date.now();
+                            window.__sau_last_user_action = _lastUserActionTime;
+                        }
+                    };
+                    ['pointerdown', 'mousedown', 'keydown', 'touchstart'].forEach(evt => {
+                        window.addEventListener(evt, _markAction, { capture: true, passive: true });
+                        document.addEventListener(evt, _markAction, { capture: true, passive: true });
+                    });
+
+                    const _isUserGesture = () => {
+                        const recent = (Date.now() - _lastUserActionTime) < 1500;
+                        const active = Boolean(navigator.userActivation && navigator.userActivation.isActive);
+                        return recent || active;
+                    };
+
+                    const _createDummyWin = (url) => ({
+                        closed: false,
+                        close: function() { this.closed = true; },
+                        focus: function() {},
+                        blur: function() {},
+                        postMessage: function() {},
+                        location: { href: String(url || '') },
+                        document: { write: function() {}, close: function() {} }
+                    });
+
+                    // 2. 深度代理 window.open 与 Window.prototype.open
+                    const _origOpen = window.open;
+                    const _shieldedOpen = function(url, target, features) {
+                        if (!_isUserGesture()) {
+                            return _createDummyWin(url);
+                        }
+                        return _origOpen.apply(this, arguments);
+                    };
+
+                    window.open = _shieldedOpen;
+                    try {
+                        if (window.Window && window.Window.prototype) {
+                            window.Window.prototype.open = _shieldedOpen;
+                        }
+                    } catch(e) {}
+
+                    // 3. 拦截子 iframe 动态创建与 open 逃逸
+                    const _origCreateEl = document.createElement;
+                    document.createElement = function(tagName, options) {
+                        const el = _origCreateEl.apply(this, arguments);
+                        if (el && String(tagName).toLowerCase() === 'iframe') {
+                            try {
+                                el.addEventListener('load', () => {
+                                    try {
+                                        if (el.contentWindow) {
+                                            el.contentWindow.open = _shieldedOpen;
+                                        }
+                                    } catch(ex) {}
+                                });
+                            } catch(e) {}
+                        }
+                        return el;
+                    };
+
+                    // 4. 拦截非物理点击合成的 target="_blank" 动态链接触发 (含 a.click() 原型拦截与 click 事件捕获)
+                    try {
+                        const _origElemClick = HTMLElement.prototype.click;
+                        HTMLElement.prototype.click = function() {
+                            if (this.tagName === 'A' && (this.target === '_blank' || this.getAttribute('target') === '_blank')) {
+                                if (!_isUserGesture()) {
+                                    return;
+                                }
+                            }
+                            return _origElemClick.apply(this, arguments);
+                        };
+                    } catch(e) {}
+
+                    document.addEventListener('click', (e) => {
+                        if (!e.isTrusted) {
+                            const a = e.target && e.target.closest ? e.target.closest('a') : null;
+                            if (a && (a.target === '_blank' || a.getAttribute('target') === '_blank')) {
+                                e.preventDefault();
+                                e.stopImmediatePropagation();
+                            }
+                        }
+                    }, true);
+                } catch(e) {}
+            })();
+            """
+            try:
+                await context.add_init_script(popup_shield_script)
+            except Exception:
+                pass
+
+            # 挂载多页面静默探针毫秒级收敛保护，杜绝操作系统原生窗口跳闪
+            def _setup_page_protection(new_page):
+                async def _kill_unauthorized_probe():
+                    try:
+                        # 检查主页面在最近 1.5 秒内是否有真实用户物理点击
+                        is_user_click = False
+                        if page and not page.is_closed():
+                            try:
+                                is_user_click = await page.evaluate(
+                                    "Boolean(window.__sau_last_user_action && (Date.now() - window.__sau_last_user_action < 1500))"
+                                )
+                            except Exception:
+                                pass
+
+                        u = (new_page.url or "").strip()
+                        is_probe_url = (
+                            not u
+                            or u in ["about:blank", "about:blank#"]
+                            or "x-storage" in u
+                            or "nocaptcha" in u
+                            or "verifycenter" in u
+                        )
+
+                        # 如果没有真实用户点击凭据，或者属于平台后台探针，立即关闭，杜绝 OS 窗口闪现
+                        if not is_user_click or is_probe_url:
+                            if not new_page.is_closed() and len(context.pages) > 1:
+                                await new_page.close()
+                    except Exception:
+                        pass
+
+                asyncio.create_task(_kill_unauthorized_probe())
+
+            context.on("page", _setup_page_protection)
+
             page = await context.new_page()
             log_tag = "[APP_INFO] Native browser window launched" if not headless else "[CDP_INFO] Opening creator studio URL"
             sys.stdout.write(f"{log_tag} for {platform}: {creator_url}\n")
@@ -1395,21 +1531,24 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
             login_notified = False
             try:
                 while True:
-                    # 检查页面是否已被用户手动关闭
-                    if page.is_closed():
-                        sys.stdout.write("[APP_INFO] Browser page was closed by user.\n")
+                    # 检查所有活跃页面，只要用户还在使用至少一个页面，就不中断会话
+                    active_pages = [p for p in context.pages if not p.is_closed()]
+                    if not active_pages:
+                        sys.stdout.write("[APP_INFO] All browser pages were closed by user.\n")
                         sys.stdout.flush()
                         break
 
+                    current_page = page if (page and not page.is_closed()) else active_pages[0]
+
                     if not login_notified:
-                        is_logged_in = await adapter.is_logged_in(page, context)
+                        is_logged_in = await adapter.is_logged_in(current_page, context)
                         if is_logged_in:
                             extracted_nickname = ""
                             extracted_uid = ""
                             extracted_avatar = ""
                             try:
                                 cur_cookies = await context.cookies()
-                                p_res = await adapter.extract_profile(page, context, cur_cookies)
+                                p_res = await adapter.extract_profile(current_page, context, cur_cookies)
                                 if len(p_res) >= 3:
                                     extracted_nickname, extracted_uid, extracted_avatar = p_res[0], p_res[1], p_res[2]
                                 elif len(p_res) == 2:
@@ -1418,14 +1557,14 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                                 pass
 
                             # 若首次判定登录时页面仍在跳转导致昵称尚未挂载，进行极速二次轮询重试
-                            if not extracted_nickname and not page.is_closed():
+                            if not extracted_nickname and not current_page.is_closed():
                                 for _ in range(3):
                                     await asyncio.sleep(0.8)
-                                    if page.is_closed():
+                                    if current_page.is_closed():
                                         break
                                     try:
                                         cur_cookies = await context.cookies()
-                                        p_res = await adapter.extract_profile(page, context, cur_cookies)
+                                        p_res = await adapter.extract_profile(current_page, context, cur_cookies)
                                         if len(p_res) >= 1 and p_res[0]:
                                             extracted_nickname = p_res[0]
                                         if len(p_res) >= 2 and p_res[1] and not extracted_uid:
@@ -1469,20 +1608,16 @@ async def run_interactive_browser_session(platform: str, account_name: str, head
                             login_notified = True
 
                     await asyncio.sleep(1)
-                    # 每 30 秒自动快照存盘
-                    if int(asyncio.get_event_loop().time()) % 30 == 0:
+                    # 运行时静默同步 Cookie（仅通过 Chromium 网络栈底层读取 cookies，杜绝遍历跨域 iframe 导致视窗每 30 秒跳闪）
+                    if int(asyncio.get_event_loop().time()) % 60 == 0:
                         try:
-                            await context.storage_state(path=str(account_file))
-                            if login_notified and "meta_dict" in locals():
-                                from utils.account_meta import inject_account_meta_and_rename
-                                inject_account_meta_and_rename(
-                                    platform=platform,
-                                    account_file=account_file,
-                                    nickname=meta_dict.get("nickname", ""),
-                                    finder_uid=meta_dict.get("finder_uid", ""),
-                                    avatar=meta_dict.get("avatar", ""),
-                                    current_account_name=account_name,
-                                )
+                            if login_notified and account_file.exists():
+                                cur_cookies = await context.cookies()
+                                with open(account_file, "r", encoding="utf-8") as f:
+                                    s_data = json.load(f)
+                                s_data["cookies"] = cur_cookies
+                                with open(account_file, "w", encoding="utf-8") as f:
+                                    json.dump(s_data, f, ensure_ascii=False, indent=2)
                         except Exception:
                             pass
             except (asyncio.CancelledError, KeyboardInterrupt):

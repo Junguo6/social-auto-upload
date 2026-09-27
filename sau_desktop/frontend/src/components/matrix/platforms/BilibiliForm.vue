@@ -40,6 +40,9 @@
       :maxlength="80"
       :required="true"
       :rule-config="ruleConfig"
+      :sample-media="sampleMedia"
+      :unit-level="unitLevel"
+      :hide-variables="hideVariables"
     />
 
     <!-- 3. B站标签 (官方紧随标题之后) -->
@@ -57,13 +60,16 @@
       placeholder="填写更全面的视频介绍、演职员表或互动引导，让更多观众发现你的作品..."
       :rows="3"
       :maxlength="1000"
+      :sample-media="sampleMedia"
+      :unit-level="unitLevel"
+      :hide-variables="hideVariables"
     />
   </div>
 </template>
 
 <script setup lang="ts">
 import { BILIBILI_PARTITIONS } from '../../../config/platforms'
-import type { PlatformOverrideSetting, BatchRuleConfig } from '../../../types/matrix'
+import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../../types/matrix'
 import TitleInput from '../controls/TitleInput.vue'
 import DescInput from '../controls/DescInput.vue'
 import TagsInput from '../controls/TagsInput.vue'
@@ -71,6 +77,9 @@ import TagsInput from '../controls/TagsInput.vue'
 defineProps<{
   override: PlatformOverrideSetting
   ruleConfig?: BatchRuleConfig
+  sampleMedia?: Partial<MediaItem>
+  unitLevel?: number
+  hideVariables?: boolean
 }>()
 </script>
 

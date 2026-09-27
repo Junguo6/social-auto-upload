@@ -220,6 +220,7 @@ export function useMatrixPublish() {
     concurrency: number
     isHeadless: boolean
     batchName?: string
+    unitLevel?: number
   }) => {
     // 兜底检查：调用方（PublishCenter）已做过一次「扣次 + 放行」的鉴权，
     // 这里只在「连试用机会都没有」时才拦，且只引导不扣次，
@@ -271,12 +272,14 @@ export function useMatrixPublish() {
 
         // 1. 计算该单元格最终标题 (单元格定制 -> 平台配置 -> 兜底默认)
         let finalTitle = ''
-        if (cell?.customTitle?.trim()) {
-          finalTitle = cell.customTitle.trim()
+        if (cell?.override?.title?.trim()) {
+          finalTitle = resolveMediaTitle(cell.override.title.trim(), media, mIdx, ruleConfig, params.unitLevel)
+        } else if (cell?.customTitle?.trim()) {
+          finalTitle = resolveMediaTitle(cell.customTitle.trim(), media, mIdx, ruleConfig, params.unitLevel)
         } else if (platOv?.title?.trim()) {
-          finalTitle = resolveMediaTitle(platOv.title, media, mIdx, ruleConfig)
+          finalTitle = resolveMediaTitle(platOv.title, media, mIdx, ruleConfig, params.unitLevel)
         } else {
-          finalTitle = resolveMediaTitle(masterForm?.title || '{视频名}', media, mIdx, ruleConfig)
+          finalTitle = resolveMediaTitle(masterForm?.title || '{视频名}', media, mIdx, ruleConfig, params.unitLevel)
         }
 
         // 2. 计算描述与标签 (单元格定制 -> 平台配置 -> 兜底默认)
@@ -288,7 +291,7 @@ export function useMatrixPublish() {
         } else {
           finalDesc = masterForm?.desc || ''
         }
-        finalDesc = resolveMediaTitle(finalDesc, media, mIdx, ruleConfig)
+        finalDesc = resolveMediaTitle(finalDesc, media, mIdx, ruleConfig, params.unitLevel)
 
         let finalTags = ''
         if (cell?.override?.tags !== undefined && cell.override.tags !== '') {
@@ -336,37 +339,37 @@ export function useMatrixPublish() {
 
         let finalShortTitle = activeExclusive ? activeExclusive.shortTitle : (ov.shortTitle || '')
         if (finalShortTitle) {
-          finalShortTitle = resolveTemplateString(finalShortTitle, media, mIdx, ruleConfig)
+          finalShortTitle = resolveTemplateString(finalShortTitle, media, mIdx, ruleConfig, params.unitLevel)
         }
 
         let finalCollection = activeExclusive ? activeExclusive.collection : (ov.collection || '')
         if (finalCollection) {
-          finalCollection = resolveTemplateString(finalCollection, media, mIdx, ruleConfig)
+          finalCollection = resolveTemplateString(finalCollection, media, mIdx, ruleConfig, params.unitLevel)
         }
 
         let finalProductTitle = activeExclusive ? activeExclusive.productTitle : (ov.productTitle || '')
         if (finalProductTitle) {
-          finalProductTitle = resolveTemplateString(finalProductTitle, media, mIdx, ruleConfig)
+          finalProductTitle = resolveTemplateString(finalProductTitle, media, mIdx, ruleConfig, params.unitLevel)
         }
 
         let finalPlaylist = activeExclusive ? activeExclusive.playlist : (ov.playlist || '')
         if (finalPlaylist) {
-          finalPlaylist = resolveTemplateString(finalPlaylist, media, mIdx, ruleConfig)
+          finalPlaylist = resolveTemplateString(finalPlaylist, media, mIdx, ruleConfig, params.unitLevel)
         }
 
         let finalNote = activeExclusive ? activeExclusive.note : (ov.note || '')
         if (finalNote) {
-          finalNote = resolveTemplateString(finalNote, media, mIdx, ruleConfig)
+          finalNote = resolveTemplateString(finalNote, media, mIdx, ruleConfig, params.unitLevel)
         }
 
         let finalLinkTitle = activeExclusive ? activeExclusive.linkTitle : (ov.linkTitle || '')
         if (finalLinkTitle) {
-          finalLinkTitle = resolveTemplateString(finalLinkTitle, media, mIdx, ruleConfig)
+          finalLinkTitle = resolveTemplateString(finalLinkTitle, media, mIdx, ruleConfig, params.unitLevel)
         }
 
         let finalActivityName = activeExclusive ? activeExclusive.activityName : (ov.activityName || '')
         if (finalActivityName) {
-          finalActivityName = resolveTemplateString(finalActivityName, media, mIdx, ruleConfig)
+          finalActivityName = resolveTemplateString(finalActivityName, media, mIdx, ruleConfig, params.unitLevel)
         }
 
         const task = engine.AccountPublishTask.createFrom({

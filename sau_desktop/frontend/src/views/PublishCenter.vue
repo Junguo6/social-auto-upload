@@ -59,6 +59,8 @@
           v-model:rule-config="ruleConfig"
           :selected-accounts="activeAccounts"
           :media-count="activeMediaList.length"
+          :media-list="activeMediaList"
+          :unit-level="unitLevel"
           @switch-to-account="activeTab = 'account'"
         />
       </div>
@@ -163,6 +165,7 @@
           :master-form="masterForm"
           :rule-config="ruleConfig"
           :platform-overrides="platformOverrides"
+          :unit-level="unitLevel"
           @update:matrix-map="onMatrixMapUpdate"
         />
       </div>
@@ -403,7 +406,7 @@ const { loadTemplatesFromStorage } = useMatrixPresets(masterForm, {}, {})
 // 批量排期与变量规则配置
 const ruleConfig = reactive<BatchRuleConfig>({
   titleTemplate: '{视频名}',
-  episodeMode: 'auto',
+  episodeMode: 'sequence',
   startEpisode: 1,
   episodeStep: 1,
   padZero: false,
@@ -613,7 +616,8 @@ const handleStartPublish = async () => {
       platformOverrides,
       concurrency: concurrency.value,
       isHeadless: isHeadless.value,
-      batchName: batchName.value
+      batchName: batchName.value,
+      unitLevel: unitLevel.value
     })
 
     if (batchId) {

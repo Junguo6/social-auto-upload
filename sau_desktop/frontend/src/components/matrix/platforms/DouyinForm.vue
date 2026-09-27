@@ -8,6 +8,9 @@
       :maxlength="80"
       :required="true"
       :rule-config="ruleConfig"
+      :sample-media="sampleMedia"
+      :unit-level="unitLevel"
+      :hide-variables="hideVariables"
     />
 
     <!-- 2. 作品描述 -->
@@ -17,6 +20,9 @@
       placeholder="添加作品描述，支持详细剧情或引导文案..."
       :rows="3"
       :maxlength="1000"
+      :sample-media="sampleMedia"
+      :unit-level="unitLevel"
+      :hide-variables="hideVariables"
     />
 
     <!-- 3. 添加话题标签 -->
@@ -34,6 +40,14 @@
           v-model="override.collection"
           placeholder="选填：合集名称"
           clearable
+        />
+        <VariableChips
+          v-if="!hideVariables"
+          :current-value="override.collection"
+          :rule-config="ruleConfig"
+          :sample-media="sampleMedia"
+          :unit-level="unitLevel"
+          @insert="(v) => override.collection = (override.collection || '') + v"
         />
       </el-form-item>
 
@@ -57,14 +71,18 @@
 </template>
 
 <script setup lang="ts">
-import type { PlatformOverrideSetting, BatchRuleConfig } from '../../../types/matrix'
+import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../../types/matrix'
 import TitleInput from '../controls/TitleInput.vue'
 import DescInput from '../controls/DescInput.vue'
 import TagsInput from '../controls/TagsInput.vue'
+import VariableChips from '../VariableChips.vue'
 
 defineProps<{
   override: PlatformOverrideSetting
   ruleConfig?: BatchRuleConfig
+  sampleMedia?: Partial<MediaItem>
+  unitLevel?: number
+  hideVariables?: boolean
 }>()
 </script>
 
