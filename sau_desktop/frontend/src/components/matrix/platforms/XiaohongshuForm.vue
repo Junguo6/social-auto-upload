@@ -50,19 +50,14 @@
           <span class="field-hint">选填 · 相同专栏的笔记将归集展示</span>
         </div>
         <div class="field-input-box">
-          <el-input
+          <TokenTemplateInput
             v-model="override.collection"
-            placeholder="选填：专栏或合集名称"
-            clearable
-          />
-          <VariableChips
-            v-if="!hideVariables"
-            compact
-            :current-value="override.collection"
-            :rule-config="ruleConfig"
+            type="input"
+            placeholder="选填：专栏或合集名称，支持插入动态变量或TXT文案..."
             :sample-media="sampleMedia"
             :unit-level="unitLevel"
-            @insert="(v) => override.collection = (override.collection || '') + v"
+            :rule-config="ruleConfig"
+            :hide-tools="hideVariables"
           />
         </div>
       </div>
@@ -85,7 +80,7 @@ import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../
 import TitleInput from '../controls/TitleInput.vue'
 import DescInput from '../controls/DescInput.vue'
 import TagsInput from '../controls/TagsInput.vue'
-import VariableChips from '../VariableChips.vue'
+import TokenTemplateInput from '../controls/TokenTemplateInput.vue'
 
 defineProps<{
   override: PlatformOverrideSetting

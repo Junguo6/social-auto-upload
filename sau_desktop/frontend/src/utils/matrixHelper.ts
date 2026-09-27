@@ -333,6 +333,40 @@ export function parseFolderHierarchy(
   return { nodes, sampleFileName }
 }
 
+// ── 自定义变量别名映射池 (例如：{剧集目录} -> {第1层目录}) ──
+const customVarMap = new Map<string, string>()
+
+/** 注册自定义变量映射 */
+export function registerCustomVariable(name: string, targetKey: string): void {
+  const cleanName = name.replace(/^\{+/, '').replace(/\}+$/, '').trim()
+  if (!cleanName || !targetKey) return
+  customVarMap.set(cleanName, targetKey)
+  try {
+    const raw = localStorage.getItem('sau_matrix_custom_vars')
+    const map = raw ? JSON.parse(raw) : {}
+    map[cleanName] = targetKey
+    localStorage.setItem('sau_matrix_custom_vars', JSON.stringify(map))
+  } catch (e) {}
+}
+
+/** 获取所有已注册的自定义变量映射 */
+export function getCustomVariableMappings(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem('sau_matrix_custom_vars')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      Object.entries(parsed).forEach(([k, v]) => {
+        if (typeof v === 'string') customVarMap.set(k, v)
+      })
+    }
+  } catch (e) {}
+  const res: Record<string, string> = {}
+  customVarMap.forEach((v, k) => {
+    res[k] = v
+  })
+  return res
+}
+
 // ── TXT 文本文档源管理池 (支持多视频轮询/随机取文案) ──
 const txtSourceRegistry = new Map<string, string[]>()
 
@@ -459,6 +493,17 @@ export function resolveTemplateString(
   const orderNumStr = String(mediaIndex + 1)
 
   let result = template
+
+  // 先展开用户自定义变量别名 (如：将 {剧集目录} 替换为绑定的目标变量类型 {第1层目录})
+  const customMappings = getCustomVariableMappings()
+  Object.entries(customMappings).forEach(([alias, targetVar]) => {
+    if (alias && targetVar && alias !== targetVar && `{${alias}}` !== targetVar) {
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      result = result.replace(new RegExp(`\\{${escaped}\\}`, 'g'), targetVar)
+    }
+  })
+
+  result = result
     .replace(/\{视频名\}/g, baseName)
     .replace(/\{文件名\}/g, baseName)
     .replace(/\{视频全名\}/g, fileName)
