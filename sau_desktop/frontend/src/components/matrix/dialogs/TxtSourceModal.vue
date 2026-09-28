@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="dialogVisible"
-    title="插入 TXT 文案源"
+    title="插入文案库"
     width="520px"
     destroy-on-close
     append-to-body
@@ -10,11 +10,11 @@
     <div class="modal-body-container">
       <!-- 1. 文案源快速选择与导入行 (单行防御性防挤压) -->
       <div class="source-select-row">
-        <div class="select-label">选择文案:</div>
+        <div class="select-label">文案库：</div>
         <div class="select-box-wrap">
           <el-select
             v-model="currentFileName"
-            placeholder="请选择或导入 TXT 文案源"
+            placeholder="选择或新建一个文案库"
             size="default"
             class="source-dropdown"
           >
@@ -61,6 +61,7 @@
             @click="handleDeleteSource(currentFileName)"
           >
             <el-icon><Delete /></el-icon>
+            <span>移除</span>
           </button>
         </div>
       </div>
@@ -80,7 +81,7 @@
           <div class="paste-compact-header">
             <el-input
               v-model="pasteFileName"
-              placeholder="文案标识 (如: 爆款金句.txt)"
+              placeholder="文案库名称（如：爆款金句）"
               size="small"
               class="paste-name-input"
             />
@@ -131,7 +132,8 @@
       <!-- 3. 内容轻量视窗 (清爽微型预览) -->
       <div class="preview-compact-box custom-scrollbar">
         <div v-if="currentLines.length === 0" class="no-content-tip">
-          暂无内容，请在上方选择或导入 TXT 文件
+          还没有文案库<br>
+          点上方「导入」选择 .txt 文件，或点「粘贴」直接输入几行文案
         </div>
         <template v-else>
           <div
@@ -153,7 +155,7 @@
     <template #footer>
       <div class="dialog-footer-split">
         <div class="token-inline-tag" v-if="currentFileName">
-          <span class="tag-label">将生成:</span>
+          <span class="tag-label">插入后显示为：</span>
           <span class="tag-code">{{ currentGeneratedToken }}</span>
         </div>
         <div class="dialog-footer-actions">
@@ -163,7 +165,7 @@
             :disabled="!currentFileName || currentLines.length === 0"
             @click="confirmInsert"
           >
-            插入文案标签
+            插入
           </el-button>
         </div>
       </div>
@@ -414,13 +416,13 @@ watch(() => props.modelValue, (isOpen) => {
 }
 
 .mini-action-btn.active {
-  background: #ecf5ff;
+  background: rgba(79, 70, 229, .09);
   border-color: var(--el-color-primary);
   color: var(--el-color-primary);
 }
 
 .mini-action-btn.delete-btn {
-  padding: 0 8px;
+  padding: 0 10px;
   color: var(--el-text-color-placeholder);
 }
 
@@ -526,6 +528,7 @@ watch(() => props.modelValue, (isOpen) => {
   padding: 16px 0;
   font-size: 12px;
   color: var(--el-text-color-placeholder);
+  line-height: 1.9;
 }
 
 .preview-compact-line {
@@ -587,7 +590,7 @@ watch(() => props.modelValue, (isOpen) => {
   font-family: monospace;
   font-weight: 600;
   color: var(--el-color-primary);
-  background: rgba(64, 158, 255, 0.1);
+  background: rgba(79, 70, 229, .10);
   padding: 1px 6px;
   border-radius: 4px;
 }

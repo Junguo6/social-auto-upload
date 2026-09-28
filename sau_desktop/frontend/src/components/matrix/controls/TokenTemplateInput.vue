@@ -850,12 +850,12 @@ defineExpose({
 }
 
 .token-template-input-wrapper:hover {
-  border-color: var(--primary-color, #6366f1);
+  border-color: var(--primary-color, #4f46e5);
 }
 
 .token-template-input-wrapper.is-focused {
-  border-color: var(--primary-color, #6366f1);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  border-color: var(--primary-color, #4f46e5);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
 }
 
 /* ── 富标签可编辑区域 ── */
@@ -899,14 +899,14 @@ defineExpose({
 }
 
 :deep(.rich-token-chip.is-var) {
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--primary-color, #6366f1);
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: rgba(79, 70, 229, 0.1);
+  color: var(--primary-color, #4f46e5);
+  border: 1px solid rgba(79, 70, 229, 0.25);
 }
 
 :deep(.rich-token-chip.is-var:hover) {
-  background: rgba(99, 102, 241, 0.18);
-  border-color: var(--primary-color, #6366f1);
+  background: rgba(79, 70, 229, 0.18);
+  border-color: var(--primary-color, #4f46e5);
 }
 
 :deep(.rich-token-chip.is-txt) {
@@ -973,8 +973,8 @@ defineExpose({
 }
 
 .mini-tool-btn:hover {
-  border-color: var(--primary-color, #6366f1);
-  color: var(--primary-color, #6366f1);
+  border-color: var(--primary-color, #4f46e5);
+  color: var(--primary-color, #4f46e5);
 }
 
 .mini-tool-btn.txt-btn:hover {
@@ -985,7 +985,7 @@ defineExpose({
 .btn-symbol {
   font-weight: 700;
   font-size: 13px;
-  color: var(--primary-color, #6366f1);
+  color: var(--primary-color, #4f46e5);
 }
 
 .btn-arrow {
@@ -1015,14 +1015,14 @@ defineExpose({
   flex-shrink: 1;
   overflow: hidden;
   white-space: nowrap;
-  background: rgba(99, 102, 241, 0.05);
+  background: rgba(79, 70, 229, 0.05);
   padding: 1px 6px;
   border-radius: 4px;
 }
 
 .preview-label {
   font-weight: 600;
-  color: var(--primary-color, #6366f1);
+  color: var(--primary-color, #4f46e5);
   flex-shrink: 0;
 }
 
@@ -1063,8 +1063,8 @@ defineExpose({
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--primary-color, #6366f1);
+  background: rgba(79, 70, 229, 0.1);
+  color: var(--primary-color, #4f46e5);
   font-weight: 600;
 }
 
@@ -1127,8 +1127,8 @@ defineExpose({
   font-family: monospace;
   font-size: 13px;
   font-weight: 600;
-  color: var(--primary-color, #6366f1);
-  background: rgba(99, 102, 241, 0.08);
+  color: var(--primary-color, #4f46e5);
+  background: rgba(79, 70, 229, 0.08);
   padding: 6px 10px;
   border-radius: 6px;
   text-align: center;
@@ -1142,8 +1142,8 @@ defineExpose({
 
 .shuffle-tag-btn {
   border: none;
-  background: rgba(99, 102, 241, 0.15);
-  color: var(--primary-color, #6366f1);
+  background: rgba(79, 70, 229, 0.15);
+  color: var(--primary-color, #4f46e5);
   font-size: 10px;
   font-weight: 600;
   border-radius: 3px;
@@ -1158,7 +1158,7 @@ defineExpose({
 }
 
 .shuffle-tag-btn:hover {
-  background: var(--primary-color, #6366f1);
+  background: var(--primary-color, #4f46e5);
   color: #ffffff;
 }
 

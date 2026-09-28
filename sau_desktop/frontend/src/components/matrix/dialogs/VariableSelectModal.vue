@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="dialogVisible"
-    title="插入动态变量"
+    title="插入变量"
     width="480px"
     destroy-on-close
     append-to-body
@@ -13,14 +13,14 @@
         <div class="form-label-row">
           <label class="form-label">
             <el-icon><EditPen /></el-icon>
-            <span>变量名称</span>
+            <span>显示名称</span>
           </label>
-          <span class="form-hint">将以 {变量名} 形式插入至文本中</span>
+          <span class="form-hint">插入后，文本里会显示成「剧集名」这样的标签</span>
         </div>
         <el-input
           ref="varNameInputRef"
           v-model="customVarName"
-          placeholder="输入变量名称，如：剧集目录 或 第1层目录"
+          placeholder="给这个变量起个名字，如：剧集名"
           size="large"
           clearable
           class="variable-input"
@@ -39,8 +39,8 @@
       <!-- 2. 再选择变量类型 (文件夹层级结构) -->
       <div class="form-group">
         <label class="form-label">
-          <el-icon><FolderOpened /></el-icon>
-          <span>选择变量类型（文件夹层级结构）</span>
+          <FolderIcon :size="14" />
+          <span>选择要插入的内容</span>
         </label>
         <el-select
           v-model="selectedVarKey"
@@ -57,8 +57,11 @@
           >
             <div class="opt-row">
               <div class="opt-left">
-                <el-icon class="opt-icon"><Folder /></el-icon>
-                <span class="opt-title">{{ opt.title }}</span>
+                <FolderIcon :size="15" class="opt-icon" />
+                <div class="opt-text">
+                  <span class="opt-title">{{ opt.title }}</span>
+                  <span class="opt-desc" v-if="opt.desc">{{ opt.desc }}</span>
+                </div>
                 <span v-if="opt.badge" class="opt-badge" :class="opt.badgeClass">{{ opt.badge }}</span>
               </div>
               <span class="opt-sample" :title="opt.sample">{{ opt.sample }}</span>
@@ -70,12 +73,12 @@
       <!-- 3. 极简实时计算预览卡片 -->
       <div class="preview-card">
         <div class="preview-item">
-          <span class="preview-label">待插入标签</span>
+          <span class="preview-label">将插入</span>
           <span class="token-code">{{ formattedToken || '—' }}</span>
         </div>
         <div class="preview-divider"></div>
         <div class="preview-item">
-          <span class="preview-label">当前计算值</span>
+          <span class="preview-label">实际显示为</span>
           <span class="preview-value" :title="currentPreviewValue">
             {{ currentPreviewValue || '（空）' }}
           </span>
@@ -97,10 +100,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import {
-  Folder,
-  FolderOpened,
   EditPen
 } from '@element-plus/icons-vue'
+import FolderIcon from '../../common/FolderIcon.vue'
 import {
   parseFolderHierarchy,
   resolveTemplateString,
@@ -150,6 +152,7 @@ const folderOptions = computed(() => {
     value: string
     label: string
     title: string
+    desc?: string
     badge?: string
     badgeClass?: string
     sample: string
@@ -159,18 +162,24 @@ const folderOptions = computed(() => {
   folderHierarchy.value.nodes.forEach(node => {
     let badge = `第${node.level}层`
     let badgeClass = ''
+    let desc = ''
     if (node.isRoot) {
       badge = '根目录'
       badgeClass = 'is-root'
+      desc = '你拖进来的那个总文件夹'
     } else if (node.isDirectParent) {
       badge = '直属目录'
       badgeClass = 'is-parent'
+      desc = node.level === 2 ? '每个账号一个文件夹' : '每部内容一个文件夹'
+    } else {
+      desc = node.level === 3 ? '每部内容一个文件夹' : '其他层级文件夹'
     }
 
     list.push({
       value: node.varKey,
       label: `${node.varKey} (${node.folderName})`,
       title: `第 ${node.level} 层目录`,
+      desc,
       badge,
       badgeClass,
       sample: node.folderName,
@@ -364,8 +373,23 @@ watch(() => props.modelValue, (isOpen) => {
 }
 
 .opt-icon {
-  font-size: 14px;
-  color: #6366f1;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.opt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.opt-desc {
+  font-size: 10.5px;
+  color: #64748b;
+  opacity: .8;
+  line-height: 1.3;
 }
 
 .opt-title {
