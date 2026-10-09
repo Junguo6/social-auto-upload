@@ -82,7 +82,7 @@ type AccountPublishTask struct {
 
 // MatrixPublishParam 矩阵全景差异化发布主请求参数
 type MatrixPublishParam struct {
-	Concurrency int                  `json:"concurrency"` // 最大并发 Goroutine 数 (默认 3)
+	Concurrency int                  `json:"concurrency"` // 最大并发 Goroutine 数 (默认 1)
 	Tasks       []AccountPublishTask `json:"tasks"`       // 各账号差异化发布任务列表
 }
 

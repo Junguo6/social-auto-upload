@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { createDualStorage } from '../utils/storageAdapter'
 
 export interface AppSettings {
-  concurrency: number       // 同时发布窗口数 (并发限制，默认 3)
+  concurrency: number       // 同时发布窗口数 (并发限制，默认 1)
   headless: boolean          // 默认是否无头后台静默
   declaration: string       // 默认 AI 声明
   chromePath: string        // 自定义本地 Chrome 路径
@@ -11,7 +11,7 @@ export interface AppSettings {
 }
 
 const defaultSettings: AppSettings = {
-  concurrency: 3,
+  concurrency: 1,
   headless: false,
   declaration: '',             // 各平台「标注/声明」选项各异，统一默认空 → 不操作；用户自选时由各平台表单填充
   chromePath: '',

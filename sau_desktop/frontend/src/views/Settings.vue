@@ -181,7 +181,7 @@ const checkBrowser = async () => {
 }
 
 const form = reactive({
-  concurrency: 3,
+  concurrency: 1,
   headless: false,
   autoRetryCount: 1,
   chromePath: ''

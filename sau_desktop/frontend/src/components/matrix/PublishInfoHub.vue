@@ -43,13 +43,6 @@
           @sync-to-platforms="handleSyncToPlatforms"
         />
       </div>
-
-      <!-- 批次公共排期控制条 (沉底) -->
-      <ScheduleTimingBar
-        :rule-config="ruleConfig"
-        :media-count="mediaCount"
-        @update:rule-config="$emit('update:ruleConfig', $event)"
-      />
     </div>
   </div>
 </template>
@@ -60,7 +53,6 @@ import { PLATFORMS } from '../../config/platforms'
 import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../types/matrix'
 import PlatformIcon from './PlatformIcon.vue'
 import PlatformFormCard from './PlatformFormCard.vue'
-import ScheduleTimingBar from './ScheduleTimingBar.vue'
 
 const props = withDefaults(defineProps<{
   platformConfigs: Record<string, PlatformOverrideSetting>
@@ -146,6 +138,13 @@ watch(activePlatforms, (list) => {
     }
   } else {
     currentPlatformId.value = ''
+  }
+}, { immediate: true })
+
+/** 排期设置已下线：统一强制立即发布，防止老数据残留 */
+watch(() => props.ruleConfig.scheduleType, (v) => {
+  if (v !== 'immediate') {
+    emit('update:ruleConfig', { ...props.ruleConfig, scheduleType: 'immediate' as const, startScheduleTime: '' })
   }
 }, { immediate: true })
 

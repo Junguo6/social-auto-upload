@@ -194,7 +194,7 @@ func (s *PublishScheduler) execSingleTask(ctx context.Context, task AccountPubli
 // ExecMatrixPublish 执行全景矩阵差异化发布任务 (Goroutine 信号量池并发调度 + 全局准入与两级锁)
 func (s *PublishScheduler) ExecMatrixPublish(param MatrixPublishParam, onEvent func(EngineEvent)) []AccountPublishResult {
 	if param.Concurrency <= 0 {
-		param.Concurrency = 3
+		param.Concurrency = 1
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

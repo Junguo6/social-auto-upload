@@ -147,63 +147,6 @@
             <span class="tag-chip" @click="appendTag('日常剪辑')">#日常剪辑</span>
           </div>
         </div>
-
-        <!-- 发布时机与防限流节奏 -->
-        <div class="form-item">
-          <div class="item-label-row">
-            <label class="item-label">
-              <el-icon><Timer /></el-icon>
-              <span>发布节奏与时机</span>
-            </label>
-          </div>
-          <div class="schedule-selector-box">
-            <el-radio-group v-model="ruleConfig.scheduleType" class="schedule-radios">
-              <el-radio-button value="immediate">立即发布</el-radio-button>
-              <el-radio-button value="interval">递增防限流</el-radio-button>
-              <el-radio-button value="custom">固定定时</el-radio-button>
-            </el-radio-group>
-
-            <!-- 递增防限流选项 -->
-            <div v-if="ruleConfig.scheduleType === 'interval'" class="interval-config-box">
-              <div class="sub-field">
-                <span class="sub-label">首发时间:</span>
-                <el-date-picker
-                  v-model="ruleConfig.startScheduleTime"
-                  type="datetime"
-                  placeholder="首条发布时间"
-                  value-format="YYYY-MM-DD HH:mm"
-                  format="MM-DD HH:mm"
-                  size="small"
-                  class="date-picker-sm"
-                />
-              </div>
-              <div class="sub-field">
-                <span class="sub-label">每条间隔:</span>
-                <el-input-number
-                  v-model="ruleConfig.intervalMinutes"
-                  :min="5"
-                  :max="1440"
-                  :step="15"
-                  size="small"
-                  class="step-num-sm"
-                />
-                <span class="unit">分钟</span>
-              </div>
-            </div>
-
-            <!-- 固定定时选项 -->
-            <div v-else-if="ruleConfig.scheduleType === 'custom'" class="custom-schedule-box">
-              <el-date-picker
-                v-model="masterForm.schedule"
-                type="datetime"
-                placeholder="选择统一定时发布时间"
-                value-format="YYYY-MM-DD HH:mm"
-                size="small"
-                style="width: 100%;"
-              />
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -444,56 +387,6 @@ const appendTag = (t: string) => {
 .tag-chip:hover {
   border-color: var(--primary-color);
   color: var(--primary-color);
-}
-
-/* 排期选择 */
-.schedule-selector-box {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.schedule-radios {
-  width: 100%;
-}
-
-.interval-config-box {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 10px;
-  background: var(--bg-detail);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  flex-wrap: wrap;
-}
-
-.sub-field {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.sub-label {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.date-picker-sm {
-  max-width: 150px;
-}
-
-.step-num-sm {
-  width: 90px;
-}
-
-.unit {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.custom-schedule-box {
-  margin-top: 2px;
 }
 
 /* 集数变量规则配置面板 */

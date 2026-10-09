@@ -104,24 +104,6 @@
       </div>
 
       <div class="dock-controls">
-        <el-popover placement="top" :width="250" trigger="click">
-          <template #reference>
-            <el-button size="small" class="glass-btn">
-              高级设置 · 同时发布 {{ concurrency }} · {{ isHeadless ? '后台静默运行' : '显示浏览器' }}
-            </el-button>
-          </template>
-          <div class="adv-row">
-            <span class="adv-label">同时发布数</span>
-            <el-input-number v-model="concurrency" :min="1" :max="8" size="small" />
-          </div>
-          <div class="adv-row">
-            <span class="adv-label">后台静默运行</span>
-            <el-tooltip content="在后台静默运行，不弹出浏览器窗口（推荐）" placement="top">
-              <el-switch v-model="isHeadless" />
-            </el-tooltip>
-          </div>
-        </el-popover>
-
         <el-tooltip content="按当前对应关系生成发布计划，创建后前往计划管理中心执行" placement="top">
           <el-button
             type="primary"
@@ -433,7 +415,7 @@ function onMatrixMapUpdate(map: Record<string, Record<string, MatrixCellConfig>>
 }
 
 // 底部调度控制
-const concurrency = ref(settingsStore.settings.concurrency || 3)
+const concurrency = ref(settingsStore.settings.concurrency || 1)
 const isHeadless = ref(settingsStore.settings.headless)
 
 watch(isHeadless, (v) => settingsStore.updateSettings({ headless: v }))
@@ -867,18 +849,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.adv-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 0;
-}
-
-.adv-label {
-  font-size: 12.5px;
-  color: var(--text-secondary);
 }
 
 .publish-submit-btn {

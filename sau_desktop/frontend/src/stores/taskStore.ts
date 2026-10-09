@@ -99,9 +99,9 @@ export const useTaskStore = defineStore('task', () => {
   // 当前选中的批次过滤器 ('all' | batchId)
   const selectedBatchFilter = ref<string>('all')
 
-  // 全局硬件/系统设置最大并发通道数限制 (来自系统设置，默认 3，最大 5)
+  // 全局硬件/系统设置最大并发通道数限制 (来自系统设置，默认 1，最大 5)
   const maxConcurrency = computed(() => {
-    return Math.min(5, Math.max(1, settingsStore.settings.concurrency || 3))
+    return Math.min(5, Math.max(1, settingsStore.settings.concurrency || 1))
   })
 
   // 是否允许继续新增发布通道
@@ -1008,7 +1008,7 @@ export const useTaskStore = defineStore('task', () => {
       videoFileName: batch.videoFileName,
       thumbnail: failedTasks[0]?.thumbnail,
       rawTasks,
-      concurrency: batch.concurrency || 3
+      concurrency: batch.concurrency || 1
     })
 
     ElMessage.success(`已重新装载 ${failedTasks.length} 个失败任务至发布通道`)
