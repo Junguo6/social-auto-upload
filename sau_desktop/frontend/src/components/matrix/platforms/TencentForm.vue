@@ -16,34 +16,9 @@
             :unit-level="unitLevel"
             :rule-config="ruleConfig"
             :hide-tools="hideVariables"
+            :show-topic-btn="true"
+            @topic-click="addHashTag"
           />
-          <div class="desc-action-bar">
-            <!-- 快捷操作区：话题 (分集规则暂时隐藏，采用默认智能提取规则) -->
-            <div class="tag-insert-group">
-              <button
-                type="button"
-                class="wechat-tag-pill topic-pill"
-                @mousedown.prevent
-                @click="addHashTag"
-              >
-                <span class="hash-symbol">#</span>
-                <span class="pill-text">添加话题</span>
-              </button>
-              <!-- 暂时取消分集规则设置
-              <button
-                v-if="ruleConfig && !hideVariables"
-                type="button"
-                class="wechat-tag-pill ep-rule-pill"
-                :class="{ 'is-active': showEpisodeRule }"
-                @click="showEpisodeRule = !showEpisodeRule"
-              >
-                <el-icon class="pill-icon"><Operation /></el-icon>
-                <span class="pill-text">{{ showEpisodeRule ? '收起规则' : '分集规则' }}</span>
-                <el-icon class="arrow-indicator" :class="{ 'is-open': showEpisodeRule }"><ArrowDown /></el-icon>
-              </button>
-              -->
-            </div>
-          </div>
         </div>
 
         <!-- 轻量分集规则面板 (暂时隐藏)
@@ -290,14 +265,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Operation, ArrowDown } from '@element-plus/icons-vue'
 import { SelectLocalFile } from '../../../../wailsjs/go/main/App'
 import type { PlatformOverrideSetting, BatchRuleConfig, MediaItem } from '../../../types/matrix'
 import TokenTemplateInput from '../controls/TokenTemplateInput.vue'
 
 const props = defineProps<{
   override: PlatformOverrideSetting
-  ruleConfig?: BatchRuleConfig
+  ruleConfig?: Partial<BatchRuleConfig>
   sampleMedia?: Partial<MediaItem>
   unitLevel?: number
   hideVariables?: boolean
@@ -319,8 +293,6 @@ const safeRuleConfig = computed(() => props.ruleConfig || defaultRuleConfig)
 if (props.override && !props.override.location) {
   props.override.location = 'auto'
 }
-
-const showEpisodeRule = ref(false)
 
 // 链接相关
 const currentLinkType = computed({
@@ -372,6 +344,7 @@ function handleActivityModeChange(val: string) {
 const descInputRef = ref<any>(null)
 
 function addHashTag() {
+  // 往 override.desc 里插入一个 # 话题前缀
   if (descInputRef.value?.insertText) {
     const current = props.override.desc || ''
     const needLeadingSpace = current.length > 0 && !current.endsWith(' ') && !current.endsWith('\n')
@@ -457,75 +430,6 @@ const choosePortraitCover = async () => {
   padding: 10px 12px;
   font-size: 13px;
   line-height: 1.5;
-}
-
-.desc-action-bar {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  background: #f8fafc;
-  border-top: 1px solid #f1f5f9;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.tag-insert-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.desc-variable-chips-wrap {
-  width: 100%;
-  min-width: 0;
-  padding-top: 6px;
-  border-top: 1px dashed #e2e8f0;
-  box-sizing: border-box;
-}
-
-.wechat-tag-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 26px;
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  user-select: none;
-  border: 1px solid transparent;
-  box-sizing: border-box;
-}
-
-/* 话题按钮：微信经典薄荷微绿，高级雅致 */
-.topic-pill {
-  color: #047857;
-  background: #ecfdf5;
-  border-color: #a7f3d0;
-}
-
-.topic-pill:hover {
-  background: #d1fae5;
-  border-color: #6ee7b7;
-  color: #065f46;
-  transform: translateY(-0.5px);
-  box-shadow: 0 2px 4px rgba(5, 150, 105, 0.12);
-}
-
-.topic-pill:active {
-  transform: translateY(0);
-  background: #a7f3d0;
-}
-
-.topic-pill .hash-symbol {
-  font-weight: 700;
-  font-size: 13px;
-  color: #059669;
 }
 
 /* 分集规则按钮：微质感设置风格，支持高亮展开指示 */

@@ -36,7 +36,7 @@ const props = withDefaults(defineProps<{
   maxlength?: number
   required?: boolean
   hint?: string
-  ruleConfig?: BatchRuleConfig
+  ruleConfig?: Partial<BatchRuleConfig>
   sampleMedia?: Partial<MediaItem>
   unitLevel?: number
   hideVariables?: boolean

@@ -21,16 +21,22 @@
     <!-- 底部极简工具栏（直接点击唤起直观可视化弹窗） -->
     <div v-if="!hideTools" class="editor-bottom-bar">
       <div class="bottom-tools-left">
-        <!-- 1. 插入变量入口 (直观树状层级弹窗) -->
+        <!-- 统一入口：变量与文案库已合并到同一个弹窗 -->
         <button type="button" class="mini-tool-btn var-btn" @mousedown.prevent @click="openVarModal">
           <span class="btn-symbol">+</span>
-          <span>插入变量</span>
+          <span>插入内容</span>
         </button>
 
-        <!-- 2. 插入 TXT 文案入口 (模式配置与多行预览弹窗) -->
-        <button type="button" class="mini-tool-btn txt-btn" @mousedown.prevent @click="openTxtModal">
-          <el-icon class="btn-icon"><Document /></el-icon>
-          <span>插入 TXT 文案</span>
+        <!-- 「添加话题」按钮（仅 showTopicBtn=true 时显示） -->
+        <button
+          v-if="showTopicBtn"
+          type="button"
+          class="mini-tool-btn topic-btn"
+          @mousedown.prevent
+          @click="emit('topic-click')"
+        >
+          <span class="btn-symbol">#</span>
+          <span>添加话题</span>
         </button>
       </div>
 
@@ -95,15 +101,9 @@
       :unit-level="unitLevel"
       :rule-config="ruleConfig"
       :initial-key="modalInitialVarKey"
-      @select="handleVarSelectFromModal"
-    />
-
-    <!-- TXT 文案模式与源配置弹窗 -->
-    <TxtSourceModal
-      v-model="txtModalVisible"
       :initial-txt-name="modalInitialTxtName"
-      :initial-mode="modalInitialTxtMode"
-      @confirm="handleTxtConfirmFromModal"
+      :initial-txt-mode="modalInitialTxtMode"
+      @select="handleVarSelectFromModal"
     />
   </div>
 </template>
@@ -113,7 +113,6 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { Document, Delete, Operation, Setting } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import VariableSelectModal from '../dialogs/VariableSelectModal.vue'
-import TxtSourceModal from '../dialogs/TxtSourceModal.vue'
 import {
   buildDynamicVariables,
   resolveTemplateString,
@@ -126,12 +125,14 @@ import {
 import type { MediaItem, BatchRuleConfig } from '../../../types/matrix'
 
 const props = withDefaults(defineProps<{
-  modelValue: string
+  modelValue?: string
   type?: 'input' | 'textarea'
   placeholder?: string
   maxlength?: number
   rows?: number
   hideTools?: boolean
+  /** 是否在工具栏显示「添加话题」按钮 */
+  showTopicBtn?: boolean
   sampleMedia?: Partial<MediaItem>
   unitLevel?: number
   ruleConfig?: Partial<BatchRuleConfig>
@@ -140,11 +141,14 @@ const props = withDefaults(defineProps<{
   type: 'input',
   placeholder: '请输入内容，支持插入变量或导入TXT...',
   rows: 3,
-  hideTools: false
+  hideTools: false,
+  showTopicBtn: false,
 })
 
 const emit = defineEmits<{
   (e: 'update:modelValue', val: string): void
+  /** 用户点击工具栏的「添加话题」按钮 */
+  (e: 'topic-click'): void
 }>()
 
 const editorRef = ref<HTMLDivElement>()
@@ -179,8 +183,6 @@ function shuffleRandomPreview() {
 // 弹窗状态管理
 const varModalVisible = ref(false)
 const modalInitialVarKey = ref('')
-
-const txtModalVisible = ref(false)
 const modalInitialTxtName = ref('')
 const modalInitialTxtMode = ref<TxtDistributionMode>('seq')
 
@@ -205,11 +207,12 @@ function getTxtLines(txtName?: string): string[] {
 // 实时预览文本（以第 1 个视频为例，过滤回车保持单行规整）
 const previewText = computed(() => {
   if (!props.modelValue) return ''
-  const dummyMedia = props.sampleMedia || { fileName: '示例视频_第01集.mp4' }
+  // 无真实素材时，不显示假数据示例预览
+  if (!props.sampleMedia?.fileName) return ''
   try {
     const raw = resolveTemplateString(
       props.modelValue,
-      dummyMedia,
+      props.sampleMedia,
       0,
       props.ruleConfig,
       props.unitLevel,
@@ -279,7 +282,7 @@ function insertTextNodeToEditor(text: string) {
 }
 
 /** 创建标签 DOM 节点 */
-function createChipDOM(token: string): HTMLSpanElement {
+function createChipDOM(token: string, chipName?: string): HTMLSpanElement {
   const span = document.createElement('span')
   span.className = 'rich-token-chip'
   span.contentEditable = 'false'
@@ -302,8 +305,9 @@ function createChipDOM(token: string): HTMLSpanElement {
     `
   } else {
     span.classList.add('is-var')
+    // 优先级：自定义 chipName > 变量自身 label > token
     const varDef = computedVars.value.find(v => v.key === token)
-    const label = varDef ? varDef.label : token.replace(/[\{\}]/g, '')
+    const label = chipName || (varDef ? varDef.label : token.replace(/[\{\}]/g, ''))
     span.innerHTML = `
       <span class="chip-inner">
         <span class="chip-ico">🏷️</span>
@@ -653,7 +657,7 @@ function onEditorClick(e: MouseEvent) {
 
 /* ────────── 插入标签逻辑 ────────── */
 
-function insertTokenToEditor(tokenStr: string) {
+function insertTokenToEditor(tokenStr: string, chipName?: string) {
   if (!editorRef.value) return
   editorRef.value.focus()
   restoreSelection()
@@ -661,14 +665,14 @@ function insertTokenToEditor(tokenStr: string) {
   const sel = window.getSelection()
   if (!sel || sel.rangeCount === 0) {
     // 兜底插入在最后
-    const chip = createChipDOM(tokenStr)
+    const chip = createChipDOM(tokenStr, chipName)
     editorRef.value.appendChild(chip)
     // 补一个空格
     editorRef.value.appendChild(document.createTextNode(' '))
   } else {
     const range = sel.getRangeAt(0)
     range.deleteContents()
-    const chip = createChipDOM(tokenStr)
+    const chip = createChipDOM(tokenStr, chipName)
     range.insertNode(chip)
     
     // 光标移到标签之后并加空格
@@ -697,31 +701,19 @@ function openVarModal() {
   varModalVisible.value = true
 }
 
-function openTxtModal() {
-  saveSelection()
-  editingChipElement.value = null
-  modalInitialTxtName.value = ''
-  modalInitialTxtMode.value = 'seq'
-  txtModalVisible.value = true
-}
-
-function applyToken(tokenStr: string) {
+function applyToken(tokenStr: string, chipName?: string) {
   if (editingChipElement.value && editorRef.value?.contains(editingChipElement.value)) {
-    const newChip = createChipDOM(tokenStr)
+    const newChip = createChipDOM(tokenStr, chipName)
     editingChipElement.value.replaceWith(newChip)
     editingChipElement.value = null
     onInput()
   } else {
-    insertTokenToEditor(tokenStr)
+    insertTokenToEditor(tokenStr, chipName)
   }
 }
 
-function handleVarSelectFromModal(varKey: string) {
-  applyToken(varKey)
-}
-
-function handleTxtConfirmFromModal(payload: { fileName: string; mode: TxtDistributionMode; tokenKey: string }) {
-  applyToken(payload.tokenKey)
+function handleVarSelectFromModal(varKey: string, chipName?: string) {
+  applyToken(varKey, chipName)
 }
 
 function reconfigureActiveChip() {
@@ -731,11 +723,13 @@ function reconfigureActiveChip() {
 
   if (activeChipInfo.value.type === 'var') {
     modalInitialVarKey.value = activeChipInfo.value.rawKey
+    modalInitialTxtName.value = ''
     varModalVisible.value = true
   } else if (activeChipInfo.value.type === 'txt') {
+    modalInitialVarKey.value = ''
     modalInitialTxtName.value = activeChipInfo.value.txtName || ''
     modalInitialTxtMode.value = activeChipInfo.value.rawKey.includes(':random') ? 'random' : 'seq'
-    txtModalVisible.value = true
+    varModalVisible.value = true
   }
 }
 
@@ -980,6 +974,22 @@ defineExpose({
 .mini-tool-btn.txt-btn:hover {
   border-color: #0284c7;
   color: #0284c7;
+}
+
+/* 话题按钮：微信经典薄荷微绿 */
+.mini-tool-btn.topic-btn {
+  color: #047857;
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+}
+.mini-tool-btn.topic-btn:hover {
+  background: #d1fae5;
+  border-color: #6ee7b7;
+  color: #065f46;
+}
+.mini-tool-btn.topic-btn .btn-symbol {
+  font-weight: 700;
+  color: #059669;
 }
 
 .btn-symbol {

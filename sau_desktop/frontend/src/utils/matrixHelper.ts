@@ -134,24 +134,26 @@ export function buildDynamicVariables(
 ): AvailableVariable[] {
   const vars: AvailableVariable[] = []
 
-  const fileName = sampleMedia?.fileName || '迟遇山野知秋_第01集.mp4'
+  const fileName = sampleMedia?.fileName || ''
   const baseName = fileName.replace(/\.[^/.]+$/, '')
   const ep = resolveEpisodeNumber({ parsedEpisode: sampleMedia?.parsedEpisode, fileName }, 0, ruleConfig)
   const crumbs = sampleMedia?.folderCrumbs || []
 
-  // 1. 核心名称与集数
-  vars.push({
-    key: '{视频名}',
-    label: '视频名',
-    desc: '去扩展名的视频文件名',
-    sampleVal: baseName
-  })
-  vars.push({
-    key: '{集数}',
-    label: '集数',
-    desc: '智能提取或规则自增的集数编号',
-    sampleVal: ep
-  })
+  // 1. 核心名称与集数（无真实素材时跳过这两项）
+  if (fileName) {
+    vars.push({
+      key: '{视频名}',
+      label: '视频名',
+      desc: '去扩展名的视频文件名',
+      sampleVal: baseName
+    })
+    vars.push({
+      key: '{集数}',
+      label: '集数',
+      desc: '智能提取或规则自增的集数编号',
+      sampleVal: ep
+    })
+  }
 
   // 2. 与第一步「上传视频」层级完全同步的多级目录变量
   if (crumbs.length > 0) {
@@ -285,7 +287,7 @@ export interface ParsedFolderNode {
 export function parseFolderHierarchy(
   sampleMedia?: { folderCrumbs?: string[]; filePath?: string; fileName?: string }
 ): { nodes: ParsedFolderNode[]; sampleFileName: string } {
-  const sampleFileName = sampleMedia?.fileName || '短剧_第01集.mp4'
+  const sampleFileName = sampleMedia?.fileName || ''
   const nodes: ParsedFolderNode[] = []
 
   let crumbs = sampleMedia?.folderCrumbs || []
@@ -301,9 +303,9 @@ export function parseFolderHierarchy(
     }
   }
 
-  // 若仍为空，提供典型的模拟短剧目录结构作为教学指引
+  // 无真实素材路径时，不兜底假目录树（变量选项卡有其他真实内容可展示）
   if (crumbs.length === 0) {
-    crumbs = ['素材总库', '场景', '视频']
+    return { nodes: [], sampleFileName: '' }
   }
 
   crumbs.forEach((name, idx) => {

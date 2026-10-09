@@ -84,7 +84,7 @@ import TokenTemplateInput from '../controls/TokenTemplateInput.vue'
 
 defineProps<{
   override: PlatformOverrideSetting
-  ruleConfig?: BatchRuleConfig
+  ruleConfig?: Partial<BatchRuleConfig>
   sampleMedia?: Partial<MediaItem>
   unitLevel?: number
   hideVariables?: boolean
