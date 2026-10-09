@@ -54,7 +54,10 @@
       </div>
 
       <!-- Tab 内容：文案库 -->
-      <div class="var-list" v-else>
+      <div
+        v-else
+        class="var-list"
+      >
         <!-- 已有文案库（列表在上） -->
         <template v-if="existingTxtSources.length > 0">
           <div
@@ -90,12 +93,6 @@
             <div class="vo-name">选择文件导入</div>
             <div class="vo-sub">支持 .txt，每行一条文案</div>
           </div>
-        </div>
-
-        <!-- 无文案时的引导提示 -->
-        <div class="var-empty" v-if="existingTxtSources.length === 0">
-          <div>还没有导入文本</div>
-          <div style="margin-top:4px;opacity:.75;">点下面的「选择文件导入」选一个 .txt，<br>文件里每行就是一条文案</div>
         </div>
       </div>
 
@@ -213,8 +210,6 @@ const folderHierarchy = computed(() => {
 /** 图标映射 */
 function getIcon(value: string): string {
   if (value === '{视频名}') return '📄'
-  if (value === '{序号}' || value === '{序号(补零)}') return '#️⃣'
-  if (value === '{集数}' || value === '{集数(补零)}') return '🔢'
   if (value.startsWith('{第') && value.includes('层目录}')) return '📁'
   if (value === '{日期}' || value === '{时间}') return '📅'
   if (value === '{文件夹名}') return '📁'
@@ -249,32 +244,6 @@ const folderOptions = computed(() => {
     sample: folderHierarchy.value.sampleFileName.replace(/\.[^/.]+$/, ''),
     defaultName: '视频名',
     icon: '📄',
-    group: 'content'
-  })
-
-  // 加上集数
-  list.push({
-    value: '{集数}',
-    label: '{集数}',
-    title: '集数',
-    chipName: '集数',
-    desc: '视频的集数编号，如 01',
-    sample: '1',
-    defaultName: '集数',
-    icon: '🔢',
-    group: 'content'
-  })
-
-  // 加上序号
-  list.push({
-    value: '{序号}',
-    label: '{序号}',
-    title: '序号',
-    chipName: '序号',
-    desc: '在本批视频里的顺序',
-    sample: '1',
-    defaultName: '序号',
-    icon: '#️⃣',
     group: 'content'
   })
 
