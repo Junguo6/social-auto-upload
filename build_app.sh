@@ -8,8 +8,46 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
+# 参数解析: 允许指定产物类型，避免每次生成全部文件体积过大
+# 支持: -dmg (默认), -upgrade, -zip, -all
+BUILD_TARGET="dmg"
+
+for arg in "$@"; do
+  case "$arg" in
+    -dmg|--dmg|-d)
+      BUILD_TARGET="dmg"
+      ;;
+    -upgrade|--upgrade|-u)
+      BUILD_TARGET="upgrade"
+      ;;
+    -zip|--zip|-z)
+      BUILD_TARGET="zip"
+      ;;
+    -all|--all|-a)
+      BUILD_TARGET="all"
+      ;;
+    -h|--help)
+      echo "======================================================================"
+      echo "🚀 social-auto-upload macOS 一键打包脚本"
+      echo "用法: ./build_app.sh [选项]"
+      echo ""
+      echo "选项:"
+      echo "  -dmg,     --dmg      (默认) 仅生成 macOS DMG 拖拽安装镜像 (~600MB)"
+      echo "  -upgrade, --upgrade  仅生成在线增量热更新包 (upgrade_mac.zip，用于上传 OSS)"
+      echo "  -zip,     --zip      仅生成测试用解压整包 ZIP"
+      echo "  -all,     --all      生成所有产物 (DMG + ZIP + 在线升级包)"
+      echo "======================================================================"
+      exit 0
+      ;;
+    *)
+      echo "⚠️ 未知参数: $arg (支持: -dmg / -upgrade / -zip / -all / --help)"
+      exit 1
+      ;;
+  esac
+done
+
 echo "======================================================================"
-echo "🚀 开始执行 Wails 桌面端一键全自动构建流程..."
+echo "🚀 开始执行 Wails 桌面端一键构建流程... [目标: $BUILD_TARGET]"
 echo "======================================================================"
 
 # 1. Wails CLI：通过 go run 调用项目锁定版本，不依赖也不影响全局安装的 wails
@@ -82,24 +120,95 @@ cd "$PROJECT_ROOT/sau_desktop"
 go run "github.com/wailsapp/wails/v2/cmd/wails@${WAILS_CLI_VERSION}" build
 
 # 对于 macOS，将内置内核直接注入 .app 的 Resources 目录中
-APP_RESOURCES="$PROJECT_ROOT/sau_desktop/build/bin/sau_desktop.app/Contents/Resources"
-if [ -d "$APP_RESOURCES" ]; then
-  echo "📦 正在将 ms-playwright 浏览器内核同步注入 .app 安装包的 Resources 目录..."
-  cp -R "$DEST_PLAYWRIGHT" "$APP_RESOURCES/"
+APP_PATH="$PROJECT_ROOT/sau_desktop/build/bin/小映分发助手.app"
+if [ ! -d "$APP_PATH" ]; then
+  APP_PATH="$PROJECT_ROOT/sau_desktop/build/bin/sau_desktop.app"
 fi
 
-# 6. 为用户打包成开箱即用的 zip 归档包 (保留 macOS 执行权限，防止传输损坏)
-echo ""
-echo "▶ [Step 4/4] 正在生成便于发给客户测试的整包压缩归档..."
+if [ -d "$APP_PATH/Contents/MacOS" ]; then
+  echo "📦 正在将 sau_engine Python 发布引擎装配入 .app 安装包的 MacOS 目录..."
+  rm -rf "$APP_PATH/Contents/MacOS/sau_engine"
+  mkdir -p "$APP_PATH/Contents/MacOS/sau_engine"
+  cp -R "$PROJECT_ROOT/dist/sau_engine/"* "$APP_PATH/Contents/MacOS/sau_engine/"
+fi
+
+if [ -d "$APP_PATH/Contents/Resources" ]; then
+  echo "📦 正在将 ms-playwright 浏览器内核同步注入 .app 安装包的 Resources 目录..."
+  cp -R "$DEST_PLAYWRIGHT" "$APP_PATH/Contents/Resources/"
+fi
+
+# 6. 根据命令行参数按需生成制品 (避免全部生成占用过多磁盘空间)
+RELEASE_DIR="$PROJECT_ROOT/dist_release"
+mkdir -p "$RELEASE_DIR"
 cd "$PROJECT_ROOT/sau_desktop/build/bin"
-rm -f "sau_desktop_mac.zip"
-zip -r -q -y "sau_desktop_mac.zip" "sau_desktop.app"
+TARGET_APP_NAME="$(basename "$APP_PATH")"
+
+APP_VER=$(grep -o '"productVersion": *"[^"]*"' "$PROJECT_ROOT/sau_desktop/wails.json" 2>/dev/null | cut -d'"' -f4)
+if [ -z "$APP_VER" ]; then APP_VER="1.0.0"; fi
 
 echo ""
 echo "======================================================================"
-echo "🎉 全自动构建大功告成！已完全内置绿色 Chromium 浏览器内核 (开箱即用免安装)！"
-echo "应用包路径: $PROJECT_ROOT/sau_desktop/build/bin/sau_desktop.app"
-echo "测试整包 ZIP: $PROJECT_ROOT/sau_desktop/build/bin/sau_desktop_mac.zip"
-echo "您可以在 Finder 中打开："
-echo "open $PROJECT_ROOT/sau_desktop/build/bin"
+echo "📦 正在按需归档产物 [目标模式: $BUILD_TARGET]..."
+
+# 6.1 生成测试整包 ZIP (-zip 或 -all)
+ZIP_FILE=""
+if [ "$BUILD_TARGET" = "zip" ] || [ "$BUILD_TARGET" = "all" ]; then
+  echo "▶ 正在生成测试用整包 ZIP..."
+  ZIP_NAME="${TARGET_APP_NAME%.app}_mac.zip"
+  rm -f "$ZIP_NAME" "$RELEASE_DIR/$ZIP_NAME"
+  zip -r -q -y "$RELEASE_DIR/$ZIP_NAME" "$TARGET_APP_NAME"
+  ZIP_FILE="$RELEASE_DIR/$ZIP_NAME"
+  echo "  ✅ 测试整包已生成: $ZIP_FILE"
+fi
+
+# 6.2 生成在线热更新包 (-upgrade 或 -all)
+UPGRADE_FILE=""
+if [ "$BUILD_TARGET" = "upgrade" ] || [ "$BUILD_TARGET" = "all" ]; then
+  echo "▶ 正在生成在线增量热更新包 (传至 OSS)..."
+  UP_NAME="upgrade_mac_${APP_VER}.zip"
+  rm -f "$RELEASE_DIR/$UP_NAME" "$RELEASE_DIR/upgrade_mac.zip"
+  zip -r -q -y "$RELEASE_DIR/$UP_NAME" "$TARGET_APP_NAME"
+  cp "$RELEASE_DIR/$UP_NAME" "$RELEASE_DIR/upgrade_mac.zip"
+  UPGRADE_FILE="$RELEASE_DIR/$UP_NAME"
+  echo "  ✅ 在线热更新包已生成: $UPGRADE_FILE (及 upgrade_mac.zip)"
+fi
+
+# 6.3 生成 macOS 标准 DMG 拖拽安装镜像 (-dmg 或 -all)
+DMG_FILE=""
+if [ "$BUILD_TARGET" = "dmg" ] || [ "$BUILD_TARGET" = "all" ]; then
+  if [ "$(uname)" = "Darwin" ]; then
+    echo "▶ 正在生成 macOS 标准 DMG 拖拽安装镜像..."
+    DMG_STAGING="$PROJECT_ROOT/sau_desktop/build/bin/dmg_staging"
+    rm -rf "$DMG_STAGING"
+    mkdir -p "$DMG_STAGING"
+    cp -R "$APP_PATH" "$DMG_STAGING/"
+    ln -s /Applications "$DMG_STAGING/Applications"
+    
+    EULA_SRC="$PROJECT_ROOT/sau_desktop/build/windows/installer/resources/eula.txt"
+    if [ -f "$EULA_SRC" ]; then
+      cp "$EULA_SRC" "$DMG_STAGING/用户许可及服务协议.txt"
+    fi
+
+    DMG_FILE="$RELEASE_DIR/${TARGET_APP_NAME%.app}_macOS.dmg"
+    rm -f "$DMG_FILE"
+    hdiutil create -volname "${TARGET_APP_NAME%.app}" -srcfolder "$DMG_STAGING" -ov -format UDZO "$DMG_FILE" >/dev/null
+    rm -rf "$DMG_STAGING"
+    echo "  ✅ macOS DMG 安装镜像已生成: $DMG_FILE"
+  fi
+fi
+
+echo ""
 echo "======================================================================"
+echo "🎉 全自动构建大功告成！"
+echo "应用源目录: $APP_PATH"
+if [ -n "$DMG_FILE" ]; then
+  echo "1. DMG 主安装镜像: $DMG_FILE"
+fi
+if [ -n "$UPGRADE_FILE" ]; then
+  echo "2. 在线热更新包:   $UPGRADE_FILE"
+fi
+if [ -n "$ZIP_FILE" ]; then
+  echo "3. 测试整包 ZIP:   $ZIP_FILE"
+fi
+echo "======================================================================"
+

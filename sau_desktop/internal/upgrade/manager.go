@@ -172,3 +172,13 @@ func (m *UpgradeManager) ApplyUpdate() error {
 
 	return ExecuteInstall(zipPath, m.currentVersion, sn, m.host)
 }
+
+// IsForcedBlock 检查当前版本是否被强制升级且不可使用
+func (m *UpgradeManager) IsForcedBlock() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.lastCheck != nil && m.lastCheck.HasUpdate && m.lastCheck.VersionInfo != nil {
+		return m.lastCheck.VersionInfo.IsForced
+	}
+	return false
+}

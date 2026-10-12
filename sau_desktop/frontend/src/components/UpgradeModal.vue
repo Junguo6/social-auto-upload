@@ -99,6 +99,17 @@
           稍后提醒
         </el-button>
 
+        <!-- 退出程序（强制更新下拒绝升级则退出，无法绕过） -->
+        <el-button 
+          v-if="upgradeStore.isForced && !upgradeStore.isDownloading && !upgradeStore.isCompleted" 
+          type="danger" 
+          plain 
+          @click="upgradeStore.exitApp"
+          size="default"
+        >
+          退出程序
+        </el-button>
+
         <!-- 取消下载（下载中可取消） -->
         <el-button 
           v-if="upgradeStore.isDownloading" 

@@ -133,11 +133,80 @@ if exist "%DEV_PLAYWRIGHT%" (
   xcopy /E /Y /I "%DEV_PLAYWRIGHT%\*" "%FINAL_BIN%\ms-playwright\" >nul
 )
 
+:: 8. 编译并装配专属独立升级工具 updater.exe
+echo.
+echo 🔧 正在装配专属独立在线升级工具 (updater.exe)...
+if exist "%PROJECT_ROOT%..\sau_updater" (
+  pushd "%PROJECT_ROOT%..\sau_updater"
+  call build.bat >nul 2>&1
+  if exist "updater.exe" (
+    copy /Y "updater.exe" "%FINAL_BIN%\updater.exe" >nul
+  )
+  popd
+)
+if not exist "%FINAL_BIN%\updater.exe" (
+  if exist "%PROJECT_ROOT%sau_desktop\build\windows\updater.exe" (
+    copy /Y "%PROJECT_ROOT%sau_desktop\build\windows\updater.exe" "%FINAL_BIN%\updater.exe" >nul
+  )
+)
+
+:: 9. 自动化提炼标准发行包 (支持按需指定参数: -upgrade / -green / -all)
+echo.
+set "BUILD_TARGET=green"
+if "%~1"=="-upgrade" set "BUILD_TARGET=upgrade"
+if "%~1"=="--upgrade" set "BUILD_TARGET=upgrade"
+if "%~1"=="-u" set "BUILD_TARGET=upgrade"
+if "%~1"=="-green" set "BUILD_TARGET=green"
+if "%~1"=="--green" set "BUILD_TARGET=green"
+if "%~1"=="-g" set "BUILD_TARGET=green"
+if "%~1"=="-all" set "BUILD_TARGET=all"
+if "%~1"=="--all" set "BUILD_TARGET=all"
+if "%~1"=="-a" set "BUILD_TARGET=all"
+
+echo 📦 [Step 5/5] 正在按需归档发行包 [目标: %BUILD_TARGET%]...
+set "RELEASE_DIR=%PROJECT_ROOT%dist_release"
+if not exist "%RELEASE_DIR%" mkdir "%RELEASE_DIR%"
+
+:: 获取版本号 (从 wails.json 提取，若失败默认 1.0.0)
+for /f "tokens=2 delims=:, " %%a in ('findstr /i "\"productVersion\"" "%PROJECT_ROOT%sau_desktop\wails.json" 2^>nul') do (
+  set "APP_VER=%%~a"
+)
+if "%APP_VER%"=="" set "APP_VER=1.0.0"
+echo 当前发布版本号: v%APP_VER%
+
+:: 9.1 生成供 OSS 在线热更新的增量升级包 (-upgrade 或 -all)
+if "%BUILD_TARGET%"=="upgrade" goto MAKE_UPGRADE
+if "%BUILD_TARGET%"=="all" goto MAKE_UPGRADE
+goto CHECK_GREEN
+
+:MAKE_UPGRADE
+echo 🚀 正在生成在线热更新包 (upgrade_win_%APP_VER%.zip，体积小)...
+powershell -NoProfile -Command "Compress-Archive -Path '%FINAL_BIN%\小映分发助手.exe', '%FINAL_BIN%\sau_engine', '%FINAL_BIN%\updater.exe' -DestinationPath '%RELEASE_DIR%\upgrade_win_%APP_VER%.zip' -Force"
+copy /Y "%RELEASE_DIR%\upgrade_win_%APP_VER%.zip" "%RELEASE_DIR%\upgrade_win.zip" >nul
+if "%BUILD_TARGET%"=="upgrade" goto FINISH_BUILD
+
+:CHECK_GREEN
+:: 9.2 生成供新用户下载解压即用的完整绿色包 (-green 或 -all)
+if "%BUILD_TARGET%"=="green" goto MAKE_GREEN
+if "%BUILD_TARGET%"=="all" goto MAKE_GREEN
+goto FINISH_BUILD
+
+:MAKE_GREEN
+echo 🚀 正在生成新用户完整开箱即用绿色包 (小映分发助手_v%APP_VER%_完整绿色版.zip)...
+powershell -NoProfile -Command "Compress-Archive -Path '%FINAL_BIN%\*' -DestinationPath '%RELEASE_DIR%\小映分发助手_v%APP_VER%_完整绿色版.zip' -Force"
+
+:FINISH_BUILD
 echo.
 echo ======================================================================
-echo Windows 桌面端全自动构建大功告成！已完全内置绿色 Chromium 浏览器内核！
-echo 产物路径位于: %FINAL_BIN%\
-echo 包含: sau_desktop.exe, sau_engine (Python 引擎), ms-playwright (绿色浏览器)
+echo 🎉 构建与发行包归档全部完成！
+echo.
+echo 1. 本地可执行目录: %FINAL_BIN%\
+if exist "%RELEASE_DIR%\小映分发助手_v%APP_VER%_完整绿色版.zip" (
+  echo 2. 新用户完整包:   %RELEASE_DIR%\小映分发助手_v%APP_VER%_完整绿色版.zip
+)
+if exist "%RELEASE_DIR%\upgrade_win_%APP_VER%.zip" (
+  echo 3. 在线增量升级包: %RELEASE_DIR%\upgrade_win_%APP_VER%.zip (传至 OSS)
+)
 echo ======================================================================
-explorer "%FINAL_BIN%"
+explorer "%RELEASE_DIR%"
 pause

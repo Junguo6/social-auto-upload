@@ -173,9 +173,19 @@ func (a *App) CloseOrder(outTradeNo string) *auth.OrderQueryResult {
 	return a.authMgr.CloseOrder(outTradeNo)
 }
 
+func (a *App) checkForcedUpgrade() error {
+	if a.upgradeMgr != nil && a.upgradeMgr.IsForcedBlock() {
+		return fmt.Errorf("当前客户端版本过低且已被强制停用，请更新至最新版本后再使用")
+	}
+	return nil
+}
+
 // PublishMedia 单账号媒体发布接口
 func (a *App) PublishMedia(param engine.PublishParam) (string, error) {
 	defer a.PanicRecover("PublishMedia", map[string]interface{}{"param": param})
+	if err := a.checkForcedUpgrade(); err != nil {
+		return "", err
+	}
 	if a.authMgr != nil {
 		if err := a.authMgr.RequirePublishAuth(); err != nil {
 			return "", err
@@ -200,6 +210,9 @@ func (a *App) PublishMedia(param engine.PublishParam) (string, error) {
 // BatchPublishMedia 矩阵多账号高并发批量发布接口 (Go Goroutines 并发池调度)
 func (a *App) BatchPublishMedia(param engine.BatchPublishParam) ([]engine.AccountPublishResult, error) {
 	defer a.PanicRecover("BatchPublishMedia", map[string]interface{}{"param": param})
+	if err := a.checkForcedUpgrade(); err != nil {
+		return nil, err
+	}
 	if a.authMgr != nil {
 		if err := a.authMgr.RequirePublishAuth(); err != nil {
 			return nil, err
@@ -222,6 +235,9 @@ func (a *App) BatchPublishMedia(param engine.BatchPublishParam) ([]engine.Accoun
 // MatrixPublishMedia 全景矩阵差异化发布接口 (支持各平台/各账号独立定制参数与 Goroutines 并发调度)
 func (a *App) MatrixPublishMedia(param engine.MatrixPublishParam) ([]engine.AccountPublishResult, error) {
 	defer a.PanicRecover("MatrixPublishMedia", map[string]interface{}{"param": param})
+	if err := a.checkForcedUpgrade(); err != nil {
+		return nil, err
+	}
 	if a.authMgr != nil {
 		if err := a.authMgr.RequirePublishAuth(); err != nil {
 			return nil, err
@@ -248,6 +264,9 @@ func (a *App) MatrixPublishMedia(param engine.MatrixPublishParam) ([]engine.Acco
 // PipelinePublishMedia 多协程泳道任务工作流发布接口 (各线程通道并行，通道内卡片串行调度)
 func (a *App) PipelinePublishMedia(param engine.PipelinePublishParam) ([]engine.AccountPublishResult, error) {
 	defer a.PanicRecover("PipelinePublishMedia", map[string]interface{}{"param": param})
+	if err := a.checkForcedUpgrade(); err != nil {
+		return nil, err
+	}
 	if a.authMgr != nil {
 		if err := a.authMgr.RequirePublishAuth(); err != nil {
 			return nil, err
@@ -365,6 +384,9 @@ func (a *App) DeleteAccountCredential(platform, account string) error {
 // LoginAccount 拉起账号授权登录并返回账号信息
 func (a *App) LoginAccount(platform, account string, headed bool) (engine.LoginResult, error) {
 	defer a.PanicRecover("LoginAccount", map[string]interface{}{"platform": platform, "account": account, "headed": headed})
+	if err := a.checkForcedUpgrade(); err != nil {
+		return engine.LoginResult{Success: false, Msg: err.Error()}, err
+	}
 	if a.executor == nil {
 		return engine.LoginResult{Success: false, Msg: "引擎未正常加载"}, fmt.Errorf("引擎未正常加载")
 	}
@@ -386,6 +408,9 @@ func (a *App) LoginAccount(platform, account string, headed bool) (engine.LoginR
 // LoginAccountWithAppWindow 拉起独立的 Chrome App 沉浸式真机视窗 (4K 原生画质与 0 延迟，剥离地址栏)
 func (a *App) LoginAccountWithAppWindow(platform, account string) (engine.LoginResult, error) {
 	defer a.PanicRecover("LoginAccountWithAppWindow", map[string]interface{}{"platform": platform, "account": account})
+	if err := a.checkForcedUpgrade(); err != nil {
+		return engine.LoginResult{Success: false, Msg: err.Error()}, err
+	}
 	if a.executor == nil {
 		return engine.LoginResult{Success: false, Msg: "引擎未正常加载"}, fmt.Errorf("引擎未正常加载")
 	}

@@ -187,6 +187,14 @@ export const useUpgradeStore = defineStore('upgrade', () => {
     modalVisible.value = false
   }
 
+  const exitApp = async () => {
+    try {
+      await QuitApp()
+    } catch (err) {
+      console.error('退出程序异常:', err)
+    }
+  }
+
   return {
     checking,
     hasUpdate,
@@ -205,6 +213,7 @@ export const useUpgradeStore = defineStore('upgrade', () => {
     cancelDownload,
     applyUpdate,
     openModal,
-    closeModal
+    closeModal,
+    exitApp
   }
 })

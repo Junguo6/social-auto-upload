@@ -120,6 +120,22 @@ func ExecuteInstall(zipPath, currentVersion, newSN, host string) error {
 	destDir := filepath.Dir(execPath)
 	execName := filepath.Base(execPath)
 
+	// 1. 优先调用自研专属升级工具 updater.exe
+	localUpdater := filepath.Join(destDir, "updater.exe")
+	if _, statErr := os.Stat(localUpdater); statErr == nil {
+		args := []string{
+			"--target-dir", destDir,
+			"--exec-name", execName,
+			"--zip-file", zipPath,
+			"--pid", fmt.Sprintf("%d", os.Getpid()),
+			"--auto-restart=true",
+		}
+		if err := callUpgradeToolWithAdmin(localUpdater, args); err == nil {
+			return nil
+		}
+	}
+
+	// 2. 次选兼容小映升级工具 uptool.exe
 	uptoolPath, err := ensureUptool(destDir, host)
 	if err == nil {
 		feedbackAPI := fmt.Sprintf("%s/jym/feedback_err", stringsTrimRight(host, "/"))
