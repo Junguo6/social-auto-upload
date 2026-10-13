@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
@@ -23,12 +24,16 @@ func ExtractZip(zipFile, destDir string) error {
 
 	for _, f := range r.File {
 		var decodeName string
-		if f.Flags == 0 {
-			// GBK 编码兼容
+		// 边界防护：仅当明确不是合法 UTF-8 时（如旧 Windows 工具使用 GBK 打包），才尝试 GBK/GB18030 转码；
+		// 绝不将 macOS/Linux 下原本合法的 UTF-8 文件名错误转码为乱码 (如 灏忔槧鍒嗗彂鍔╂墜.app)
+		if (f.Flags&0x800 == 0) && !utf8.ValidString(f.Name) {
 			reader := bytes.NewReader([]byte(f.Name))
 			decoder := transform.NewReader(reader, simplifiedchinese.GB18030.NewDecoder())
-			content, _ := io.ReadAll(decoder)
-			decodeName = string(content)
+			if content, err := io.ReadAll(decoder); err == nil && len(content) > 0 {
+				decodeName = string(content)
+			} else {
+				decodeName = f.Name
+			}
 		} else {
 			decodeName = f.Name
 		}

@@ -153,6 +153,7 @@ func (c *Client) CheckUpdate(currentVersion string) (*CheckUpdateResult, error) 
 		Version:    CleanVersion(item.Version),
 		Desc:       item.Desc,
 		Brief:      item.Brief,
+		MD5:        toStringField(item.MD5),
 		IsPopUp:    parseBoolField(item.IsPopUp),
 		IsOfficial: parseBoolField(item.IsOfficial),
 		IsForced:   parseBoolField(item.IsForced),

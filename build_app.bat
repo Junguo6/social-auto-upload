@@ -159,15 +159,18 @@ if not exist "%UPDATER_DIR%" (
 :: 8.2 编译最新版 updater.exe
 if exist "%UPDATER_DIR%" (
   pushd "%UPDATER_DIR%"
+  if exist "updater.exe" del /f /q "updater.exe"
   if exist "build.bat" (
-    call build.bat >nul 2>&1
+    call build.bat
   ) else (
-    go build -ldflags "-s -w -H windowsgui" -o updater.exe . >nul 2>&1
+    go build -ldflags "-s -w -H windowsgui" -o updater.exe .
   )
   if exist "updater.exe" (
     copy /Y "updater.exe" "%FINAL_BIN%\updater.exe" >nul
     copy /Y "updater.exe" "%PROJECT_ROOT%sau_desktop\build\windows\updater.exe" >nul
     echo ✅ 最新独立升级工具编译装配成功！
+  ) else (
+    echo ⚠️ 独立升级工具本次编译未产生新文件，将尝试使用本地备用二进制...
   )
   popd
 )

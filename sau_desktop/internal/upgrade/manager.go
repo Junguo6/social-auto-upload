@@ -102,10 +102,18 @@ func (m *UpgradeManager) StartDownload(
 			m.mu.Unlock()
 		}()
 
+		expectedMD5 := ""
+		m.mu.RLock()
+		if m.lastCheck != nil && m.lastCheck.VersionInfo != nil {
+			expectedMD5 = m.lastCheck.VersionInfo.MD5
+		}
+		m.mu.RUnlock()
+
 		zipPath, err := m.downloader.DownloadPackage(
 			downloadCtx,
 			targetVer,
 			"",
+			expectedMD5,
 			func(p DownloadProgress) {
 				m.mu.Lock()
 				m.latestProgress = p

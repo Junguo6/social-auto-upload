@@ -1,7 +1,10 @@
 package upgrade
 
 import (
+	"archive/zip"
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"math"
@@ -73,11 +76,13 @@ func (d *Downloader) GetCandidateURLs(latestVersion string) []string {
 }
 
 // DownloadPackage 执行升级包原子下载
-// targetDir: 保存目录（若为空则保存在临时目录或可执行文件所在目录）
+// targetDir: 保存目录（若为空则保存在临时目录）
+// expectedMD5: 期望的文件 MD5 校验和（若提供则严格比对）
 func (d *Downloader) DownloadPackage(
 	ctx context.Context,
 	latestVersion string,
 	targetDir string,
+	expectedMD5 string,
 	onProgress func(DownloadProgress),
 ) (string, error) {
 	if targetDir == "" {
@@ -220,6 +225,27 @@ func (d *Downloader) DownloadPackage(
 		return "", fmt.Errorf("重命名升级文件失败: %w", err)
 	}
 
+	// 完整性校验 1: 压缩包有效性与可读性测试 (防止网络抖动导致的半截损坏包)
+	testReader, zipErr := zip.OpenReader(finalZipPath)
+	if zipErr != nil {
+		_ = os.Remove(finalZipPath)
+		return "", fmt.Errorf("下载完成的升级包损坏，无法解压读取: %w", zipErr)
+	}
+	testReader.Close()
+
+	// 完整性校验 2: 若服务端提供了 MD5，严格比对哈希值
+	if cleanMD5 := strings.TrimSpace(expectedMD5); cleanMD5 != "" {
+		actualMD5, hashErr := calculateFileMD5(finalZipPath)
+		if hashErr != nil {
+			_ = os.Remove(finalZipPath)
+			return "", fmt.Errorf("计算升级包 MD5 失败: %w", hashErr)
+		}
+		if !strings.EqualFold(actualMD5, cleanMD5) {
+			_ = os.Remove(finalZipPath)
+			return "", fmt.Errorf("升级包完整性校验失败 (MD5 不匹配: 预期 %s, 实际 %s)", cleanMD5, actualMD5)
+		}
+	}
+
 	if onProgress != nil {
 		onProgress(DownloadProgress{
 			Percentage:   100,
@@ -233,6 +259,20 @@ func (d *Downloader) DownloadPackage(
 	}
 
 	return finalZipPath, nil
+}
+
+func calculateFileMD5(filePath string) (string, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func roundMB(bytes int64) float64 {

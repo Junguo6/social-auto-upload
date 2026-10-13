@@ -9,6 +9,7 @@ type VersionInfo struct {
 	Version    string `json:"version"`
 	Desc       string `json:"desc"`
 	Brief      string `json:"brief"`
+	MD5        string `json:"md5,omitempty"`
 	IsPopUp    bool   `json:"is_pop_up"`
 	IsOfficial bool   `json:"is_official"`
 	IsForced   bool   `json:"is_forced"`
@@ -52,6 +53,7 @@ type RawVersionItem struct {
 	Version    string      `json:"version"`
 	Desc       string      `json:"desc"`
 	Brief      string      `json:"brief"`
+	MD5        interface{} `json:"md5,omitempty"`
 	IsPopUp    interface{} `json:"is_pop_up"`
 	IsOfficial interface{} `json:"is_official"`
 	IsForced   interface{} `json:"is_forced"`
