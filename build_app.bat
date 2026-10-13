@@ -136,17 +136,49 @@ if exist "%DEV_PLAYWRIGHT%" (
 :: 8. 编译并装配专属独立升级工具 updater.exe
 echo.
 echo 🔧 正在装配专属独立在线升级工具 (updater.exe)...
-if exist "%PROJECT_ROOT%..\sau_updater" (
-  pushd "%PROJECT_ROOT%..\sau_updater"
-  call build.bat >nul 2>&1
+set "UPDATER_DIR=%PROJECT_ROOT%..\sau_updater"
+set "UPDATER_REPO=https://gitee.com/shenzhen-feifan-e-commerce/updater.git"
+
+:: 8.1 若本地未找到源码目录，自动从 Git 仓库拉取克隆
+if not exist "%UPDATER_DIR%" (
+  echo 🌐 未检测到本地升级工具源码，正在从远程仓库克隆 (%UPDATER_REPO%)...
+  git clone "%UPDATER_REPO%" "%UPDATER_DIR%"
+  if %ERRORLEVEL% NEQ 0 (
+    echo ⚠️ 远程克隆失败或未联网，将尝试使用本地备用二进制...
+  )
+) else (
+  :: 若已存在且为 Git 仓库，同步最新代码
+  if exist "%UPDATER_DIR%\.git" (
+    echo 🔄 检测到本地升级程序仓库，正在同步最新源码...
+    pushd "%UPDATER_DIR%"
+    git pull --quiet --rebase >nul 2>&1
+    popd
+  )
+)
+
+:: 8.2 编译最新版 updater.exe
+if exist "%UPDATER_DIR%" (
+  pushd "%UPDATER_DIR%"
+  if exist "build.bat" (
+    call build.bat >nul 2>&1
+  ) else (
+    go build -ldflags "-s -w -H windowsgui" -o updater.exe . >nul 2>&1
+  )
   if exist "updater.exe" (
     copy /Y "updater.exe" "%FINAL_BIN%\updater.exe" >nul
+    copy /Y "updater.exe" "%PROJECT_ROOT%sau_desktop\build\windows\updater.exe" >nul
+    echo ✅ 最新独立升级工具编译装配成功！
   )
   popd
 )
+
+:: 8.3 兜底机制：若无 Go 环境或克隆编译失败，使用项目中已有的备用二进制
 if not exist "%FINAL_BIN%\updater.exe" (
   if exist "%PROJECT_ROOT%sau_desktop\build\windows\updater.exe" (
+    echo ⚠️ 采用项目内置备用 updater.exe...
     copy /Y "%PROJECT_ROOT%sau_desktop\build\windows\updater.exe" "%FINAL_BIN%\updater.exe" >nul
+  ) else (
+    echo ❌ 警告: 未找到任何可用 updater.exe 升级程序！
   )
 )
 

@@ -17,6 +17,7 @@ type UpgradeManager struct {
 	mu             sync.RWMutex
 	lastCheck      *CheckUpdateResult
 	isDownloading  bool
+	isApplying     bool
 	cancelDownload context.CancelFunc
 	downloadedZip  string
 	latestProgress DownloadProgress
@@ -155,22 +156,34 @@ func (m *UpgradeManager) CancelDownload() {
 	}
 }
 
-// ApplyUpdate 执行更新安装
+// ApplyUpdate 执行更新安装 (防重复点击与重入竞态)
 func (m *UpgradeManager) ApplyUpdate() error {
-	m.mu.RLock()
+	m.mu.Lock()
+	if m.isApplying {
+		m.mu.Unlock()
+		return fmt.Errorf("升级程序已启动，请稍候...")
+	}
 	zipPath := m.downloadedZip
-	m.mu.RUnlock()
-
 	if zipPath == "" {
+		m.mu.Unlock()
 		return fmt.Errorf("尚未完成升级包下载，无法执行安装")
 	}
+	m.isApplying = true
+	m.mu.Unlock()
 
 	sn := ""
 	if m.getDeviceSN != nil {
 		sn = m.getDeviceSN()
 	}
 
-	return ExecuteInstall(zipPath, m.currentVersion, sn, m.host)
+	err := ExecuteInstall(zipPath, m.currentVersion, sn, m.host)
+	if err != nil {
+		m.mu.Lock()
+		m.isApplying = false
+		m.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
 // IsForcedBlock 检查当前版本是否被强制升级且不可使用

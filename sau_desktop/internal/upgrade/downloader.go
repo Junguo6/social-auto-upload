@@ -81,12 +81,8 @@ func (d *Downloader) DownloadPackage(
 	onProgress func(DownloadProgress),
 ) (string, error) {
 	if targetDir == "" {
-		execPath, err := os.Executable()
-		if err == nil {
-			targetDir = filepath.Dir(execPath)
-		} else {
-			targetDir = os.TempDir()
-		}
+		// 优先存放到系统临时目录下，避免程序安装在系统保护目录 (如 Program Files) 时无权限写入
+		targetDir = filepath.Join(os.TempDir(), "sau_upgrade")
 	}
 
 	_ = os.MkdirAll(targetDir, 0755)

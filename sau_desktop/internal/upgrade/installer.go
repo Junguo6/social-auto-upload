@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
@@ -33,6 +34,11 @@ func ExtractZip(zipFile, destDir string) error {
 		}
 
 		targetPath := filepath.Join(destDir, decodeName)
+		rel, err := filepath.Rel(destDir, targetPath)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue // 忽略非法相对路径，防 Zip Slip
+		}
+
 		if f.FileInfo().IsDir() {
 			_ = os.MkdirAll(targetPath, 0755)
 			continue
@@ -47,6 +53,7 @@ func ExtractZip(zipFile, destDir string) error {
 			return err
 		}
 
+		_ = os.Remove(targetPath) // 解除旧 inode 绑定，防止 macOS 覆盖正在运行的二进制抛错
 		outFile, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 		if err != nil {
 			inFile.Close()

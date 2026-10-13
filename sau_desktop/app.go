@@ -103,9 +103,6 @@ func (a *App) startup(ctx context.Context) {
 // shutdown is called when the app terminates.
 func (a *App) shutdown(ctx context.Context) {
 	a.ctx = ctx
-	if a.upgradeMgr != nil {
-		_ = a.upgradeMgr.ApplyUpdate()
-	}
 }
 
 // QuitApp 退出客户端主程序
