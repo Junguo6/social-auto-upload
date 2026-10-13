@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	godebug "runtime/debug"
@@ -12,6 +13,20 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+//go:embed wails.json
+var wailsConfigRaw []byte
+
+func init() {
+	var cfg struct {
+		Info struct {
+			ProductVersion string `json:"productVersion"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(wailsConfigRaw, &cfg); err == nil && cfg.Info.ProductVersion != "" {
+		auth.CurrentAppVersion = cfg.Info.ProductVersion
+	}
+}
 
 // App struct
 type App struct {

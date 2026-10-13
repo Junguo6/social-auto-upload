@@ -21,8 +21,10 @@ const (
 	// 注意：服务端按 function 表查 module（jym_function.id=81 → module_id=122），
 	// 传模块号 122 会返回「功能不存在」
 	TrialFunctionID   = 81
-	CurrentAppVersion = "1.2.0"
 )
+
+// CurrentAppVersion 当前客户端版本号（默认兜底值，运行时自动从 wails.json 提取同步）
+var CurrentAppVersion = "1.2.0"
 
 // Client 小映鉴权服务器 HTTP 客户端
 type Client struct {

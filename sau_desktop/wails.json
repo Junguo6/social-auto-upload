@@ -7,12 +7,13 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "Mazino",
-    "email": "1037725193@qq.com"
+    "name": "cs",
+    "email": "[EMAIL_ADDRESS]"
   },
   "info": {
     "companyName": "深圳菲凡电子科技有限公司",
-    "productName": "小映分发助手""productVersion": "1.0.0",
+    "productName": "小映分发助手",
+    "productVersion": "1.2.0",
     "copyright": "Copyright © 2026",
     "comments": "小映分发助手"
   }
