@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"sau_desktop/internal/storage"
 )
 
 // RuntimeManager 管理 Python 虚拟环境、CLI 脚本、二进制引擎定位与内置浏览器内核
@@ -212,6 +214,14 @@ func (r *RuntimeManager) BuildCommand(ctx context.Context, args ...string) *exec
 	if r.LocalChromePath != "" {
 		envs = append(envs, fmt.Sprintf("LOCAL_CHROME_PATH=%s", r.LocalChromePath))
 	}
+
+	// 注入解耦后的用户持久化数据与 Cookies 凭证目录，实现 Go 与 Python 引擎底层完全对齐
+	cookiesDir := storage.ResolveCookiesDir(r.WorkDir)
+	dataDir := storage.ResolveDataDir(r.WorkDir)
+	envs = append(envs,
+		fmt.Sprintf("SAU_COOKIES_DIR=%s", cookiesDir),
+		fmt.Sprintf("SAU_DATA_DIR=%s", dataDir),
+	)
 
 	cmd.Env = envs
 	setupSysProcAttr(cmd)

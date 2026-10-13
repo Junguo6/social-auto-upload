@@ -1,5 +1,8 @@
 from pathlib import Path
 
-from conf import BASE_DIR
+from conf import COOKIES_DIR
 
-Path(BASE_DIR / "cookies").mkdir(exist_ok=True)
+try:
+    COOKIES_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass

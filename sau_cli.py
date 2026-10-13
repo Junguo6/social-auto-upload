@@ -380,14 +380,24 @@ def resolve_runtime_home() -> Path:
 
 
 def resolve_account_file(platform: str, account_name: str) -> Path:
-    base_cookies = resolve_runtime_home() / "cookies"
-    base_cookies.mkdir(parents=True, exist_ok=True)
+    from conf import COOKIES_DIR
+    base_cookies = Path(COOKIES_DIR)
+    try:
+        base_cookies.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
     target = base_cookies / f"{platform}_{account_name}.json"
     if target.exists():
         return target
 
-    # 尝试当前工作目录或执行文件同级的 cookies
-    for cand_dir in [Path.cwd() / "cookies", Path(sys.executable).parent / "cookies"]:
+    # 尝试当前工作目录或执行文件同级、以及旧版历史目录下的 cookies（全链路兼容防丢失）
+    candidate_dirs = [
+        Path.cwd() / "cookies",
+        Path(sys.executable).parent / "cookies",
+        Path(sys.executable).parent / "_internal" / "cookies",
+        Path(BASE_DIR) / "cookies",
+    ]
+    for cand_dir in candidate_dirs:
         try:
             cand_target = cand_dir / f"{platform}_{account_name}.json"
             if cand_target.exists():
