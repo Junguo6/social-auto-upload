@@ -72,6 +72,11 @@ type RiskController struct {
 // NewRiskController 初始化全局风控引擎并从磁盘恢复状态
 func NewRiskController(workDir string) *RiskController {
 	dataDir := filepath.Join(workDir, "data")
+	if workDir == "" || !isDirWritable(workDir) {
+		if userConfig, err := os.UserConfigDir(); err == nil && userConfig != "" {
+			dataDir = filepath.Join(userConfig, "xiaoying_sau", "data")
+		}
+	}
 	_ = os.MkdirAll(dataDir, 0755)
 	persistPath := filepath.Join(dataDir, "risk_state.json")
 
@@ -435,3 +440,16 @@ func (rc *RiskController) saveToDisk() {
 
 	_ = os.WriteFile(rc.persistPath, data, 0644)
 }
+
+func isDirWritable(dir string) bool {
+	_ = os.MkdirAll(dir, 0755)
+	testFile := filepath.Join(dir, fmt.Sprintf(".sau_perm_test_%d", os.Getpid()))
+	f, err := os.OpenFile(testFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	_ = os.Remove(testFile)
+	return true
+}
+

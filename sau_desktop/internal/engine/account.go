@@ -47,12 +47,7 @@ func (am *AccountManager) DeleteAccountCredential(platform, account string) erro
 		return nil
 	}
 
-	// 候选 cookies 存储目录链
-	candidateDirs := []string{
-		filepath.Join(am.runtime.WorkDir, "cookies"),
-		filepath.Join(filepath.Dir(am.runtime.EngineBin), "cookies"),
-		filepath.Join(am.runtime.WorkDir, "bin", "sau_engine", "_internal", "cookies"),
-	}
+	candidateDirs := am.getCandidateCookiesDirs()
 
 	targetJsonName := fmt.Sprintf("%s_%s.json", platform, account)
 	filePrefix := fmt.Sprintf("%s_%s", platform, account)
@@ -87,11 +82,7 @@ func (am *AccountManager) GetAccountSavedMeta(platform, account string) (avatar 
 	if platform == "" || account == "" || account == "auto" {
 		return "", "", ""
 	}
-	candidateDirs := []string{
-		filepath.Join(am.runtime.WorkDir, "cookies"),
-		filepath.Join(filepath.Dir(am.runtime.EngineBin), "cookies"),
-		filepath.Join(am.runtime.WorkDir, "bin", "sau_engine", "_internal", "cookies"),
-	}
+	candidateDirs := am.getCandidateCookiesDirs()
 	targetJsonName := fmt.Sprintf("%s_%s.json", platform, account)
 	for _, dir := range candidateDirs {
 		jsonPath := filepath.Join(dir, targetJsonName)
@@ -316,3 +307,16 @@ func (am *AccountManager) loginInternal(platform, account string, headed bool, s
 	}
 	return res, nil
 }
+
+func (am *AccountManager) getCandidateCookiesDirs() []string {
+	dirs := []string{
+		filepath.Join(am.runtime.WorkDir, "cookies"),
+		filepath.Join(filepath.Dir(am.runtime.EngineBin), "cookies"),
+		filepath.Join(am.runtime.WorkDir, "bin", "sau_engine", "_internal", "cookies"),
+	}
+	if userConfig, err := os.UserConfigDir(); err == nil && userConfig != "" {
+		dirs = append(dirs, filepath.Join(userConfig, "xiaoying_sau", "cookies"))
+	}
+	return dirs
+}
+
